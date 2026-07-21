@@ -12,11 +12,13 @@ from typing import ClassVar
 
 import numpy as np
 import sounddevice as sd
+import av
 from scipy import signal
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -32,6 +34,25 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+
+# Edit this path to point at the folder containing the WAV files you want
+# available in the Soundscape Sample Test dropdown.
+SOUND_EFFECTS_DIRECTORY = Path(
+    r"D:\github\living-brown-noise-dream-instigator\sounds"
+)
+
+SUPPORTED_AUDIO_EXTENSIONS = {
+    ".wav",
+    ".mp3",
+    ".flac",
+    ".ogg",
+    ".oga",
+    ".m4a",
+    ".aac",
+    ".aiff",
+    ".aif",
+}
 
 
 # =============================================================================
@@ -1843,15 +1864,1233 @@ class BodyMovementScheduler:
             wanderer.velocity = float(np.clip(wanderer.velocity, -3.5, 3.5))
 
 
+
+# =============================================================================
+# Heartbeat / pulse layer
+# =============================================================================
+
+@dataclass(frozen=True, slots=True)
+class HeartbeatSpec:
+    """
+    Production heartbeat configuration.
+
+    The user-facing controls are intentionally limited to an enable checkbox.
+    Heart rate and prominence evolve independently inside these fixed,
+    artistically approved ranges.
+    """
+
+    rate_min_bpm: float = 30.0
+    rate_max_bpm: float = 60.0
+
+    prominence_min: float = 0.0
+    prominence_max: float = 0.68
+
+    rate_evolution_min_seconds: float = 120.0
+    rate_evolution_max_seconds: float = 420.0
+
+    prominence_evolution_min_seconds: float = 90.0
+    prominence_evolution_max_seconds: float = 360.0
+
+    def validated(self) -> HeartbeatSpec:
+        if not 20.0 <= self.rate_min_bpm < self.rate_max_bpm <= 100.0:
+            raise ValueError("invalid heartbeat rate range")
+        if not 0.0 <= self.prominence_min < self.prominence_max <= 1.0:
+            raise ValueError("invalid heartbeat prominence range")
+        if not (
+            1.0
+            <= self.rate_evolution_min_seconds
+            <= self.rate_evolution_max_seconds
+        ):
+            raise ValueError("invalid heartbeat rate evolution range")
+        if not (
+            1.0
+            <= self.prominence_evolution_min_seconds
+            <= self.prominence_evolution_max_seconds
+        ):
+            raise ValueError("invalid heartbeat prominence evolution range")
+        return self
+
+
+class HeartbeatState:
+    def __init__(self, spec: HeartbeatSpec) -> None:
+        self._lock = threading.Lock()
+        self._spec = spec.validated()
+
+    def get(self) -> HeartbeatSpec:
+        with self._lock:
+            return self._spec
+
+    def set(self, spec: HeartbeatSpec) -> None:
+        with self._lock:
+            self._spec = spec.validated()
+
+
+class SmoothRandomJourney:
+    """
+    Continuous random travel between targets.
+
+    Each segment uses a cosine ease, so value and slope are both continuous at
+    the ends. A beta distribution can bias the journey toward a preferred part
+    of its range without creating a fixed center or periodic oscillator.
+    """
+
+    def __init__(
+        self,
+        rng: np.random.Generator,
+        initial_value: float,
+        minimum: float,
+        maximum: float,
+        duration_min_seconds: float,
+        duration_max_seconds: float,
+        beta_a: float,
+        beta_b: float,
+    ) -> None:
+        self.rng = rng
+        self.minimum = minimum
+        self.maximum = maximum
+        self.duration_min_seconds = duration_min_seconds
+        self.duration_max_seconds = duration_max_seconds
+        self.beta_a = beta_a
+        self.beta_b = beta_b
+
+        self.start_value = initial_value
+        self.current_value = initial_value
+        self.target_value = initial_value
+        self.elapsed = 0.0
+        self.duration = 1.0
+        self._choose_next_target(initial=True)
+
+    def _choose_next_target(self, initial: bool = False) -> None:
+        if not initial:
+            self.start_value = self.current_value
+
+        normalized = float(
+            self.rng.beta(self.beta_a, self.beta_b)
+        )
+        self.target_value = (
+            self.minimum
+            + normalized * (self.maximum - self.minimum)
+        )
+
+        self.duration = float(
+            self.rng.uniform(
+                self.duration_min_seconds,
+                self.duration_max_seconds,
+            )
+        )
+        self.elapsed = 0.0
+
+    def advance(self, elapsed_seconds: float) -> float:
+        remaining = max(0.0, elapsed_seconds)
+
+        while remaining > 0.0:
+            available = self.duration - self.elapsed
+            step = min(remaining, available)
+            self.elapsed += step
+            remaining -= step
+
+            position = min(1.0, self.elapsed / self.duration)
+            blend = 0.5 - 0.5 * math.cos(math.pi * position)
+
+            self.current_value = (
+                self.start_value
+                + (self.target_value - self.start_value) * blend
+            )
+
+            if self.elapsed >= self.duration - 1e-9:
+                self.current_value = self.target_value
+                self._choose_next_target()
+
+        return self.current_value
+
+
+class HeartbeatGenerator:
+    """
+    Separate centered pulse layer made entirely from filtered brown-noise
+    excitation.
+
+    The pulse is shaped as one physical event:
+
+      broad low-frequency first contraction
+      smaller secondary response
+      shared resonant settling decay
+
+    Fixed resonant filters provide body and presence. Only gains and envelopes
+    evolve during playback, so the layer cannot introduce coefficient clicks.
+    """
+
+    def __init__(
+        self,
+        sample_rate: float,
+        heartbeat_state: HeartbeatState,
+        seed: int = 88001,
+    ) -> None:
+        self.sample_rate = float(sample_rate)
+        self.heartbeat_state = heartbeat_state
+        self.rng = np.random.default_rng(seed)
+
+        spec = self.heartbeat_state.get()
+
+        # Broad low body centered around approximately 48 Hz.
+        body_b, body_a = signal.iirpeak(
+            48.0,
+            Q=0.72,
+            fs=self.sample_rate,
+        )
+        self.body_sos = signal.tf2sos(body_b, body_a)
+        self.body_filter_state = (
+            signal.sosfilt_zi(self.body_sos) * 0.0
+        )
+
+        # Smaller secondary presence centered around approximately 92 Hz.
+        presence_b, presence_a = signal.iirpeak(
+            92.0,
+            Q=0.95,
+            fs=self.sample_rate,
+        )
+        self.presence_sos = signal.tf2sos(
+            presence_b,
+            presence_a,
+        )
+        self.presence_filter_state = (
+            signal.sosfilt_zi(self.presence_sos) * 0.0
+        )
+
+        # Remove very low drift before exciting the resonances.
+        conditioning_sections = [
+            signal.butter(
+                1,
+                14.0,
+                btype="highpass",
+                fs=self.sample_rate,
+                output="sos",
+            ),
+            signal.butter(
+                1,
+                180.0,
+                btype="lowpass",
+                fs=self.sample_rate,
+                output="sos",
+            ),
+        ]
+        self.conditioning_sos = np.vstack(conditioning_sections)
+        self.conditioning_state = (
+            signal.sosfilt_zi(self.conditioning_sos) * 0.0
+        )
+
+        self.absolute_sample = 0
+        self.next_beat_sample = 0
+        self.active_beats: list[tuple[int, float]] = []
+
+        self.current_envelope = 0.0
+        self.current_rate_bpm = 50.0
+        self.current_prominence = 0.24
+        self.current_interval_seconds = 60.0 / self.current_rate_bpm
+
+        self.rate_journey = SmoothRandomJourney(
+            rng=self.rng,
+            initial_value=50.0,
+            minimum=spec.rate_min_bpm,
+            maximum=spec.rate_max_bpm,
+            duration_min_seconds=spec.rate_evolution_min_seconds,
+            duration_max_seconds=spec.rate_evolution_max_seconds,
+            beta_a=4.0,
+            beta_b=3.2,
+        )
+        self.prominence_journey = SmoothRandomJourney(
+            rng=self.rng,
+            initial_value=0.24,
+            minimum=spec.prominence_min,
+            maximum=spec.prominence_max,
+            duration_min_seconds=spec.prominence_evolution_min_seconds,
+            duration_max_seconds=spec.prominence_evolution_max_seconds,
+            beta_a=1.25,
+            beta_b=2.15,
+        )
+
+    def _schedule_next_beat(self) -> None:
+        mean_interval = 60.0 / max(1.0, self.current_rate_bpm)
+
+        # Very small physiological jitter around the evolving mean rate.
+        jitter = float(
+            np.clip(
+                self.rng.normal(0.0, 0.010),
+                -0.022,
+                0.022,
+            )
+        )
+        interval = mean_interval * (1.0 + jitter)
+        self.current_interval_seconds = interval
+
+        self.next_beat_sample += max(
+            1,
+            int(interval * self.sample_rate),
+        )
+
+    @staticmethod
+    def _sin2_lobe(
+        relative_samples: np.ndarray,
+        start_seconds: float,
+        duration_seconds: float,
+        amplitude: float,
+        sample_rate: float,
+    ) -> np.ndarray:
+        start = int(start_seconds * sample_rate)
+        duration = max(1, int(duration_seconds * sample_rate))
+
+        local = (relative_samples - start) / duration
+        active = (local >= 0.0) & (local < 1.0)
+
+        output = np.zeros_like(local, dtype=np.float64)
+        phase = local[active]
+        output[active] = (
+            amplitude * np.sin(np.pi * phase) ** 2
+        )
+        return output
+
+    def _build_envelopes(
+        self,
+        frame_count: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        buffer_start = self.absolute_sample
+        buffer_end = buffer_start + frame_count
+
+        while self.next_beat_sample < buffer_end:
+            beat_strength = float(
+                np.clip(
+                    self.rng.normal(1.0, 0.035),
+                    0.90,
+                    1.10,
+                )
+            )
+            self.active_beats.append(
+                (self.next_beat_sample, beat_strength)
+            )
+            self._schedule_next_beat()
+
+        absolute = np.arange(
+            buffer_start,
+            buffer_end,
+            dtype=np.int64,
+        )
+
+        body_envelope = np.zeros(frame_count, dtype=np.float64)
+        presence_envelope = np.zeros(frame_count, dtype=np.float64)
+
+        retained: list[tuple[int, float]] = []
+        tail_seconds = 0.48
+
+        for beat_sample, beat_strength in self.active_beats:
+            relative = absolute - beat_sample
+
+            # First broad contraction.
+            body_envelope += self._sin2_lobe(
+                relative,
+                start_seconds=0.000,
+                duration_seconds=0.145,
+                amplitude=1.00 * beat_strength,
+                sample_rate=self.sample_rate,
+            )
+
+            # Smaller secondary response.
+            body_envelope += self._sin2_lobe(
+                relative,
+                start_seconds=0.185,
+                duration_seconds=0.105,
+                amplitude=0.56 * beat_strength,
+                sample_rate=self.sample_rate,
+            )
+
+            presence_envelope += self._sin2_lobe(
+                relative,
+                start_seconds=0.020,
+                duration_seconds=0.080,
+                amplitude=0.48 * beat_strength,
+                sample_rate=self.sample_rate,
+            )
+            presence_envelope += self._sin2_lobe(
+                relative,
+                start_seconds=0.195,
+                duration_seconds=0.065,
+                amplitude=0.25 * beat_strength,
+                sample_rate=self.sample_rate,
+            )
+
+            # Shared decaying pressure tail ties both pulses into one event.
+            tail_start = int(0.055 * self.sample_rate)
+            tail_age = (relative - tail_start) / self.sample_rate
+            active_tail = (tail_age >= 0.0) & (tail_age < tail_seconds)
+
+            shared_tail = np.zeros(frame_count, dtype=np.float64)
+            shared_tail[active_tail] = (
+                0.25
+                * beat_strength
+                * np.exp(-tail_age[active_tail] / 0.145)
+            )
+            body_envelope += shared_tail
+            presence_envelope += 0.26 * shared_tail
+
+            if (
+                beat_sample
+                + int(tail_seconds * self.sample_rate)
+                >= buffer_end
+            ):
+                retained.append((beat_sample, beat_strength))
+
+        self.active_beats = retained
+        self.absolute_sample = buffer_end
+
+        body_envelope = np.tanh(body_envelope * 1.08)
+        presence_envelope = np.tanh(presence_envelope * 1.05)
+
+        self.current_envelope = float(
+            max(body_envelope[-1], presence_envelope[-1])
+        )
+
+        return (
+            body_envelope.astype(np.float32),
+            presence_envelope.astype(np.float32),
+        )
+
+    def generate(self, frame_count: int) -> np.ndarray:
+        elapsed_seconds = frame_count / self.sample_rate
+
+        self.current_rate_bpm = self.rate_journey.advance(
+            elapsed_seconds
+        )
+        self.current_prominence = self.prominence_journey.advance(
+            elapsed_seconds
+        )
+
+        white = self.rng.standard_normal(frame_count)
+
+        conditioned, self.conditioning_state = signal.sosfilt(
+            self.conditioning_sos,
+            white,
+            zi=self.conditioning_state,
+        )
+
+        body_noise, self.body_filter_state = signal.sosfilt(
+            self.body_sos,
+            conditioned,
+            zi=self.body_filter_state,
+        )
+        presence_noise, self.presence_filter_state = signal.sosfilt(
+            self.presence_sos,
+            conditioned,
+            zi=self.presence_filter_state,
+        )
+
+        body_envelope, presence_envelope = self._build_envelopes(
+            frame_count
+        )
+
+        # Production prominence range: absent through clearly detectable, but
+        # below the former stress-test maximum.
+        prominence = self.current_prominence
+        gain = (
+            0.08 * prominence
+            + 1.78 * prominence * prominence
+        )
+
+        pulse = gain * (
+            body_noise * body_envelope
+            + 0.44 * presence_noise * presence_envelope
+        )
+
+        # Warm, rounded pressure rather than a hard transient.
+        pulse = 0.70 * np.tanh(pulse * 1.55)
+
+        return pulse.astype(np.float32, copy=False)
+
+
+
+# =============================================================================
+# Soundscape sample test layer
+# =============================================================================
+
+@dataclass(frozen=True, slots=True)
+class AmbientSampleSpec:
+    selected_filename: str = ""
+
+    fade_in_seconds: float = 8.0
+    fade_out_seconds: float = 12.0
+
+    duration_min_seconds: float = 45.0
+    duration_max_seconds: float = 150.0
+
+    silence_min_seconds: float = 20.0
+    silence_max_seconds: float = 75.0
+
+    volume_min_db: float = -34.0
+    volume_max_db: float = -18.0
+
+    # Time taken to drift between independently chosen volume targets.
+    volume_walk_min_seconds: float = 20.0
+    volume_walk_max_seconds: float = 75.0
+
+    def validated(self) -> AmbientSampleSpec:
+        if not 0.05 <= self.fade_in_seconds <= 600.0:
+            raise ValueError("invalid fade-in time")
+        if not 0.05 <= self.fade_out_seconds <= 600.0:
+            raise ValueError("invalid fade-out time")
+        if not (
+            0.1
+            <= self.duration_min_seconds
+            <= self.duration_max_seconds
+            <= 86_400.0
+        ):
+            raise ValueError("invalid active duration range")
+        if not (
+            0.0
+            <= self.silence_min_seconds
+            <= self.silence_max_seconds
+            <= 86_400.0
+        ):
+            raise ValueError("invalid silence duration range")
+        if not (
+            -80.0
+            <= self.volume_min_db
+            <= self.volume_max_db
+            <= 12.0
+        ):
+            raise ValueError("invalid volume range")
+        if not (
+            1.0
+            <= self.volume_walk_min_seconds
+            <= self.volume_walk_max_seconds
+            <= 86_400.0
+        ):
+            raise ValueError("invalid volume walk range")
+        return self
+
+
+class AmbientSampleState:
+    """
+    Thread-safe settings and decoded WAV data.
+
+    WAV decoding and resampling occur on the GUI or export setup thread, never
+    inside the real-time callback.
+    """
+
+    def __init__(
+        self,
+        sample_rate: int,
+        spec: AmbientSampleSpec,
+    ) -> None:
+        self.sample_rate = int(sample_rate)
+        self._lock = threading.Lock()
+        self._spec = spec.validated()
+        self._audio: np.ndarray | None = None
+        self._loaded_filename = ""
+        self._load_error = ""
+
+        self._source_typical_dbfs = -80.0
+        self._normalization_gain_db = 0.0
+        self._normalized_typical_dbfs = -80.0
+        self._normalized_peak_dbfs = -80.0
+        self._audio_generation = 0
+
+    def get(
+        self,
+    ) -> tuple[
+        AmbientSampleSpec,
+        np.ndarray | None,
+        str,
+        str,
+        int,
+    ]:
+        with self._lock:
+            return (
+                self._spec,
+                self._audio,
+                self._loaded_filename,
+                self._load_error,
+                self._audio_generation,
+            )
+
+    def set_spec(self, spec: AmbientSampleSpec) -> None:
+        with self._lock:
+            self._spec = spec.validated()
+
+    def update(self, **changes) -> None:
+        with self._lock:
+            self._spec = replace(
+                self._spec,
+                **changes,
+            ).validated()
+
+    @staticmethod
+    def _convert_pcm_to_float(data: np.ndarray) -> np.ndarray:
+        if np.issubdtype(data.dtype, np.floating):
+            return data.astype(np.float32, copy=False)
+
+        if data.dtype == np.uint8:
+            return (
+                data.astype(np.float32) - 128.0
+            ) / 128.0
+
+        info = np.iinfo(data.dtype)
+        scale = float(max(abs(info.min), abs(info.max)))
+        return data.astype(np.float32) / scale
+
+    @staticmethod
+    def _dbfs(value: float) -> float:
+        return 20.0 * math.log10(max(1e-12, value))
+
+    @staticmethod
+    def _measure_typical_active_rms(
+        data: np.ndarray,
+        sample_rate: int,
+    ) -> float:
+        """
+        Estimate a recording's typical active loudness.
+
+        Peak normalization is unsuitable for field recordings because one
+        chair scrape, shout, or dropped object can determine the level of an
+        otherwise quiet ambience. Instead:
+
+          * collapse stereo to energy-preserving mono;
+          * measure non-overlapping 400 ms RMS windows;
+          * ignore effectively silent windows below -55 dBFS;
+          * use the 70th percentile of the remaining windows.
+
+        The percentile favors the recording's normal active texture without
+        allowing its single loudest event to dominate.
+        """
+        energy_mono = np.sqrt(
+            np.mean(
+                np.square(data.astype(np.float64)),
+                axis=1,
+            )
+        )
+
+        window_frames = max(1, int(0.400 * sample_rate))
+        complete_windows = len(energy_mono) // window_frames
+
+        if complete_windows == 0:
+            return float(
+                np.sqrt(np.mean(np.square(energy_mono)))
+            )
+
+        trimmed = energy_mono[
+            : complete_windows * window_frames
+        ]
+        windows = trimmed.reshape(
+            complete_windows,
+            window_frames,
+        )
+        rms_values = np.sqrt(
+            np.mean(np.square(windows), axis=1)
+        )
+
+        active_threshold = 10.0 ** (-55.0 / 20.0)
+        active = rms_values[rms_values >= active_threshold]
+
+        if len(active) == 0:
+            active = rms_values
+
+        return float(np.percentile(active, 70.0))
+
+    @classmethod
+    def _normalize_field_recording(
+        cls,
+        data: np.ndarray,
+        sample_rate: int,
+    ) -> tuple[np.ndarray, float, float, float, float]:
+        """
+        Normalize typical active loudness while preserving dynamics.
+
+        The target is deliberately moderate because the UI applies an
+        additional negative mix range afterward. Gain is bounded, and a final
+        peak ceiling prevents unexpectedly loud transients from clipping.
+        """
+        target_typical_dbfs = -20.0
+        maximum_boost_db = 18.0
+        maximum_cut_db = -30.0
+        peak_ceiling_dbfs = -1.0
+
+        source_typical_rms = cls._measure_typical_active_rms(
+            data,
+            sample_rate,
+        )
+        source_typical_dbfs = cls._dbfs(source_typical_rms)
+
+        requested_gain_db = (
+            target_typical_dbfs - source_typical_dbfs
+        )
+        gain_db = float(
+            np.clip(
+                requested_gain_db,
+                maximum_cut_db,
+                maximum_boost_db,
+            )
+        )
+
+        normalized = (
+            data.astype(np.float64)
+            * (10.0 ** (gain_db / 20.0))
+        )
+
+        peak = float(np.max(np.abs(normalized)))
+        peak_ceiling = 10.0 ** (peak_ceiling_dbfs / 20.0)
+
+        if peak > peak_ceiling:
+            ceiling_adjustment_db = cls._dbfs(
+                peak_ceiling / peak
+            )
+            normalized *= 10.0 ** (
+                ceiling_adjustment_db / 20.0
+            )
+            gain_db += ceiling_adjustment_db
+
+        normalized_typical_rms = (
+            cls._measure_typical_active_rms(
+                normalized,
+                sample_rate,
+            )
+        )
+        normalized_peak = float(
+            np.max(np.abs(normalized))
+        )
+
+        return (
+            np.ascontiguousarray(
+                normalized,
+                dtype=np.float32,
+            ),
+            source_typical_dbfs,
+            gain_db,
+            cls._dbfs(normalized_typical_rms),
+            cls._dbfs(normalized_peak),
+        )
+
+    def normalization_info(
+        self,
+    ) -> tuple[float, float, float, float]:
+        with self._lock:
+            return (
+                self._source_typical_dbfs,
+                self._normalization_gain_db,
+                self._normalized_typical_dbfs,
+                self._normalized_peak_dbfs,
+            )
+
+    @staticmethod
+    def _decode_audio_file(
+        path: Path,
+    ) -> tuple[np.ndarray, int]:
+        """
+        Decode supported audio formats through PyAV/FFmpeg.
+
+        The decoder always returns float32 stereo in frames-by-channels layout.
+        Source sample rate is preserved here; the existing resampler converts
+        it to the engine rate afterward.
+        """
+        container = av.open(str(path))
+
+        try:
+            audio_streams = [
+                stream
+                for stream in container.streams
+                if stream.type == "audio"
+            ]
+            if not audio_streams:
+                raise ValueError(
+                    "File contains no audio stream"
+                )
+
+            stream = audio_streams[0]
+            input_rate = int(
+                stream.codec_context.sample_rate
+                or stream.rate
+                or 44_100
+            )
+
+            chunks: list[np.ndarray] = []
+
+            # Convert every decoded frame to planar float stereo through
+            # PyAV's resampler. Some PyAV releases do not accept a `format`
+            # keyword on AudioFrame.to_ndarray(), so conversion belongs here.
+            resampler = av.audio.resampler.AudioResampler(
+                format="fltp",
+                layout="stereo",
+                rate=input_rate,
+            )
+
+            def append_frame(converted_frame) -> None:
+                array = converted_frame.to_ndarray()
+
+                # Planar float output is channels x frames.
+                if array.ndim == 1:
+                    array = array[np.newaxis, :]
+
+                if array.shape[0] == 1:
+                    array = np.repeat(array, 2, axis=0)
+                elif array.shape[0] > 2:
+                    array = array[:2]
+
+                chunks.append(
+                    np.asarray(
+                        array.T,
+                        dtype=np.float32,
+                    )
+                )
+
+            for frame in container.decode(stream):
+                converted_frames = resampler.resample(frame)
+
+                if converted_frames is None:
+                    continue
+
+                if not isinstance(converted_frames, list):
+                    converted_frames = [converted_frames]
+
+                for converted_frame in converted_frames:
+                    append_frame(converted_frame)
+
+            # Flush any delayed samples retained by the resampler.
+            flushed_frames = resampler.resample(None)
+            if flushed_frames is not None:
+                if not isinstance(flushed_frames, list):
+                    flushed_frames = [flushed_frames]
+
+                for converted_frame in flushed_frames:
+                    append_frame(converted_frame)
+
+            if not chunks:
+                raise ValueError(
+                    "Audio stream decoded no frames"
+                )
+
+            data = np.concatenate(chunks, axis=0)
+
+            # Protect against malformed files returning NaN/Inf.
+            data = np.nan_to_num(
+                data,
+                nan=0.0,
+                posinf=0.0,
+                neginf=0.0,
+            ).astype(np.float32, copy=False)
+
+            return data, input_rate
+
+        finally:
+            container.close()
+
+    def load_file(self, path: Path | None) -> None:
+        if path is None:
+            with self._lock:
+                self._audio = None
+                self._loaded_filename = ""
+                self._load_error = ""
+                self._source_typical_dbfs = -80.0
+                self._normalization_gain_db = 0.0
+                self._normalized_typical_dbfs = -80.0
+                self._normalized_peak_dbfs = -80.0
+                self._audio_generation += 1
+            return
+
+        try:
+            data, input_rate = self._decode_audio_file(path)
+
+            if int(input_rate) != self.sample_rate:
+                divisor = math.gcd(int(input_rate), self.sample_rate)
+                up = self.sample_rate // divisor
+                down = int(input_rate) // divisor
+                data = signal.resample_poly(
+                    data,
+                    up,
+                    down,
+                    axis=0,
+                ).astype(np.float32)
+
+            if len(data) < 2:
+                raise ValueError(
+                    "Audio file contains no usable audio"
+                )
+
+            (
+                data,
+                source_typical_dbfs,
+                normalization_gain_db,
+                normalized_typical_dbfs,
+                normalized_peak_dbfs,
+            ) = self._normalize_field_recording(
+                data,
+                self.sample_rate,
+            )
+
+            with self._lock:
+                self._audio = data
+                self._loaded_filename = path.name
+                self._load_error = ""
+                self._source_typical_dbfs = (
+                    source_typical_dbfs
+                )
+                self._normalization_gain_db = (
+                    normalization_gain_db
+                )
+                self._normalized_typical_dbfs = (
+                    normalized_typical_dbfs
+                )
+                self._normalized_peak_dbfs = (
+                    normalized_peak_dbfs
+                )
+                self._audio_generation += 1
+
+        except Exception as exc:
+            with self._lock:
+                self._audio = None
+                self._loaded_filename = ""
+                self._load_error = str(exc)
+                self._source_typical_dbfs = -80.0
+                self._normalization_gain_db = 0.0
+                self._normalized_typical_dbfs = -80.0
+                self._normalized_peak_dbfs = -80.0
+                self._audio_generation += 1
+
+
+class AmbientSamplePlayer:
+    STAGE_SILENCE = 0
+    STAGE_FADE_IN = 1
+    STAGE_HOLD = 2
+    STAGE_FADE_OUT = 3
+
+    def __init__(
+        self,
+        sample_rate: int,
+        state: AmbientSampleState,
+        seed: int = 99001,
+    ) -> None:
+        self.sample_rate = int(sample_rate)
+        self.state = state
+        self.rng = np.random.default_rng(seed)
+
+        self.stage = self.STAGE_SILENCE
+        self.stage_elapsed = 0
+        self.stage_total = 1
+
+        self.read_position = 0
+        self.current_gain_linear = 0.0
+        self.target_gain_linear = 0.0
+        self.loaded_identity = -1
+
+        self.current_stage_name = "silent"
+        self.current_gain_db = -80.0
+
+        spec, _, _, _, _ = self.state.get()
+        initial_volume_db = 0.5 * (
+            spec.volume_min_db + spec.volume_max_db
+        )
+        self.volume_journey = SmoothRandomJourney(
+            rng=self.rng,
+            initial_value=initial_volume_db,
+            minimum=spec.volume_min_db,
+            maximum=spec.volume_max_db,
+            duration_min_seconds=spec.volume_walk_min_seconds,
+            duration_max_seconds=spec.volume_walk_max_seconds,
+            beta_a=1.0,
+            beta_b=1.0,
+        )
+        self._volume_signature = (
+            spec.volume_min_db,
+            spec.volume_max_db,
+            spec.volume_walk_min_seconds,
+            spec.volume_walk_max_seconds,
+        )
+
+        self._begin_silence(initial=True)
+
+    def _reset_for_new_audio(
+        self,
+        audio_length: int,
+        generation: int,
+        spec: AmbientSampleSpec,
+    ) -> None:
+        """
+        A file selection is a user audition action, so the new sample should
+        become audible immediately rather than inherit the previous file's
+        silent interval or partially completed fade.
+        """
+        self.loaded_identity = generation
+
+        self.stage = self.STAGE_FADE_IN
+        self.stage_elapsed = 0
+        self.stage_total = max(
+            1,
+            int(spec.fade_in_seconds * self.sample_rate),
+        )
+
+        self.read_position = int(
+            self.rng.integers(0, max(1, audio_length))
+        )
+        self.current_stage_name = "fading in"
+
+        initial_volume_db = float(
+            np.clip(
+                0.5 * (
+                    spec.volume_min_db + spec.volume_max_db
+                ),
+                spec.volume_min_db,
+                spec.volume_max_db,
+            )
+        )
+        self.current_gain_db = initial_volume_db
+        self.volume_journey = SmoothRandomJourney(
+            rng=self.rng,
+            initial_value=initial_volume_db,
+            minimum=spec.volume_min_db,
+            maximum=spec.volume_max_db,
+            duration_min_seconds=spec.volume_walk_min_seconds,
+            duration_max_seconds=spec.volume_walk_max_seconds,
+            beta_a=1.0,
+            beta_b=1.0,
+        )
+        self._volume_signature = (
+            spec.volume_min_db,
+            spec.volume_max_db,
+            spec.volume_walk_min_seconds,
+            spec.volume_walk_max_seconds,
+        )
+
+    def _random_seconds(
+        self,
+        minimum: float,
+        maximum: float,
+    ) -> float:
+        if maximum <= minimum:
+            return minimum
+        return float(self.rng.uniform(minimum, maximum))
+
+    def _begin_silence(self, initial: bool = False) -> None:
+        spec, _, _, _, _ = self.state.get()
+        self.stage = self.STAGE_SILENCE
+        self.stage_elapsed = 0
+
+        seconds = 0.0 if initial else self._random_seconds(
+            spec.silence_min_seconds,
+            spec.silence_max_seconds,
+        )
+        self.stage_total = max(
+            1,
+            int(seconds * self.sample_rate),
+        )
+        self.current_stage_name = "silent"
+
+    def _begin_fade_in(self, audio_length: int) -> None:
+        spec, _, _, _, _ = self.state.get()
+
+        self.stage = self.STAGE_FADE_IN
+        self.stage_elapsed = 0
+        self.stage_total = max(
+            1,
+            int(spec.fade_in_seconds * self.sample_rate),
+        )
+
+        # Volume itself is continuously evolved. Fade-in only controls the
+        # layer's awareness envelope and does not choose a fixed level.
+        self.read_position = int(
+            self.rng.integers(0, max(1, audio_length))
+        )
+        self.current_stage_name = "fading in"
+
+    def _begin_hold(self) -> None:
+        spec, _, _, _, _ = self.state.get()
+        self.stage = self.STAGE_HOLD
+        self.stage_elapsed = 0
+        self.stage_total = max(
+            1,
+            int(
+                self._random_seconds(
+                    spec.duration_min_seconds,
+                    spec.duration_max_seconds,
+                )
+                * self.sample_rate
+            ),
+        )
+        self.current_stage_name = "present"
+
+    def _begin_fade_out(self) -> None:
+        spec, _, _, _, _ = self.state.get()
+        self.stage = self.STAGE_FADE_OUT
+        self.stage_elapsed = 0
+        self.stage_total = max(
+            1,
+            int(spec.fade_out_seconds * self.sample_rate),
+        )
+        self.current_stage_name = "fading out"
+
+    def _next_audio(
+        self,
+        audio: np.ndarray,
+        count: int,
+    ) -> np.ndarray:
+        length = len(audio)
+        indices = (
+            np.arange(count, dtype=np.int64)
+            + self.read_position
+        ) % length
+        self.read_position = int(
+            (self.read_position + count) % length
+        )
+        return audio[indices]
+
+    def _render_stage_gain(self, count: int) -> np.ndarray:
+        start = self.stage_elapsed
+        end = start + count
+
+        if self.stage == self.STAGE_FADE_IN:
+            positions = np.arange(start, end, dtype=np.float64)
+            normalized = np.clip(
+                positions / max(1, self.stage_total),
+                0.0,
+                1.0,
+            )
+            shape = 0.5 - 0.5 * np.cos(np.pi * normalized)
+            return shape.astype(np.float32)
+
+        if self.stage == self.STAGE_HOLD:
+            return np.ones(
+                count,
+                dtype=np.float32,
+            )
+
+        if self.stage == self.STAGE_FADE_OUT:
+            positions = np.arange(start, end, dtype=np.float64)
+            normalized = np.clip(
+                positions / max(1, self.stage_total),
+                0.0,
+                1.0,
+            )
+            shape = 0.5 + 0.5 * np.cos(np.pi * normalized)
+            return shape.astype(np.float32)
+
+        return np.zeros(count, dtype=np.float32)
+
+    def _refresh_volume_journey(
+        self,
+        spec: AmbientSampleSpec,
+    ) -> None:
+        signature = (
+            spec.volume_min_db,
+            spec.volume_max_db,
+            spec.volume_walk_min_seconds,
+            spec.volume_walk_max_seconds,
+        )
+        if signature == self._volume_signature:
+            return
+
+        current = float(
+            np.clip(
+                self.current_gain_db,
+                spec.volume_min_db,
+                spec.volume_max_db,
+            )
+        )
+        self.volume_journey = SmoothRandomJourney(
+            rng=self.rng,
+            initial_value=current,
+            minimum=spec.volume_min_db,
+            maximum=spec.volume_max_db,
+            duration_min_seconds=spec.volume_walk_min_seconds,
+            duration_max_seconds=spec.volume_walk_max_seconds,
+            beta_a=1.0,
+            beta_b=1.0,
+        )
+        self._volume_signature = signature
+
+    def _volume_gain_curve(
+        self,
+        frame_count: int,
+        spec: AmbientSampleSpec,
+    ) -> np.ndarray:
+        self._refresh_volume_journey(spec)
+
+        start_db = self.volume_journey.current_value
+        end_db = self.volume_journey.advance(
+            frame_count / self.sample_rate
+        )
+
+        db_curve = np.linspace(
+            start_db,
+            end_db,
+            frame_count,
+            endpoint=False,
+            dtype=np.float64,
+        )
+        self.current_gain_db = float(end_db)
+
+        return np.power(
+            10.0,
+            db_curve / 20.0,
+        ).astype(np.float32)
+
+    def generate(self, frame_count: int) -> np.ndarray:
+        spec, audio, _, _, generation = self.state.get()
+
+        if audio is None:
+            self.loaded_identity = generation
+            self.current_stage_name = "no audio loaded"
+            return np.zeros((frame_count, 2), dtype=np.float32)
+
+        if generation != self.loaded_identity:
+            self._reset_for_new_audio(
+                audio_length=len(audio),
+                generation=generation,
+                spec=spec,
+            )
+
+        result = np.zeros((frame_count, 2), dtype=np.float32)
+        written = 0
+
+        while written < frame_count:
+            if self.stage_elapsed >= self.stage_total:
+                if self.stage == self.STAGE_SILENCE:
+                    self._begin_fade_in(len(audio))
+                elif self.stage == self.STAGE_FADE_IN:
+                    self._begin_hold()
+                elif self.stage == self.STAGE_HOLD:
+                    self._begin_fade_out()
+                else:
+                    self._begin_silence()
+
+            remaining_stage = self.stage_total - self.stage_elapsed
+            count = min(
+                frame_count - written,
+                max(1, remaining_stage),
+            )
+
+            source = self._next_audio(audio, count)
+            gain = self._render_stage_gain(count)
+            result[written : written + count] = (
+                source * gain[:, np.newaxis]
+            )
+
+            self.stage_elapsed += count
+            written += count
+
+        volume_gain = self._volume_gain_curve(
+            frame_count,
+            spec,
+        )
+        result *= volume_gain[:, np.newaxis]
+
+        return result
+
+
 # =============================================================================
 # Mixer controls
 # =============================================================================
 
 @dataclass(frozen=True, slots=True)
 class EngineModes:
+    base_enabled: bool = True
     stereo_enabled: bool = True
     correlation_enabled: bool = True
     breath_enabled: bool = True
+    heartbeat_enabled: bool = True
+    soundscape_enabled: bool = False
 
 
 class ModeState:
@@ -1866,13 +3105,21 @@ class ModeState:
     def set(
         self,
         *,
+        base_enabled: bool | None = None,
         stereo_enabled: bool | None = None,
         correlation_enabled: bool | None = None,
         breath_enabled: bool | None = None,
+        heartbeat_enabled: bool | None = None,
+        soundscape_enabled: bool | None = None,
     ) -> None:
         with self._lock:
             current = self._modes
             self._modes = EngineModes(
+                base_enabled=(
+                    current.base_enabled
+                    if base_enabled is None
+                    else bool(base_enabled)
+                ),
                 stereo_enabled=(
                     current.stereo_enabled
                     if stereo_enabled is None
@@ -1887,6 +3134,16 @@ class ModeState:
                     current.breath_enabled
                     if breath_enabled is None
                     else bool(breath_enabled)
+                ),
+                heartbeat_enabled=(
+                    current.heartbeat_enabled
+                    if heartbeat_enabled is None
+                    else bool(heartbeat_enabled)
+                ),
+                soundscape_enabled=(
+                    current.soundscape_enabled
+                    if soundscape_enabled is None
+                    else bool(soundscape_enabled)
                 ),
             )
 
@@ -1910,6 +3167,8 @@ class LivingBrownNoiseMixer:
         noise_state: BrownNoiseState,
         noise_evolution_state: BrownNoiseEvolutionState,
         body_movement_state: BodyMovementState,
+        heartbeat_state: HeartbeatState,
+        ambient_sample_state: AmbientSampleState,
         breath_state: BreathState,
         breath_evolution_state: BreathEvolutionState,
         motion_state: OrganicMotionState,
@@ -1927,6 +3186,16 @@ class LivingBrownNoiseMixer:
         )
         self.body_movement_state = body_movement_state
         self.body_movement = BodyMovementScheduler(body_movement_state)
+        self.heartbeat_state = heartbeat_state
+        self.heartbeat = HeartbeatGenerator(
+            sample_rate=self.sample_rate,
+            heartbeat_state=heartbeat_state,
+        )
+        self.ambient_sample_state = ambient_sample_state
+        self.ambient_sample = AmbientSamplePlayer(
+            sample_rate=int(self.sample_rate),
+            state=ambient_sample_state,
+        )
         self.breath_state = breath_state
         self.breath_evolution_state = breath_evolution_state
         self.motion_state = motion_state
@@ -1946,11 +3215,18 @@ class LivingBrownNoiseMixer:
         )
 
         initial_modes = self.mode_state.get()
+        self.base_mix = 1.0 if initial_modes.base_enabled else 0.0
         self.stereo_mix = 1.0 if initial_modes.stereo_enabled else 0.0
         self.correlation_mix = (
             1.0 if initial_modes.correlation_enabled else 0.0
         )
         self.breath_mix = 1.0 if initial_modes.breath_enabled else 0.0
+        self.heartbeat_mix = (
+            1.0 if initial_modes.heartbeat_enabled else 0.0
+        )
+        self.soundscape_mix = (
+            1.0 if initial_modes.soundscape_enabled else 0.0
+        )
 
         self.current_correlation = 0.536
         self.current_breath = 0.0
@@ -1964,6 +3240,10 @@ class LivingBrownNoiseMixer:
         self.current_body_movement_count = 0
         self.current_body_movement_strength = 0.0
         self.current_body_movement_age = 0.0
+        self.current_heartbeat = 0.0
+        self.current_heart_interval = 60.0 / 50.0
+        self.current_soundscape_stage = "disabled"
+        self.current_soundscape_gain_db = -80.0
 
     def _approach_target(
         self,
@@ -2036,6 +3316,11 @@ class LivingBrownNoiseMixer:
         self.current_noise_texture = evolved_noise_spec.upper_texture
         breath_spec, _ = self.breath_state.get()
 
+        base_curve = self._approach_target(
+            self.base_mix,
+            1.0 if modes.base_enabled else 0.0,
+            frame_count,
+        )
         stereo_curve = self._approach_target(
             self.stereo_mix,
             1.0 if modes.stereo_enabled else 0.0,
@@ -2051,10 +3336,23 @@ class LivingBrownNoiseMixer:
             1.0 if modes.breath_enabled else 0.0,
             frame_count,
         )
+        heartbeat_curve = self._approach_target(
+            self.heartbeat_mix,
+            1.0 if modes.heartbeat_enabled else 0.0,
+            frame_count,
+        )
+        soundscape_curve = self._approach_target(
+            self.soundscape_mix,
+            1.0 if modes.soundscape_enabled else 0.0,
+            frame_count,
+        )
 
+        self.base_mix = float(base_curve[-1])
         self.stereo_mix = float(stereo_curve[-1])
         self.correlation_mix = float(correlation_curve[-1])
         self.breath_mix = float(breath_curve[-1])
+        self.heartbeat_mix = float(heartbeat_curve[-1])
+        self.soundscape_mix = float(soundscape_curve[-1])
 
         raw_breath = self.breath.generate(frame_count)
         prominence = self.breath_prominence.generate(frame_count)
@@ -2162,6 +3460,34 @@ class LivingBrownNoiseMixer:
             10.0,
             breath_gain_db / 20.0,
         )[:, np.newaxis]
+
+        # The complete pre-existing Living Brown Noise bus can be suppressed
+        # for heartbeat debugging without stopping its internal state.
+        stereo *= base_curve[:, np.newaxis]
+
+        heartbeat = self.heartbeat.generate(frame_count)
+        active_heartbeat = heartbeat * heartbeat_curve
+
+        self.current_heartbeat = float(
+            self.heartbeat.current_envelope
+            * heartbeat_curve[-1]
+        )
+        self.current_heart_interval = (
+            self.heartbeat.current_interval_seconds
+        )
+
+        # Heartbeat is deliberately mono and centered equally in both ears.
+        stereo += active_heartbeat[:, np.newaxis]
+
+        soundscape = self.ambient_sample.generate(frame_count)
+        stereo += soundscape * soundscape_curve[:, np.newaxis]
+
+        self.current_soundscape_stage = (
+            self.ambient_sample.current_stage_name
+        )
+        self.current_soundscape_gain_db = (
+            self.ambient_sample.current_gain_db
+        )
 
         stereo *= 10.0 ** (
             self.mixer_spec.master_gain_db / 20.0
@@ -2281,6 +3607,9 @@ def build_mixer(
     noise_spec: BrownNoiseSpec,
     noise_evolution_spec: BrownNoiseEvolutionSpec,
     body_movement_spec: BodyMovementSpec,
+    heartbeat_spec: HeartbeatSpec,
+    ambient_sample_spec: AmbientSampleSpec,
+    sound_effects_directory: Path,
     breath_spec: BreathSpec,
     breath_evolution_spec: BreathEvolutionSpec,
     motion_spec: OrganicMotionSpec,
@@ -2291,6 +3620,8 @@ def build_mixer(
     BrownNoiseState,
     BrownNoiseEvolutionState,
     BodyMovementState,
+    HeartbeatState,
+    AmbientSampleState,
     BreathState,
     BreathEvolutionState,
     OrganicMotionState,
@@ -2300,6 +3631,16 @@ def build_mixer(
         noise_evolution_spec
     )
     body_movement_state = BodyMovementState(body_movement_spec)
+    heartbeat_state = HeartbeatState(heartbeat_spec)
+    ambient_sample_state = AmbientSampleState(
+        sample_rate,
+        ambient_sample_spec,
+    )
+    if ambient_sample_spec.selected_filename:
+        ambient_sample_state.load_file(
+            sound_effects_directory
+            / ambient_sample_spec.selected_filename
+        )
 
     common = BrownNoiseInstance(
         sample_rate,
@@ -2333,6 +3674,8 @@ def build_mixer(
         noise_state=noise_state,
         noise_evolution_state=noise_evolution_state,
         body_movement_state=body_movement_state,
+        heartbeat_state=heartbeat_state,
+        ambient_sample_state=ambient_sample_state,
         breath_state=breath_state,
         breath_evolution_state=breath_evolution_state,
         motion_state=motion_state,
@@ -2345,6 +3688,8 @@ def build_mixer(
         noise_state,
         noise_evolution_state,
         body_movement_state,
+        heartbeat_state,
+        ambient_sample_state,
         breath_state,
         breath_evolution_state,
         motion_state,
@@ -2371,6 +3716,9 @@ class ExportWorker(QThread):
         noise_spec: BrownNoiseSpec,
         noise_evolution_spec: BrownNoiseEvolutionSpec,
         body_movement_spec: BodyMovementSpec,
+        heartbeat_spec: HeartbeatSpec,
+        ambient_sample_spec: AmbientSampleSpec,
+        sound_effects_directory: Path,
         breath_spec: BreathSpec,
         breath_evolution_spec: BreathEvolutionSpec,
         motion_spec: OrganicMotionSpec,
@@ -2383,6 +3731,9 @@ class ExportWorker(QThread):
         self.noise_spec = noise_spec
         self.noise_evolution_spec = noise_evolution_spec
         self.body_movement_spec = body_movement_spec
+        self.heartbeat_spec = heartbeat_spec
+        self.ambient_sample_spec = ambient_sample_spec
+        self.sound_effects_directory = sound_effects_directory
         self.breath_spec = breath_spec
         self.breath_evolution_spec = breath_evolution_spec
         self.motion_spec = motion_spec
@@ -2399,12 +3750,15 @@ class ExportWorker(QThread):
             chunk_frames = max(2048, self.sample_rate // 2)
 
             seed_base = int(time.time_ns() & 0x7FFFFFFF)
-            mixer, _, _, _, _, _, _, _ = build_mixer(
+            mixer, _, _, _, _, _, _, _, _, _ = build_mixer(
                 sample_rate=self.sample_rate,
                 modes=self.modes,
                 noise_spec=self.noise_spec,
                 noise_evolution_spec=self.noise_evolution_spec,
                 body_movement_spec=self.body_movement_spec,
+                heartbeat_spec=self.heartbeat_spec,
+                ambient_sample_spec=self.ambient_sample_spec,
+                sound_effects_directory=self.sound_effects_directory,
                 breath_spec=self.breath_spec,
                 breath_evolution_spec=self.breath_evolution_spec,
                 motion_spec=self.motion_spec,
@@ -2570,6 +3924,8 @@ class MainWindow(QMainWindow):
         noise_state: BrownNoiseState,
         noise_evolution_state: BrownNoiseEvolutionState,
         body_movement_state: BodyMovementState,
+        heartbeat_state: HeartbeatState,
+        ambient_sample_state: AmbientSampleState,
         breath_state: BreathState,
         breath_evolution_state: BreathEvolutionState,
         motion_state: OrganicMotionState,
@@ -2584,6 +3940,8 @@ class MainWindow(QMainWindow):
         self.noise_state = noise_state
         self.noise_evolution_state = noise_evolution_state
         self.body_movement_state = body_movement_state
+        self.heartbeat_state = heartbeat_state
+        self.ambient_sample_state = ambient_sample_state
         self.breath_state = breath_state
         self.breath_evolution_state = breath_evolution_state
         self.motion_state = motion_state
@@ -2599,7 +3957,7 @@ class MainWindow(QMainWindow):
         self.default_breath_spec = BreathSpec()
 
         self.setWindowTitle(
-            "Living Brown Noise — Deconstruction Lab v1.6"
+            "Living Brown Noise — Dream Instigator Lab v2.3.2"
         )
         self.resize(840, 1040)
 
@@ -2622,6 +3980,27 @@ class MainWindow(QMainWindow):
         controls_box = QGroupBox("Engine layers")
         controls_layout = QVBoxLayout(controls_box)
 
+        self.base_checkbox = QCheckBox(
+            "Living Brown Noise base — off mutes the existing main audio bus"
+        )
+        self.base_checkbox.setChecked(
+            self.mode_state.get().base_enabled
+        )
+
+        self.heartbeat_checkbox = QCheckBox(
+            "Heartbeat / pulse — separate centered brown-noise layer"
+        )
+        self.heartbeat_checkbox.setChecked(
+            self.mode_state.get().heartbeat_enabled
+        )
+
+        self.soundscape_checkbox = QCheckBox(
+            "Soundscape samples — fade selected WAV in and out"
+        )
+        self.soundscape_checkbox.setChecked(
+            self.mode_state.get().soundscape_enabled
+        )
+
         self.stereo_checkbox = QCheckBox(
             "Stereo — off duplicates one mono source to both ears"
         )
@@ -2642,6 +4021,247 @@ class MainWindow(QMainWindow):
         self.breath_checkbox.setChecked(
             self.mode_state.get().breath_enabled
         )
+
+        self.soundscape_expand_button = QToolButton()
+        self.soundscape_expand_button.setText(
+            "Soundscape sample test"
+        )
+        self.soundscape_expand_button.setCheckable(True)
+        self.soundscape_expand_button.setChecked(
+            bool(
+                self.loaded_settings.get(
+                    "soundscape_panel_expanded",
+                    True,
+                )
+            )
+        )
+        self.soundscape_expand_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.soundscape_expand_button.setArrowType(
+            Qt.ArrowType.RightArrow
+        )
+        controls_layout.addWidget(self.soundscape_expand_button)
+
+        self.soundscape_panel = QWidget()
+        soundscape_form = QFormLayout(self.soundscape_panel)
+        soundscape_form.setContentsMargins(24, 4, 0, 8)
+        self.soundscape_panel.setVisible(
+            self.soundscape_expand_button.isChecked()
+        )
+
+        self.soundscape_panel_enable = QCheckBox(
+            "Enable selected soundscape sample"
+        )
+        self.soundscape_panel_enable.setChecked(
+            self.mode_state.get().soundscape_enabled
+        )
+        soundscape_form.addRow(
+            "",
+            self.soundscape_panel_enable,
+        )
+
+        self.soundscape_directory_label = QLabel(
+            str(SOUND_EFFECTS_DIRECTORY)
+        )
+        self.soundscape_directory_label.setWordWrap(True)
+        soundscape_form.addRow(
+            "Audio directory:",
+            self.soundscape_directory_label,
+        )
+
+        self.soundscape_file_combo = QComboBox()
+        soundscape_form.addRow(
+            "Selected audio:",
+            self.soundscape_file_combo,
+        )
+
+        self.soundscape_reload_button = QPushButton(
+            "Reload audio directory"
+        )
+        soundscape_form.addRow(
+            "",
+            self.soundscape_reload_button,
+        )
+
+        sample_spec, _, _, _, _ = self.ambient_sample_state.get()
+
+        self.soundscape_fade_in_control = FloatControl(
+            minimum=0.1,
+            maximum=120.0,
+            value=sample_spec.fade_in_seconds,
+            step=0.5,
+            decimals=1,
+            suffix=" s",
+            on_change=lambda value: self._update_soundscape(
+                fade_in_seconds=value
+            ),
+        )
+        soundscape_form.addRow(
+            "Fade-in time:",
+            self.soundscape_fade_in_control,
+        )
+
+        self.soundscape_fade_out_control = FloatControl(
+            minimum=0.1,
+            maximum=120.0,
+            value=sample_spec.fade_out_seconds,
+            step=0.5,
+            decimals=1,
+            suffix=" s",
+            on_change=lambda value: self._update_soundscape(
+                fade_out_seconds=value
+            ),
+        )
+        soundscape_form.addRow(
+            "Fade-out time:",
+            self.soundscape_fade_out_control,
+        )
+
+        self.soundscape_duration_min_control = FloatControl(
+            minimum=1.0,
+            maximum=3600.0,
+            value=sample_spec.duration_min_seconds,
+            step=1.0,
+            decimals=0,
+            suffix=" s",
+            on_change=lambda value: self._update_soundscape_range(
+                "duration_min_seconds",
+                value,
+            ),
+        )
+        soundscape_form.addRow(
+            "Audible duration minimum:",
+            self.soundscape_duration_min_control,
+        )
+
+        self.soundscape_duration_max_control = FloatControl(
+            minimum=1.0,
+            maximum=3600.0,
+            value=sample_spec.duration_max_seconds,
+            step=1.0,
+            decimals=0,
+            suffix=" s",
+            on_change=lambda value: self._update_soundscape_range(
+                "duration_max_seconds",
+                value,
+            ),
+        )
+        soundscape_form.addRow(
+            "Audible duration maximum:",
+            self.soundscape_duration_max_control,
+        )
+
+        self.soundscape_silence_min_control = FloatControl(
+            minimum=0.0,
+            maximum=3600.0,
+            value=sample_spec.silence_min_seconds,
+            step=1.0,
+            decimals=0,
+            suffix=" s",
+            on_change=lambda value: self._update_soundscape_range(
+                "silence_min_seconds",
+                value,
+            ),
+        )
+        soundscape_form.addRow(
+            "Silent interval minimum:",
+            self.soundscape_silence_min_control,
+        )
+
+        self.soundscape_silence_max_control = FloatControl(
+            minimum=0.0,
+            maximum=3600.0,
+            value=sample_spec.silence_max_seconds,
+            step=1.0,
+            decimals=0,
+            suffix=" s",
+            on_change=lambda value: self._update_soundscape_range(
+                "silence_max_seconds",
+                value,
+            ),
+        )
+        soundscape_form.addRow(
+            "Silent interval maximum:",
+            self.soundscape_silence_max_control,
+        )
+
+        self.soundscape_volume_min_control = FloatControl(
+            minimum=-60.0,
+            maximum=0.0,
+            value=sample_spec.volume_min_db,
+            step=0.5,
+            decimals=1,
+            suffix=" dB",
+            on_change=lambda value: self._update_soundscape_range(
+                "volume_min_db",
+                value,
+            ),
+        )
+        soundscape_form.addRow(
+            "Volume minimum:",
+            self.soundscape_volume_min_control,
+        )
+
+        self.soundscape_volume_max_control = FloatControl(
+            minimum=-60.0,
+            maximum=0.0,
+            value=sample_spec.volume_max_db,
+            step=0.5,
+            decimals=1,
+            suffix=" dB",
+            on_change=lambda value: self._update_soundscape_range(
+                "volume_max_db",
+                value,
+            ),
+        )
+        soundscape_form.addRow(
+            "Volume maximum:",
+            self.soundscape_volume_max_control,
+        )
+
+        self.soundscape_volume_walk_min_control = FloatControl(
+            minimum=1.0,
+            maximum=1800.0,
+            value=sample_spec.volume_walk_min_seconds,
+            step=1.0,
+            decimals=0,
+            suffix=" s",
+            on_change=lambda value: self._update_soundscape_range(
+                "volume_walk_min_seconds",
+                value,
+            ),
+        )
+        soundscape_form.addRow(
+            "Volume drift minimum:",
+            self.soundscape_volume_walk_min_control,
+        )
+
+        self.soundscape_volume_walk_max_control = FloatControl(
+            minimum=1.0,
+            maximum=1800.0,
+            value=sample_spec.volume_walk_max_seconds,
+            step=1.0,
+            decimals=0,
+            suffix=" s",
+            on_change=lambda value: self._update_soundscape_range(
+                "volume_walk_max_seconds",
+                value,
+            ),
+        )
+        soundscape_form.addRow(
+            "Volume drift maximum:",
+            self.soundscape_volume_walk_max_control,
+        )
+
+        self.soundscape_status_label = QLabel("")
+        self.soundscape_status_label.setWordWrap(True)
+        soundscape_form.addRow(
+            "Sample status:",
+            self.soundscape_status_label,
+        )
+
+        controls_layout.addWidget(self.soundscape_panel)
 
         self.noise_expand_button = QToolButton()
         self.noise_expand_button.setText(
@@ -2812,6 +4432,9 @@ class MainWindow(QMainWindow):
         noise_form.addRow("Body movement status:", self.body_movement_status)
 
         controls_layout.addWidget(self.noise_panel)
+        controls_layout.addWidget(self.base_checkbox)
+        controls_layout.addWidget(self.heartbeat_checkbox)
+        controls_layout.addWidget(self.soundscape_checkbox)
         controls_layout.addWidget(self.stereo_checkbox)
         controls_layout.addWidget(self.correlation_checkbox)
 
@@ -3422,6 +5045,7 @@ class MainWindow(QMainWindow):
         self.correlation_label = QLabel("—")
         self.breath_label = QLabel("—")
         self.breath_evolution_label = QLabel("—")
+        self.heartbeat_label = QLabel("—")
 
         status_form.addRow("Playback:", self.playback_label)
         status_form.addRow("Active path:", self.mode_label)
@@ -3431,6 +5055,7 @@ class MainWindow(QMainWindow):
         )
         status_form.addRow("DSP pipeline:", self.pipeline_label)
         status_form.addRow("Breath:", self.breath_label)
+        status_form.addRow("Heartbeat:", self.heartbeat_label)
         status_form.addRow(
             "Breath prominence:",
             self.breath_evolution_label,
@@ -3451,6 +5076,28 @@ class MainWindow(QMainWindow):
         )
         self.body_movement_checkbox.toggled.connect(
             self._on_body_movement_toggled
+        )
+        self.base_checkbox.toggled.connect(self._on_modes_changed)
+        self.heartbeat_checkbox.toggled.connect(
+            self._on_modes_changed
+        )
+        self.soundscape_checkbox.toggled.connect(
+            self._on_modes_changed
+        )
+        self.soundscape_checkbox.toggled.connect(
+            self.soundscape_panel_enable.setChecked
+        )
+        self.soundscape_panel_enable.toggled.connect(
+            self.soundscape_checkbox.setChecked
+        )
+        self.soundscape_file_combo.currentTextChanged.connect(
+            self._on_soundscape_file_changed
+        )
+        self.soundscape_reload_button.clicked.connect(
+            self._reload_soundscape_files
+        )
+        self.soundscape_expand_button.toggled.connect(
+            self._toggle_soundscape_panel
         )
         self.stereo_checkbox.toggled.connect(self._on_modes_changed)
         self.correlation_checkbox.toggled.connect(
@@ -3483,6 +5130,10 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self._refresh_status)
         self.timer.start(100)
 
+        self._toggle_soundscape_panel(
+            self.soundscape_expand_button.isChecked()
+        )
+        self._reload_soundscape_files()
         self._toggle_noise_panel(
             self.noise_expand_button.isChecked()
         )
@@ -3503,6 +5154,163 @@ class MainWindow(QMainWindow):
         )
         self._update_noise_status()
         self._on_modes_changed()
+
+    def _toggle_soundscape_panel(self, expanded: bool) -> None:
+        self.soundscape_panel.setVisible(expanded)
+        self.soundscape_expand_button.setArrowType(
+            Qt.ArrowType.DownArrow
+            if expanded
+            else Qt.ArrowType.RightArrow
+        )
+        self._schedule_settings_save()
+
+    def _reload_soundscape_files(self) -> None:
+        selected_spec, _, _, _, _ = self.ambient_sample_state.get()
+        selected = selected_spec.selected_filename
+
+        SOUND_EFFECTS_DIRECTORY.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        files = sorted(
+            (
+                path
+                for path in SOUND_EFFECTS_DIRECTORY.iterdir()
+                if path.is_file()
+                and path.suffix.lower()
+                in SUPPORTED_AUDIO_EXTENSIONS
+            ),
+            key=lambda path: path.name.lower(),
+        )
+
+        self.soundscape_file_combo.blockSignals(True)
+        self.soundscape_file_combo.clear()
+        self.soundscape_file_combo.addItem("")
+
+        for path in files:
+            self.soundscape_file_combo.addItem(path.name)
+
+        index = self.soundscape_file_combo.findText(selected)
+        if index >= 0:
+            self.soundscape_file_combo.setCurrentIndex(index)
+        elif files:
+            self.soundscape_file_combo.setCurrentIndex(1)
+        else:
+            self.soundscape_file_combo.setCurrentIndex(0)
+
+        self.soundscape_file_combo.blockSignals(False)
+        self._on_soundscape_file_changed(
+            self.soundscape_file_combo.currentText()
+        )
+
+    def _on_soundscape_file_changed(self, filename: str) -> None:
+        filename = filename.strip()
+        self.ambient_sample_state.update(
+            selected_filename=filename
+        )
+
+        if filename:
+            self.soundscape_status_label.setText(
+                f"Loading {filename}…"
+            )
+            QApplication.processEvents()
+
+        path = (
+            SOUND_EFFECTS_DIRECTORY / filename
+            if filename
+            else None
+        )
+        self.ambient_sample_state.load_file(path)
+
+        _, audio, loaded_name, error, _ = (
+            self.ambient_sample_state.get()
+        )
+
+        if error:
+            self.soundscape_status_label.setText(
+                f"Could not load audio: {error}"
+            )
+        elif audio is None:
+            self.soundscape_status_label.setText(
+                "No audio file selected"
+            )
+        else:
+            duration = len(audio) / 44_100
+            (
+                source_db,
+                normalization_db,
+                normalized_db,
+                normalized_peak_db,
+            ) = self.ambient_sample_state.normalization_info()
+
+            self.soundscape_status_label.setText(
+                f"Loaded {loaded_name}; "
+                f"{duration:.1f} s; "
+                f"source typical {source_db:.1f} dBFS; "
+                f"normalization {normalization_db:+.1f} dB; "
+                f"normalized typical {normalized_db:.1f} dBFS; "
+                f"peak {normalized_peak_db:.1f} dBFS"
+            )
+
+        self._schedule_settings_save()
+
+    def _update_soundscape(self, **changes) -> None:
+        self.ambient_sample_state.update(**changes)
+        self._schedule_settings_save()
+
+    def _update_soundscape_range(
+        self,
+        field_name: str,
+        value: float,
+    ) -> None:
+        spec, _, _, _, _ = self.ambient_sample_state.get()
+
+        changes = {field_name: value}
+
+        if field_name == "duration_min_seconds":
+            changes["duration_max_seconds"] = max(
+                value,
+                spec.duration_max_seconds,
+            )
+        elif field_name == "duration_max_seconds":
+            changes["duration_min_seconds"] = min(
+                value,
+                spec.duration_min_seconds,
+            )
+        elif field_name == "silence_min_seconds":
+            changes["silence_max_seconds"] = max(
+                value,
+                spec.silence_max_seconds,
+            )
+        elif field_name == "silence_max_seconds":
+            changes["silence_min_seconds"] = min(
+                value,
+                spec.silence_min_seconds,
+            )
+        elif field_name == "volume_min_db":
+            changes["volume_max_db"] = max(
+                value,
+                spec.volume_max_db,
+            )
+        elif field_name == "volume_max_db":
+            changes["volume_min_db"] = min(
+                value,
+                spec.volume_min_db,
+            )
+        elif field_name == "volume_walk_min_seconds":
+            changes["volume_walk_max_seconds"] = max(
+                value,
+                spec.volume_walk_max_seconds,
+            )
+        elif field_name == "volume_walk_max_seconds":
+            changes["volume_walk_min_seconds"] = min(
+                value,
+                spec.volume_walk_min_seconds,
+            )
+
+        self.ambient_sample_state.update(**changes)
+        self._schedule_settings_save()
 
     def _update_body_movement(self, **changes) -> None:
         self.body_movement_state.update(**changes)
@@ -3880,12 +5688,17 @@ class MainWindow(QMainWindow):
         stereo = self.stereo_checkbox.isChecked()
 
         self.mode_state.set(
+            base_enabled=self.base_checkbox.isChecked(),
             stereo_enabled=stereo,
             correlation_enabled=self.correlation_checkbox.isChecked(),
             breath_enabled=self.breath_checkbox.isChecked(),
+            heartbeat_enabled=self.heartbeat_checkbox.isChecked(),
+            soundscape_enabled=self.soundscape_checkbox.isChecked(),
         )
 
-        if not stereo:
+        if not self.base_checkbox.isChecked():
+            path = "Main Living Brown Noise muted"
+        elif not stereo:
             path = "Mono duplicated L/R"
         elif self.correlation_checkbox.isChecked():
             path = (
@@ -3894,8 +5707,12 @@ class MainWindow(QMainWindow):
         else:
             path = "Stereo: fully independent left/right"
 
-        if self.breath_checkbox.isChecked():
+        if self.breath_checkbox.isChecked() and self.base_checkbox.isChecked():
             path += " + breath"
+        if self.heartbeat_checkbox.isChecked():
+            path += " + heartbeat"
+        if self.soundscape_checkbox.isChecked():
+            path += " + soundscape sample"
 
         self.mode_label.setText(path)
         self._schedule_settings_save()
@@ -3907,6 +5724,10 @@ class MainWindow(QMainWindow):
         noise_spec, _ = self.noise_state.get()
         noise_evolution_spec = self.noise_evolution_state.get()
         body_movement_spec = self.body_movement_state.get()
+        heartbeat_spec = self.heartbeat_state.get()
+        ambient_sample_spec, _, _, _, _ = (
+            self.ambient_sample_state.get()
+        )
         breath_spec, _ = self.breath_state.get()
         breath_evolution_spec = self.breath_evolution_state.get()
         motion_spec = self.motion_state.get()
@@ -3918,6 +5739,11 @@ class MainWindow(QMainWindow):
             "brown_noise": asdict(noise_spec),
             "brown_noise_evolution": asdict(noise_evolution_spec),
             "body_movement": asdict(body_movement_spec),
+            "heartbeat": asdict(heartbeat_spec),
+            "ambient_sample": asdict(ambient_sample_spec),
+            "soundscape_panel_expanded": (
+                self.soundscape_expand_button.isChecked()
+            ),
             "noise_panel_expanded": (
                 self.noise_expand_button.isChecked()
             ),
@@ -3991,6 +5817,10 @@ class MainWindow(QMainWindow):
         noise_spec, _ = self.noise_state.get()
         noise_evolution_spec = self.noise_evolution_state.get()
         body_movement_spec = self.body_movement_state.get()
+        heartbeat_spec = self.heartbeat_state.get()
+        ambient_sample_spec, _, _, _, _ = (
+            self.ambient_sample_state.get()
+        )
         breath_spec, _ = self.breath_state.get()
         breath_evolution_spec = self.breath_evolution_state.get()
         motion_spec = self.motion_state.get()
@@ -4003,6 +5833,9 @@ class MainWindow(QMainWindow):
             noise_spec=noise_spec,
             noise_evolution_spec=noise_evolution_spec,
             body_movement_spec=body_movement_spec,
+            heartbeat_spec=heartbeat_spec,
+            ambient_sample_spec=ambient_sample_spec,
+            sound_effects_directory=SOUND_EFFECTS_DIRECTORY,
             breath_spec=breath_spec,
             breath_evolution_spec=breath_evolution_spec,
             motion_spec=motion_spec,
@@ -4115,6 +5948,36 @@ class MainWindow(QMainWindow):
             f"{self.mixer.current_breath_prominence:.2f}× "
             f"({self.mixer.current_breath_evolution_period:.0f} s cycle)"
         )
+        self.heartbeat_label.setText(
+            f"{self.mixer.heartbeat.current_rate_bpm:.1f} bpm; "
+            f"prominence "
+            f"{self.mixer.heartbeat.current_prominence:.3f}; "
+            f"envelope {self.mixer.current_heartbeat:.3f}"
+        )
+        _, _, loaded_name, load_error, _ = (
+            self.ambient_sample_state.get()
+        )
+        if load_error:
+            self.soundscape_status_label.setText(
+                f"Load error: {load_error}"
+            )
+        elif loaded_name:
+            (
+                _,
+                normalization_db,
+                normalized_db,
+                _,
+            ) = self.ambient_sample_state.normalization_info()
+
+            self.soundscape_status_label.setText(
+                f"{loaded_name}; "
+                f"{self.mixer.current_soundscape_stage}; "
+                f"evolved volume "
+                f"{self.mixer.current_soundscape_gain_db:.1f} dB; "
+                f"source normalization "
+                f"{normalization_db:+.1f} dB "
+                f"to {normalized_db:.1f} dBFS typical"
+            )
         evolution = self.noise_evolution_state.get()
         if evolution.enabled:
             self.noise_evolution_status.setText(
@@ -4159,6 +6022,12 @@ def build_application() -> tuple[QApplication, MainWindow]:
     mode_data = loaded.get("modes", {})
     try:
         modes = EngineModes(
+            base_enabled=bool(
+                mode_data.get(
+                    "base_enabled",
+                    default_modes.base_enabled,
+                )
+            ),
             stereo_enabled=bool(
                 mode_data.get(
                     "stereo_enabled",
@@ -4175,6 +6044,18 @@ def build_application() -> tuple[QApplication, MainWindow]:
                 mode_data.get(
                     "breath_enabled",
                     default_modes.breath_enabled,
+                )
+            ),
+            heartbeat_enabled=bool(
+                mode_data.get(
+                    "heartbeat_enabled",
+                    default_modes.heartbeat_enabled,
+                )
+            ),
+            soundscape_enabled=bool(
+                mode_data.get(
+                    "soundscape_enabled",
+                    default_modes.soundscape_enabled,
                 )
             ),
         )
@@ -4228,6 +6109,36 @@ def build_application() -> tuple[QApplication, MainWindow]:
         ).validated()
     except Exception:
         body_movement_spec = default_body_movement
+
+    default_ambient_sample = AmbientSampleSpec()
+    ambient_sample_data = loaded.get("ambient_sample", {})
+    try:
+        ambient_sample_spec = AmbientSampleSpec(
+            **{
+                field_name: ambient_sample_data.get(
+                    field_name,
+                    getattr(default_ambient_sample, field_name),
+                )
+                for field_name in asdict(default_ambient_sample)
+            }
+        ).validated()
+    except Exception:
+        ambient_sample_spec = default_ambient_sample
+
+    default_heartbeat = HeartbeatSpec()
+    heartbeat_data = loaded.get("heartbeat", {})
+    try:
+        heartbeat_spec = HeartbeatSpec(
+            **{
+                field_name: heartbeat_data.get(
+                    field_name,
+                    getattr(default_heartbeat, field_name),
+                )
+                for field_name in asdict(default_heartbeat)
+            }
+        ).validated()
+    except Exception:
+        heartbeat_spec = default_heartbeat
 
     default_breath_evolution = BreathEvolutionSpec()
     breath_evolution_data = loaded.get(
@@ -4310,6 +6221,8 @@ def build_application() -> tuple[QApplication, MainWindow]:
         noise_state,
         noise_evolution_state,
         body_movement_state,
+        heartbeat_state,
+        ambient_sample_state,
         breath_state,
         breath_evolution_state,
         motion_state,
@@ -4319,6 +6232,9 @@ def build_application() -> tuple[QApplication, MainWindow]:
         noise_spec=noise_spec,
         noise_evolution_spec=noise_evolution_spec,
         body_movement_spec=body_movement_spec,
+        heartbeat_spec=heartbeat_spec,
+        ambient_sample_spec=ambient_sample_spec,
+        sound_effects_directory=SOUND_EFFECTS_DIRECTORY,
         breath_spec=breath_spec,
         breath_evolution_spec=breath_evolution_spec,
         motion_spec=motion_spec,
@@ -4337,6 +6253,8 @@ def build_application() -> tuple[QApplication, MainWindow]:
         noise_state=noise_state,
         noise_evolution_state=noise_evolution_state,
         body_movement_state=body_movement_state,
+        heartbeat_state=heartbeat_state,
+        ambient_sample_state=ambient_sample_state,
         breath_state=breath_state,
         breath_evolution_state=breath_evolution_state,
         motion_state=motion_state,
