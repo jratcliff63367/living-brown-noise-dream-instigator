@@ -13,7 +13,7 @@ from typing import ClassVar
 import numpy as np
 import sounddevice as sd
 import av
-import slab
+from steam_audio_renderer_v2 import SteamAudioRenderer, Vector3
 from scipy import signal
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
 )
 
 
-# Dependency added in v2.5: python -m pip install "slab[hrtf]"
+# Requires phonon.dll and steam_audio_renderer_v2.py beside this script.
 #
 # Edit this path to point at the folder containing the WAV files you want
 # available in the Soundscape Sample Test dropdown.
@@ -61,34 +61,26 @@ SUPPORTED_AUDIO_EXTENSIONS = {
 DREAM_MOTIF_LAYER_THRESHOLD_SECONDS = 10.0
 
 # =============================================================================
-# Spatial baseline
+# Steam Audio spatial baseline
 # =============================================================================
-#
-# Version 2.5 routes every major audio bus through the same fixed-front HRTF
-# stage, but intentionally introduces NO spatial motion yet. The listener is
-# fixed at the origin and all sources are placed directly ahead.
-#
-# The wet blend is deliberately conservative for the baseline comparison.
-# A value of 1.0 is fully HRTF-rendered; 0.0 is the legacy signal. Keeping this
-# near the middle lets us confirm architecture, live/export parity, and tonal
-# acceptability before motion is introduced.
-SPATIAL_BASELINE_ENABLED = True
-# A fixed-front HRTF contains delay and spectral coloration. Mixing too much
-# of it in parallel with an already-rich stereo bed causes comb filtering and
-# makes brown noise sound hollow. At the neutral baseline, spatial influence
-# should therefore be microscopic. Later moving sources can use much stronger
-# wet values because the directional effect will then be intentional.
-SPATIAL_BROWN_NOISE_WET_BLEND = 0.025
-SPATIAL_HEARTBEAT_WET_BLEND = 0.08
-SPATIAL_SOUNDSCAPE_WET_BLEND = 0.06
 
-SPATIAL_BASELINE_AZIMUTH_DEGREES = 0.0
-SPATIAL_BASELINE_ELEVATION_DEGREES = 0.0
+STEAM_SPATIAL_FRAME_SIZE = 2_048
+STEAM_DEFAULT_SOURCE_POSITION = Vector3(0.0, 0.0, -2.0)
 
-# Brown noise and ambient recordings are already stereo. Preserve their stereo
-# internal variation while applying the fixed-front filter independently to
-# each ear. Heartbeat remains a true mono point source rendered to both ears.
-SPATIAL_PRESERVE_STEREO_BEDS = True
+# Conservative baseline amounts preserve the accepted stereo character.
+STEAM_BROWN_SPATIAL_AMOUNT = 1.0
+STEAM_HEARTBEAT_SPATIAL_BLEND = 0.08
+STEAM_SOUNDSCAPE_SPATIAL_AMOUNT = 0.06
+
+STEAM_BROWN_DISTANCE_MIN_METERS = 0.20
+STEAM_BROWN_DISTANCE_MAX_METERS = 12.0
+STEAM_BROWN_DISTANCE_DEFAULT_METERS = 2.0
+STEAM_BROWN_AZIMUTH_MIN_DEGREES = -45.0
+STEAM_BROWN_AZIMUTH_MAX_DEGREES = 45.0
+STEAM_BROWN_AZIMUTH_DEFAULT_DEGREES = 0.0
+STEAM_BROWN_ELEVATION_MIN_DEGREES = -30.0
+STEAM_BROWN_ELEVATION_MAX_DEGREES = 45.0
+STEAM_BROWN_ELEVATION_DEFAULT_DEGREES = 0.0
 
 
 # =============================================================================
@@ -3327,203 +3319,6 @@ class ModeState:
             )
 
 
-class FixedFrontSpatialRenderer:
-    """
-    Streaming fixed-position binaural renderer for the neutral 3D baseline.
-
-    This class deliberately has no motion API yet. It establishes the source
-    abstraction, HRTF loading, persistent FIR state, and identical live/export
-    processing path. Future spatial evolution can replace only the transform
-    and filter-selection behavior while preserving the mixer architecture.
-
-    For stereo beds, each existing ear channel is filtered by the corresponding
-    front-facing HRIR. This retains the Living Brown Noise stereo/correlation
-    character and ambient-recording stereo content for the baseline.
-
-    For mono point sources, the same mono input is convolved independently with
-    the left and right HRIRs.
-    """
-
-    _cache_lock = threading.Lock()
-    _cached_front_hrir: tuple[np.ndarray, np.ndarray] | None = None
-
-    def __init__(
-        self,
-        *,
-        preserve_stereo: bool,
-        wet_blend: float,
-    ) -> None:
-        self.preserve_stereo = bool(preserve_stereo)
-        self.wet_blend = float(np.clip(wet_blend, 0.0, 1.0))
-
-        left_hrir, right_hrir = self._load_front_hrir()
-        self.left_hrir = left_hrir
-        self.right_hrir = right_hrir
-
-        self.left_state = np.zeros(
-            max(0, len(self.left_hrir) - 1),
-            dtype=np.float64,
-        )
-        self.right_state = np.zeros(
-            max(0, len(self.right_hrir) - 1),
-            dtype=np.float64,
-        )
-
-    @classmethod
-    def _load_front_hrir(
-        cls,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        with cls._cache_lock:
-            if cls._cached_front_hrir is not None:
-                left, right = cls._cached_front_hrir
-                return left.copy(), right.copy()
-
-            hrtf = slab.HRTF.kemar()
-            coordinates = np.asarray(
-                hrtf.sources.vertical_polar,
-                dtype=np.float64,
-            )
-
-            azimuths = coordinates[:, 0]
-            elevations = coordinates[:, 1]
-
-            requested_azimuth = (
-                SPATIAL_BASELINE_AZIMUTH_DEGREES % 360.0
-            )
-            azimuth_delta = (
-                (azimuths - requested_azimuth + 180.0) % 360.0
-            ) - 180.0
-            elevation_delta = (
-                elevations - SPATIAL_BASELINE_ELEVATION_DEGREES
-            )
-            source_index = int(
-                np.argmin(
-                    azimuth_delta * azimuth_delta
-                    + elevation_delta * elevation_delta
-                )
-            )
-
-            filter_object = hrtf.data[source_index]
-            taps = np.asarray(
-                filter_object.data,
-                dtype=np.float64,
-            )
-
-            if taps.ndim != 2:
-                raise RuntimeError(
-                    "Unexpected slab HRTF filter shape: "
-                    f"{taps.shape}"
-                )
-
-            # slab normally stores taps x ears. Handle the inverse defensively.
-            if taps.shape[1] == 2:
-                left = taps[:, 0]
-                right = taps[:, 1]
-            elif taps.shape[0] == 2:
-                left = taps[0]
-                right = taps[1]
-            else:
-                raise RuntimeError(
-                    "Expected a two-ear slab HRTF filter, got "
-                    f"{taps.shape}"
-                )
-
-            left = np.asarray(left, dtype=np.float64)
-            right = np.asarray(right, dtype=np.float64)
-
-            # Match broadband energy to unity so inserting the neutral front
-            # renderer does not materially alter source level. Spectral shaping
-            # remains, which is the actual HRTF contribution.
-            average_energy = 0.5 * (
-                float(np.sum(left * left))
-                + float(np.sum(right * right))
-            )
-            if average_energy <= 1e-20:
-                raise RuntimeError("Front HRTF filter has no usable energy.")
-
-            normalization = 1.0 / math.sqrt(average_energy)
-            left *= normalization
-            right *= normalization
-
-            cls._cached_front_hrir = (
-                left.astype(np.float64, copy=True),
-                right.astype(np.float64, copy=True),
-            )
-
-            return left.copy(), right.copy()
-
-    def reset(self) -> None:
-        self.left_state.fill(0.0)
-        self.right_state.fill(0.0)
-
-    def process_mono(self, mono: np.ndarray) -> np.ndarray:
-        mono64 = np.asarray(mono, dtype=np.float64)
-
-        wet_left, self.left_state = signal.lfilter(
-            self.left_hrir,
-            [1.0],
-            mono64,
-            zi=self.left_state,
-        )
-        wet_right, self.right_state = signal.lfilter(
-            self.right_hrir,
-            [1.0],
-            mono64,
-            zi=self.right_state,
-        )
-
-        dry = np.column_stack((mono64, mono64))
-        wet = np.column_stack((wet_left, wet_right))
-        result = dry + (wet - dry) * self.wet_blend
-        return result.astype(np.float32)
-
-    def process_stereo(self, stereo: np.ndarray) -> np.ndarray:
-        stereo64 = np.asarray(stereo, dtype=np.float64)
-
-        if stereo64.ndim != 2 or stereo64.shape[1] != 2:
-            raise ValueError(
-                "Spatial stereo input must be frames x 2."
-            )
-
-        if not self.preserve_stereo:
-            mono = 0.5 * (
-                stereo64[:, 0] + stereo64[:, 1]
-            )
-            return self.process_mono(mono)
-
-        wet_left, self.left_state = signal.lfilter(
-            self.left_hrir,
-            [1.0],
-            stereo64[:, 0],
-            zi=self.left_state,
-        )
-        wet_right, self.right_state = signal.lfilter(
-            self.right_hrir,
-            [1.0],
-            stereo64[:, 1],
-            zi=self.right_state,
-        )
-
-        wet = np.column_stack((wet_left, wet_right))
-        result = stereo64 + (
-            wet - stereo64
-        ) * self.wet_blend
-        return result.astype(np.float32)
-
-    def process(self, audio: np.ndarray) -> np.ndarray:
-        if not SPATIAL_BASELINE_ENABLED:
-            if audio.ndim == 1:
-                return np.column_stack((audio, audio)).astype(
-                    np.float32,
-                    copy=False,
-                )
-            return np.asarray(audio, dtype=np.float32)
-
-        if audio.ndim == 1:
-            return self.process_mono(audio)
-        return self.process_stereo(audio)
-
-
 @dataclass(frozen=True, slots=True)
 class MixerSpec:
     correlation_min: float = 0.0
@@ -3573,19 +3368,24 @@ class LivingBrownNoiseMixer:
             state=ambient_sample_state,
         )
 
-        # Neutral fixed-front 3D source renderers. Motion will be added one
-        # source class at a time only after this baseline is accepted.
-        self.brown_noise_spatial = FixedFrontSpatialRenderer(
-            preserve_stereo=SPATIAL_PRESERVE_STEREO_BEDS,
-            wet_blend=SPATIAL_BROWN_NOISE_WET_BLEND,
+        self.spatial_renderer = SteamAudioRenderer(
+            sample_rate=int(self.sample_rate),
+            frame_size=STEAM_SPATIAL_FRAME_SIZE,
+            validation_enabled=False,
+            log_messages=False,
         )
-        self.heartbeat_spatial = FixedFrontSpatialRenderer(
-            preserve_stereo=False,
-            wet_blend=SPATIAL_HEARTBEAT_WET_BLEND,
+        self.brown_noise_spatial = self.spatial_renderer.create_source(
+            position=STEAM_DEFAULT_SOURCE_POSITION,
+            spatial_blend=1.0,
+            distance_attenuation_enabled=True,
         )
-        self.soundscape_spatial = FixedFrontSpatialRenderer(
-            preserve_stereo=SPATIAL_PRESERVE_STEREO_BEDS,
-            wet_blend=SPATIAL_SOUNDSCAPE_WET_BLEND,
+        self.heartbeat_spatial = self.spatial_renderer.create_source(
+            position=STEAM_DEFAULT_SOURCE_POSITION,
+            spatial_blend=STEAM_HEARTBEAT_SPATIAL_BLEND,
+        )
+        self.soundscape_spatial = self.spatial_renderer.create_source(
+            position=STEAM_DEFAULT_SOURCE_POSITION,
+            spatial_blend=1.0,
         )
 
         self.breath_state = breath_state
@@ -3636,6 +3436,9 @@ class LivingBrownNoiseMixer:
         self.current_heart_interval = 60.0 / 50.0
         self.current_soundscape_stage = "disabled"
         self.current_soundscape_gain_db = -80.0
+
+    def close(self) -> None:
+        self.spatial_renderer.close()
 
     def _approach_target(
         self,
@@ -3860,7 +3663,10 @@ class LivingBrownNoiseMixer:
         # Every major source now enters the final mix through a discrete fixed
         # 3D source renderer. All transforms are neutral/directly ahead in this
         # baseline, so it should remain close to the v2.4.1 sound.
-        stereo = self.brown_noise_spatial.process(stereo)
+        stereo = self.brown_noise_spatial.process_stereo_bed(
+            stereo,
+            spatial_amount=STEAM_BROWN_SPATIAL_AMOUNT,
+        )
 
         heartbeat = self.heartbeat.generate(frame_count)
         active_heartbeat = heartbeat * heartbeat_curve
@@ -3873,15 +3679,16 @@ class LivingBrownNoiseMixer:
             self.heartbeat.current_interval_seconds
         )
 
-        spatial_heartbeat = self.heartbeat_spatial.process(
+        spatial_heartbeat = self.heartbeat_spatial.process_mono(
             active_heartbeat
         )
         stereo += spatial_heartbeat
 
         soundscape = self.ambient_sample.generate(frame_count)
         soundscape *= soundscape_curve[:, np.newaxis]
-        spatial_soundscape = self.soundscape_spatial.process(
-            soundscape
+        spatial_soundscape = self.soundscape_spatial.process_stereo_bed(
+            soundscape,
+            spatial_amount=STEAM_SOUNDSCAPE_SPATIAL_AMOUNT,
         )
         stereo += spatial_soundscape
 
@@ -4146,6 +3953,7 @@ class ExportWorker(QThread):
         self._cancel_requested.set()
 
     def run(self) -> None:
+        mixer = None
         try:
             total_frames = int(
                 self.duration_minutes * 60 * self.sample_rate
@@ -4218,6 +4026,10 @@ class ExportWorker(QThread):
             except Exception:
                 pass
             self.export_failed.emit(str(exc))
+
+        finally:
+            if mixer is not None:
+                mixer.close()
 
 
 # =============================================================================
@@ -4364,6 +4176,16 @@ class MainWindow(QMainWindow):
         self.motif_playback_enabled = False
         self.export_worker: ExportWorker | None = None
 
+        self._brown_source_distance_meters = (
+            STEAM_BROWN_DISTANCE_DEFAULT_METERS
+        )
+        self._brown_source_azimuth_degrees = (
+            STEAM_BROWN_AZIMUTH_DEFAULT_DEGREES
+        )
+        self._brown_source_elevation_degrees = (
+            STEAM_BROWN_ELEVATION_DEFAULT_DEGREES
+        )
+
         self.settings_save_timer = QTimer(self)
         self.settings_save_timer.setSingleShot(True)
         self.settings_save_timer.timeout.connect(self._save_settings)
@@ -4371,7 +4193,7 @@ class MainWindow(QMainWindow):
         self.default_breath_spec = BreathSpec()
 
         self.setWindowTitle(
-            "Living Brown Noise — Dream Instigator Lab v2.5.1 Spatial Baseline"
+            "Living Brown Noise — Dream Instigator Lab v2.7.1 Full Spatial Position Test"
         )
         self.resize(840, 1040)
 
@@ -4821,6 +4643,48 @@ class MainWindow(QMainWindow):
         noise_form.addRow(
             "Resolved body:",
             self.noise_body_status,
+        )
+
+        self.brown_distance_control = FloatControl(
+            minimum=STEAM_BROWN_DISTANCE_MIN_METERS,
+            maximum=STEAM_BROWN_DISTANCE_MAX_METERS,
+            value=STEAM_BROWN_DISTANCE_DEFAULT_METERS,
+            step=0.05,
+            decimals=2,
+            suffix=" m",
+            on_change=self._update_brown_distance,
+        )
+        noise_form.addRow(
+            "Brown-noise source distance:",
+            self.brown_distance_control,
+        )
+
+        self.brown_azimuth_control = FloatControl(
+            minimum=STEAM_BROWN_AZIMUTH_MIN_DEGREES,
+            maximum=STEAM_BROWN_AZIMUTH_MAX_DEGREES,
+            value=STEAM_BROWN_AZIMUTH_DEFAULT_DEGREES,
+            step=0.5,
+            decimals=1,
+            suffix="°",
+            on_change=self._update_brown_azimuth,
+        )
+        noise_form.addRow(
+            "Brown-noise horizontal angle (full spatial):",
+            self.brown_azimuth_control,
+        )
+
+        self.brown_elevation_control = FloatControl(
+            minimum=STEAM_BROWN_ELEVATION_MIN_DEGREES,
+            maximum=STEAM_BROWN_ELEVATION_MAX_DEGREES,
+            value=STEAM_BROWN_ELEVATION_DEFAULT_DEGREES,
+            step=0.5,
+            decimals=1,
+            suffix="°",
+            on_change=self._update_brown_elevation,
+        )
+        noise_form.addRow(
+            "Brown-noise vertical angle:",
+            self.brown_elevation_control,
         )
 
         reset_noise_button = QPushButton(
@@ -5975,6 +5839,34 @@ class MainWindow(QMainWindow):
         self._update_noise_status()
         self._schedule_settings_save()
 
+    def _apply_brown_source_position(self) -> None:
+        azimuth = math.radians(
+            self._brown_source_azimuth_degrees
+        )
+        elevation = math.radians(
+            self._brown_source_elevation_degrees
+        )
+        distance = self._brown_source_distance_meters
+        horizontal = distance * math.cos(elevation)
+
+        x = horizontal * math.sin(azimuth)
+        y = distance * math.sin(elevation)
+        z = -horizontal * math.cos(azimuth)
+
+        self.mixer.brown_noise_spatial.set_position(x, y, z)
+
+    def _update_brown_distance(self, value: float) -> None:
+        self._brown_source_distance_meters = float(value)
+        self._apply_brown_source_position()
+
+    def _update_brown_azimuth(self, value: float) -> None:
+        self._brown_source_azimuth_degrees = float(value)
+        self._apply_brown_source_position()
+
+    def _update_brown_elevation(self, value: float) -> None:
+        self._brown_source_elevation_degrees = float(value)
+        self._apply_brown_source_position()
+
     def _update_noise_parameter(self, **changes: float) -> None:
         self.noise_state.update(**changes)
         self._update_noise_status()
@@ -6036,6 +5928,16 @@ class MainWindow(QMainWindow):
         spec = BrownNoiseSpec()
         evolution = BrownNoiseEvolutionSpec()
         movement = BodyMovementSpec()
+
+        self.brown_distance_control.set_value(
+            STEAM_BROWN_DISTANCE_DEFAULT_METERS
+        )
+        self.brown_azimuth_control.set_value(
+            STEAM_BROWN_AZIMUTH_DEFAULT_DEGREES
+        )
+        self.brown_elevation_control.set_value(
+            STEAM_BROWN_ELEVATION_DEFAULT_DEGREES
+        )
 
         self.noise_state.set(spec)
         self.noise_evolution_state.set(evolution)
@@ -6640,6 +6542,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._save_settings()
         self.engine.stop()
+        self.mixer.close()
         if self.export_worker is not None:
             self.export_worker.request_cancel()
             self.export_worker.wait(5000)
