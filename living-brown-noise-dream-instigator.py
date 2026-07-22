@@ -13,6 +13,7 @@ from typing import ClassVar
 import numpy as np
 import sounddevice as sd
 import av
+import slab
 from scipy import signal
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -36,6 +37,8 @@ from PySide6.QtWidgets import (
 )
 
 
+# Dependency added in v2.5: python -m pip install "slab[hrtf]"
+#
 # Edit this path to point at the folder containing the WAV files you want
 # available in the Soundscape Sample Test dropdown.
 SOUND_EFFECTS_DIRECTORY = Path(
@@ -56,6 +59,36 @@ SUPPORTED_AUDIO_EXTENSIONS = {
 
 # Files at or below this duration are catalogued as layered motif events.
 DREAM_MOTIF_LAYER_THRESHOLD_SECONDS = 10.0
+
+# =============================================================================
+# Spatial baseline
+# =============================================================================
+#
+# Version 2.5 routes every major audio bus through the same fixed-front HRTF
+# stage, but intentionally introduces NO spatial motion yet. The listener is
+# fixed at the origin and all sources are placed directly ahead.
+#
+# The wet blend is deliberately conservative for the baseline comparison.
+# A value of 1.0 is fully HRTF-rendered; 0.0 is the legacy signal. Keeping this
+# near the middle lets us confirm architecture, live/export parity, and tonal
+# acceptability before motion is introduced.
+SPATIAL_BASELINE_ENABLED = True
+# A fixed-front HRTF contains delay and spectral coloration. Mixing too much
+# of it in parallel with an already-rich stereo bed causes comb filtering and
+# makes brown noise sound hollow. At the neutral baseline, spatial influence
+# should therefore be microscopic. Later moving sources can use much stronger
+# wet values because the directional effect will then be intentional.
+SPATIAL_BROWN_NOISE_WET_BLEND = 0.025
+SPATIAL_HEARTBEAT_WET_BLEND = 0.08
+SPATIAL_SOUNDSCAPE_WET_BLEND = 0.06
+
+SPATIAL_BASELINE_AZIMUTH_DEGREES = 0.0
+SPATIAL_BASELINE_ELEVATION_DEGREES = 0.0
+
+# Brown noise and ambient recordings are already stereo. Preserve their stereo
+# internal variation while applying the fixed-front filter independently to
+# each ear. Heartbeat remains a true mono point source rendered to both ears.
+SPATIAL_PRESERVE_STEREO_BEDS = True
 
 
 # =============================================================================
@@ -3294,6 +3327,203 @@ class ModeState:
             )
 
 
+class FixedFrontSpatialRenderer:
+    """
+    Streaming fixed-position binaural renderer for the neutral 3D baseline.
+
+    This class deliberately has no motion API yet. It establishes the source
+    abstraction, HRTF loading, persistent FIR state, and identical live/export
+    processing path. Future spatial evolution can replace only the transform
+    and filter-selection behavior while preserving the mixer architecture.
+
+    For stereo beds, each existing ear channel is filtered by the corresponding
+    front-facing HRIR. This retains the Living Brown Noise stereo/correlation
+    character and ambient-recording stereo content for the baseline.
+
+    For mono point sources, the same mono input is convolved independently with
+    the left and right HRIRs.
+    """
+
+    _cache_lock = threading.Lock()
+    _cached_front_hrir: tuple[np.ndarray, np.ndarray] | None = None
+
+    def __init__(
+        self,
+        *,
+        preserve_stereo: bool,
+        wet_blend: float,
+    ) -> None:
+        self.preserve_stereo = bool(preserve_stereo)
+        self.wet_blend = float(np.clip(wet_blend, 0.0, 1.0))
+
+        left_hrir, right_hrir = self._load_front_hrir()
+        self.left_hrir = left_hrir
+        self.right_hrir = right_hrir
+
+        self.left_state = np.zeros(
+            max(0, len(self.left_hrir) - 1),
+            dtype=np.float64,
+        )
+        self.right_state = np.zeros(
+            max(0, len(self.right_hrir) - 1),
+            dtype=np.float64,
+        )
+
+    @classmethod
+    def _load_front_hrir(
+        cls,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        with cls._cache_lock:
+            if cls._cached_front_hrir is not None:
+                left, right = cls._cached_front_hrir
+                return left.copy(), right.copy()
+
+            hrtf = slab.HRTF.kemar()
+            coordinates = np.asarray(
+                hrtf.sources.vertical_polar,
+                dtype=np.float64,
+            )
+
+            azimuths = coordinates[:, 0]
+            elevations = coordinates[:, 1]
+
+            requested_azimuth = (
+                SPATIAL_BASELINE_AZIMUTH_DEGREES % 360.0
+            )
+            azimuth_delta = (
+                (azimuths - requested_azimuth + 180.0) % 360.0
+            ) - 180.0
+            elevation_delta = (
+                elevations - SPATIAL_BASELINE_ELEVATION_DEGREES
+            )
+            source_index = int(
+                np.argmin(
+                    azimuth_delta * azimuth_delta
+                    + elevation_delta * elevation_delta
+                )
+            )
+
+            filter_object = hrtf.data[source_index]
+            taps = np.asarray(
+                filter_object.data,
+                dtype=np.float64,
+            )
+
+            if taps.ndim != 2:
+                raise RuntimeError(
+                    "Unexpected slab HRTF filter shape: "
+                    f"{taps.shape}"
+                )
+
+            # slab normally stores taps x ears. Handle the inverse defensively.
+            if taps.shape[1] == 2:
+                left = taps[:, 0]
+                right = taps[:, 1]
+            elif taps.shape[0] == 2:
+                left = taps[0]
+                right = taps[1]
+            else:
+                raise RuntimeError(
+                    "Expected a two-ear slab HRTF filter, got "
+                    f"{taps.shape}"
+                )
+
+            left = np.asarray(left, dtype=np.float64)
+            right = np.asarray(right, dtype=np.float64)
+
+            # Match broadband energy to unity so inserting the neutral front
+            # renderer does not materially alter source level. Spectral shaping
+            # remains, which is the actual HRTF contribution.
+            average_energy = 0.5 * (
+                float(np.sum(left * left))
+                + float(np.sum(right * right))
+            )
+            if average_energy <= 1e-20:
+                raise RuntimeError("Front HRTF filter has no usable energy.")
+
+            normalization = 1.0 / math.sqrt(average_energy)
+            left *= normalization
+            right *= normalization
+
+            cls._cached_front_hrir = (
+                left.astype(np.float64, copy=True),
+                right.astype(np.float64, copy=True),
+            )
+
+            return left.copy(), right.copy()
+
+    def reset(self) -> None:
+        self.left_state.fill(0.0)
+        self.right_state.fill(0.0)
+
+    def process_mono(self, mono: np.ndarray) -> np.ndarray:
+        mono64 = np.asarray(mono, dtype=np.float64)
+
+        wet_left, self.left_state = signal.lfilter(
+            self.left_hrir,
+            [1.0],
+            mono64,
+            zi=self.left_state,
+        )
+        wet_right, self.right_state = signal.lfilter(
+            self.right_hrir,
+            [1.0],
+            mono64,
+            zi=self.right_state,
+        )
+
+        dry = np.column_stack((mono64, mono64))
+        wet = np.column_stack((wet_left, wet_right))
+        result = dry + (wet - dry) * self.wet_blend
+        return result.astype(np.float32)
+
+    def process_stereo(self, stereo: np.ndarray) -> np.ndarray:
+        stereo64 = np.asarray(stereo, dtype=np.float64)
+
+        if stereo64.ndim != 2 or stereo64.shape[1] != 2:
+            raise ValueError(
+                "Spatial stereo input must be frames x 2."
+            )
+
+        if not self.preserve_stereo:
+            mono = 0.5 * (
+                stereo64[:, 0] + stereo64[:, 1]
+            )
+            return self.process_mono(mono)
+
+        wet_left, self.left_state = signal.lfilter(
+            self.left_hrir,
+            [1.0],
+            stereo64[:, 0],
+            zi=self.left_state,
+        )
+        wet_right, self.right_state = signal.lfilter(
+            self.right_hrir,
+            [1.0],
+            stereo64[:, 1],
+            zi=self.right_state,
+        )
+
+        wet = np.column_stack((wet_left, wet_right))
+        result = stereo64 + (
+            wet - stereo64
+        ) * self.wet_blend
+        return result.astype(np.float32)
+
+    def process(self, audio: np.ndarray) -> np.ndarray:
+        if not SPATIAL_BASELINE_ENABLED:
+            if audio.ndim == 1:
+                return np.column_stack((audio, audio)).astype(
+                    np.float32,
+                    copy=False,
+                )
+            return np.asarray(audio, dtype=np.float32)
+
+        if audio.ndim == 1:
+            return self.process_mono(audio)
+        return self.process_stereo(audio)
+
+
 @dataclass(frozen=True, slots=True)
 class MixerSpec:
     correlation_min: float = 0.0
@@ -3342,6 +3572,22 @@ class LivingBrownNoiseMixer:
             sample_rate=int(self.sample_rate),
             state=ambient_sample_state,
         )
+
+        # Neutral fixed-front 3D source renderers. Motion will be added one
+        # source class at a time only after this baseline is accepted.
+        self.brown_noise_spatial = FixedFrontSpatialRenderer(
+            preserve_stereo=SPATIAL_PRESERVE_STEREO_BEDS,
+            wet_blend=SPATIAL_BROWN_NOISE_WET_BLEND,
+        )
+        self.heartbeat_spatial = FixedFrontSpatialRenderer(
+            preserve_stereo=False,
+            wet_blend=SPATIAL_HEARTBEAT_WET_BLEND,
+        )
+        self.soundscape_spatial = FixedFrontSpatialRenderer(
+            preserve_stereo=SPATIAL_PRESERVE_STEREO_BEDS,
+            wet_blend=SPATIAL_SOUNDSCAPE_WET_BLEND,
+        )
+
         self.breath_state = breath_state
         self.breath_evolution_state = breath_evolution_state
         self.motion_state = motion_state
@@ -3611,6 +3857,11 @@ class LivingBrownNoiseMixer:
         # for heartbeat debugging without stopping its internal state.
         stereo *= base_curve[:, np.newaxis]
 
+        # Every major source now enters the final mix through a discrete fixed
+        # 3D source renderer. All transforms are neutral/directly ahead in this
+        # baseline, so it should remain close to the v2.4.1 sound.
+        stereo = self.brown_noise_spatial.process(stereo)
+
         heartbeat = self.heartbeat.generate(frame_count)
         active_heartbeat = heartbeat * heartbeat_curve
 
@@ -3622,11 +3873,17 @@ class LivingBrownNoiseMixer:
             self.heartbeat.current_interval_seconds
         )
 
-        # Heartbeat is deliberately mono and centered equally in both ears.
-        stereo += active_heartbeat[:, np.newaxis]
+        spatial_heartbeat = self.heartbeat_spatial.process(
+            active_heartbeat
+        )
+        stereo += spatial_heartbeat
 
         soundscape = self.ambient_sample.generate(frame_count)
-        stereo += soundscape * soundscape_curve[:, np.newaxis]
+        soundscape *= soundscape_curve[:, np.newaxis]
+        spatial_soundscape = self.soundscape_spatial.process(
+            soundscape
+        )
+        stereo += spatial_soundscape
 
         self.current_soundscape_stage = (
             self.ambient_sample.current_stage_name
@@ -4114,7 +4371,7 @@ class MainWindow(QMainWindow):
         self.default_breath_spec = BreathSpec()
 
         self.setWindowTitle(
-            "Living Brown Noise — Dream Instigator Lab v2.4.1"
+            "Living Brown Noise — Dream Instigator Lab v2.5.1 Spatial Baseline"
         )
         self.resize(840, 1040)
 
