@@ -54,6 +54,9 @@ SUPPORTED_AUDIO_EXTENSIONS = {
     ".aif",
 }
 
+# Files at or below this duration are catalogued as layered motif events.
+DREAM_MOTIF_LAYER_THRESHOLD_SECONDS = 10.0
+
 
 # =============================================================================
 # Organic motion generator
@@ -2306,6 +2309,149 @@ class HeartbeatGenerator:
 
 
 # =============================================================================
+# Dream motif catalogue
+# =============================================================================
+
+@dataclass(frozen=True, slots=True)
+class DreamMotifAsset:
+    path: Path
+    duration_seconds: float
+    is_layered_event: bool
+
+
+@dataclass(frozen=True, slots=True)
+class DreamMotif:
+    name: str
+    directory: Path
+    ambient_assets: tuple[DreamMotifAsset, ...]
+    layered_assets: tuple[DreamMotifAsset, ...]
+
+    @property
+    def total_assets(self) -> int:
+        return len(self.ambient_assets) + len(self.layered_assets)
+
+
+class DreamMotifCatalog:
+    """Scans immediate subfolders beneath the configured sounds directory."""
+
+    def __init__(
+        self,
+        root_directory: Path,
+        layer_threshold_seconds: float,
+    ) -> None:
+        self.root_directory = root_directory
+        self.layer_threshold_seconds = float(layer_threshold_seconds)
+        self.motifs: tuple[DreamMotif, ...] = ()
+        self.errors: tuple[str, ...] = ()
+
+    @staticmethod
+    def _probe_duration(path: Path) -> float:
+        container = av.open(str(path))
+        try:
+            streams = [s for s in container.streams if s.type == "audio"]
+            if not streams:
+                raise ValueError("no audio stream")
+
+            stream = streams[0]
+            if stream.duration is not None and stream.time_base is not None:
+                duration = float(stream.duration * stream.time_base)
+                if duration > 0.0:
+                    return duration
+
+            if container.duration is not None:
+                duration = float(container.duration) / float(av.time_base)
+                if duration > 0.0:
+                    return duration
+
+            # Metadata can be absent in some MP3/VBR files. Decode only enough
+            # to determine the complete timestamp range as a reliable fallback.
+            end_seconds = 0.0
+            sample_rate = int(
+                stream.codec_context.sample_rate
+                or stream.rate
+                or 44_100
+            )
+            decoded_samples = 0
+            for frame in container.decode(stream):
+                decoded_samples += int(frame.samples)
+                if frame.pts is not None and frame.time_base is not None:
+                    frame_end = float(frame.pts * frame.time_base)
+                    frame_end += frame.samples / sample_rate
+                    end_seconds = max(end_seconds, frame_end)
+
+            if end_seconds > 0.0:
+                return end_seconds
+            if decoded_samples > 0:
+                return decoded_samples / sample_rate
+            raise ValueError("decoded no audio frames")
+        finally:
+            container.close()
+
+    def scan(self) -> tuple[DreamMotif, ...]:
+        self.root_directory.mkdir(parents=True, exist_ok=True)
+        motifs: list[DreamMotif] = []
+        errors: list[str] = []
+
+        directories = sorted(
+            (p for p in self.root_directory.iterdir() if p.is_dir()),
+            key=lambda p: p.name.lower(),
+        )
+
+        for directory in directories:
+            ambient: list[DreamMotifAsset] = []
+            layered: list[DreamMotifAsset] = []
+
+            files = sorted(
+                (
+                    p
+                    for p in directory.iterdir()
+                    if p.is_file()
+                    and p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
+                ),
+                key=lambda p: p.name.lower(),
+            )
+
+            for path in files:
+                try:
+                    duration = self._probe_duration(path)
+                    asset = DreamMotifAsset(
+                        path=path,
+                        duration_seconds=duration,
+                        is_layered_event=(
+                            duration
+                            <= self.layer_threshold_seconds
+                        ),
+                    )
+                    if asset.is_layered_event:
+                        layered.append(asset)
+                    else:
+                        ambient.append(asset)
+                except Exception as exc:
+                    errors.append(
+                        f"{directory.name}/{path.name}: {exc}"
+                    )
+
+            motifs.append(
+                DreamMotif(
+                    name=directory.name,
+                    directory=directory,
+                    ambient_assets=tuple(ambient),
+                    layered_assets=tuple(layered),
+                )
+            )
+
+        self.motifs = tuple(motifs)
+        self.errors = tuple(errors)
+        return self.motifs
+
+    def find(self, name: str) -> DreamMotif | None:
+        for motif in self.motifs:
+            if motif.name == name:
+                return motif
+        return None
+
+
+# =============================================================================
 # Soundscape sample test layer
 # =============================================================================
 
@@ -3948,6 +4094,17 @@ class MainWindow(QMainWindow):
         self.mixer = mixer
         self.settings_store = settings_store
         self.loaded_settings = loaded_settings
+        self.dream_motif_catalog = DreamMotifCatalog(
+            root_directory=SOUND_EFFECTS_DIRECTORY,
+            layer_threshold_seconds=(
+                DREAM_MOTIF_LAYER_THRESHOLD_SECONDS
+            ),
+        )
+        self.motif_rng = np.random.default_rng(77123)
+        self.active_motif_name = ""
+        self.active_motif_asset: DreamMotifAsset | None = None
+        self.previous_motif_stage = ""
+        self.motif_playback_enabled = False
         self.export_worker: ExportWorker | None = None
 
         self.settings_save_timer = QTimer(self)
@@ -3957,7 +4114,7 @@ class MainWindow(QMainWindow):
         self.default_breath_spec = BreathSpec()
 
         self.setWindowTitle(
-            "Living Brown Noise — Dream Instigator Lab v2.3.2"
+            "Living Brown Noise — Dream Instigator Lab v2.4.1"
         )
         self.resize(840, 1040)
 
@@ -4021,6 +4178,52 @@ class MainWindow(QMainWindow):
         self.breath_checkbox.setChecked(
             self.mode_state.get().breath_enabled
         )
+
+        self.motif_expand_button = QToolButton()
+        self.motif_expand_button.setText("Dream motif catalogue")
+        self.motif_expand_button.setCheckable(True)
+        self.motif_expand_button.setChecked(True)
+        self.motif_expand_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.motif_expand_button.setArrowType(
+            Qt.ArrowType.RightArrow
+        )
+        controls_layout.addWidget(self.motif_expand_button)
+
+        self.motif_panel = QWidget()
+        motif_form = QFormLayout(self.motif_panel)
+        motif_form.setContentsMargins(24, 4, 0, 8)
+
+        self.motif_directory_label = QLabel(
+            str(SOUND_EFFECTS_DIRECTORY)
+        )
+        self.motif_directory_label.setWordWrap(True)
+        motif_form.addRow("Motif root:", self.motif_directory_label)
+
+        self.motif_combo = QComboBox()
+        motif_form.addRow("Detected motif:", self.motif_combo)
+
+        self.motif_reload_button = QPushButton(
+            "Rescan dream motifs"
+        )
+        motif_form.addRow("", self.motif_reload_button)
+
+        self.motif_summary_label = QLabel(
+            "Dream motifs have not been scanned yet."
+        )
+        self.motif_summary_label.setWordWrap(True)
+        motif_form.addRow("Catalogue status:", self.motif_summary_label)
+
+        self.motif_detail_label = QLabel("")
+        self.motif_detail_label.setWordWrap(True)
+        motif_form.addRow("Selected motif:", self.motif_detail_label)
+
+        self.motif_playing_label = QLabel("No motif audio active")
+        self.motif_playing_label.setWordWrap(True)
+        motif_form.addRow("Motif playback:", self.motif_playing_label)
+
+        controls_layout.addWidget(self.motif_panel)
 
         self.soundscape_expand_button = QToolButton()
         self.soundscape_expand_button.setText(
@@ -5096,6 +5299,15 @@ class MainWindow(QMainWindow):
         self.soundscape_reload_button.clicked.connect(
             self._reload_soundscape_files
         )
+        self.motif_expand_button.toggled.connect(
+            self._toggle_motif_panel
+        )
+        self.motif_reload_button.clicked.connect(
+            self._reload_dream_motifs
+        )
+        self.motif_combo.currentTextChanged.connect(
+            self._on_motif_changed
+        )
         self.soundscape_expand_button.toggled.connect(
             self._toggle_soundscape_panel
         )
@@ -5130,10 +5342,14 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self._refresh_status)
         self.timer.start(100)
 
+        self._toggle_motif_panel(
+            self.motif_expand_button.isChecked()
+        )
         self._toggle_soundscape_panel(
             self.soundscape_expand_button.isChecked()
         )
         self._reload_soundscape_files()
+        self._reload_dream_motifs()
         self._toggle_noise_panel(
             self.noise_expand_button.isChecked()
         )
@@ -5155,6 +5371,160 @@ class MainWindow(QMainWindow):
         self._update_noise_status()
         self._on_modes_changed()
 
+    def _toggle_motif_panel(self, expanded: bool) -> None:
+        self.motif_panel.setVisible(expanded)
+        self.motif_expand_button.setArrowType(
+            Qt.ArrowType.DownArrow
+            if expanded
+            else Qt.ArrowType.RightArrow
+        )
+
+    def _reload_dream_motifs(self) -> None:
+        self.motif_summary_label.setText(
+            "Scanning dream motif subfolders…"
+        )
+        QApplication.processEvents()
+
+        motifs = self.dream_motif_catalog.scan()
+
+        self.motif_combo.blockSignals(True)
+        self.motif_combo.clear()
+        for motif in motifs:
+            self.motif_combo.addItem(motif.name)
+        self.motif_combo.blockSignals(False)
+
+        ambient_count = sum(len(m.ambient_assets) for m in motifs)
+        layered_count = sum(len(m.layered_assets) for m in motifs)
+
+        if motifs:
+            self.motif_summary_label.setText(
+                f"Detected {len(motifs)} motif folder(s): "
+                f"{ambient_count} long ambient file(s), "
+                f"{layered_count} layered event file(s). "
+                f"Layer threshold: ≤ "
+                f"{DREAM_MOTIF_LAYER_THRESHOLD_SECONDS:.1f} s."
+            )
+            self.motif_combo.setCurrentIndex(0)
+            self._on_motif_changed(self.motif_combo.currentText())
+        else:
+            self.motif_summary_label.setText(
+                "No motif subfolders containing supported audio were "
+                f"found beneath {SOUND_EFFECTS_DIRECTORY}."
+            )
+            self.motif_detail_label.setText("")
+
+        if self.dream_motif_catalog.errors:
+            preview = "; ".join(
+                self.dream_motif_catalog.errors[:3]
+            )
+            extra = len(self.dream_motif_catalog.errors) - 3
+            if extra > 0:
+                preview += f"; plus {extra} more"
+            self.motif_summary_label.setText(
+                self.motif_summary_label.text()
+                + f" Probe errors: {preview}"
+            )
+
+    def _choose_motif_ambient_asset(
+        self,
+        motif: DreamMotif,
+    ) -> DreamMotifAsset | None:
+        if not motif.ambient_assets:
+            return None
+
+        candidates = list(motif.ambient_assets)
+        if (
+            self.active_motif_asset is not None
+            and len(candidates) > 1
+        ):
+            candidates = [
+                asset
+                for asset in candidates
+                if asset.path != self.active_motif_asset.path
+            ]
+
+        index = int(
+            self.motif_rng.integers(0, len(candidates))
+        )
+        return candidates[index]
+
+    def _load_next_motif_asset(self) -> None:
+        motif = self.dream_motif_catalog.find(
+            self.active_motif_name
+        )
+        if motif is None:
+            self.motif_playback_enabled = False
+            self.active_motif_asset = None
+            self.motif_playing_label.setText(
+                "No motif audio active"
+            )
+            return
+
+        asset = self._choose_motif_ambient_asset(motif)
+        if asset is None:
+            self.motif_playback_enabled = False
+            self.active_motif_asset = None
+            self.ambient_sample_state.load_file(None)
+            self.motif_playing_label.setText(
+                "No long ambient files in this motif"
+            )
+            return
+
+        self.active_motif_asset = asset
+        self.motif_playback_enabled = True
+
+        # Automatic motif playback shares the tested ambience DSP path but
+        # remains separate from the individual-file audition dropdown.
+        self.ambient_sample_state.update(
+            selected_filename=""
+        )
+        self.ambient_sample_state.load_file(asset.path)
+
+        self.soundscape_checkbox.setChecked(True)
+        self.soundscape_panel_enable.setChecked(True)
+
+        self.motif_playing_label.setText(
+            f"{asset.path.name} ({asset.duration_seconds:.1f} s)"
+        )
+
+    def _on_motif_changed(self, motif_name: str) -> None:
+        motif_name = motif_name.strip()
+        self.active_motif_name = motif_name
+        self.previous_motif_stage = ""
+
+        motif = self.dream_motif_catalog.find(motif_name)
+        if motif is None:
+            self.motif_detail_label.setText("")
+            self.motif_playback_enabled = False
+            self.active_motif_asset = None
+            self.ambient_sample_state.load_file(None)
+            self.motif_playing_label.setText(
+                "No motif audio active"
+            )
+            return
+
+        ambient_names = ", ".join(
+            asset.path.name for asset in motif.ambient_assets[:5]
+        ) or "none"
+        layered_names = ", ".join(
+            asset.path.name for asset in motif.layered_assets[:5]
+        ) or "none"
+
+        if len(motif.ambient_assets) > 5:
+            ambient_names += ", …"
+        if len(motif.layered_assets) > 5:
+            layered_names += ", …"
+
+        self.motif_detail_label.setText(
+            f"{motif.name}: {len(motif.ambient_assets)} long ambient "
+            f"file(s) [{ambient_names}]; "
+            f"{len(motif.layered_assets)} layered event file(s) "
+            f"[{layered_names}]."
+        )
+
+        self._load_next_motif_asset()
+        self._schedule_settings_save()
+
     def _toggle_soundscape_panel(self, expanded: bool) -> None:
         self.soundscape_panel.setVisible(expanded)
         self.soundscape_expand_button.setArrowType(
@@ -5165,14 +5535,13 @@ class MainWindow(QMainWindow):
         self._schedule_settings_save()
 
     def _reload_soundscape_files(self) -> None:
-        selected_spec, _, _, _, _ = self.ambient_sample_state.get()
-        selected = selected_spec.selected_filename
-
         SOUND_EFFECTS_DIRECTORY.mkdir(
             parents=True,
             exist_ok=True,
         )
 
+        # Individual audition mode deliberately scans only files placed in the
+        # root sounds folder. Motif assets remain organized in subfolders.
         files = sorted(
             (
                 path
@@ -5187,25 +5556,26 @@ class MainWindow(QMainWindow):
         self.soundscape_file_combo.blockSignals(True)
         self.soundscape_file_combo.clear()
         self.soundscape_file_combo.addItem("")
-
         for path in files:
             self.soundscape_file_combo.addItem(path.name)
-
-        index = self.soundscape_file_combo.findText(selected)
-        if index >= 0:
-            self.soundscape_file_combo.setCurrentIndex(index)
-        elif files:
-            self.soundscape_file_combo.setCurrentIndex(1)
-        else:
-            self.soundscape_file_combo.setCurrentIndex(0)
-
+        self.soundscape_file_combo.setCurrentIndex(0)
         self.soundscape_file_combo.blockSignals(False)
-        self._on_soundscape_file_changed(
-            self.soundscape_file_combo.currentText()
-        )
+
+        # Explicitly unload a prior audition sample, but do not disturb
+        # automatic motif playback that may already be active.
+        if not self.motif_playback_enabled:
+            self._on_soundscape_file_changed("")
 
     def _on_soundscape_file_changed(self, filename: str) -> None:
         filename = filename.strip()
+
+        if filename:
+            self.motif_playback_enabled = False
+            self.active_motif_asset = None
+            self.motif_playing_label.setText(
+                "Paused by individual audition"
+            )
+
         self.ambient_sample_state.update(
             selected_filename=filename
         )
@@ -5355,6 +5725,17 @@ class MainWindow(QMainWindow):
 
     def _update_noise_status(self) -> None:
         spec, _ = self.noise_state.get()
+        current_stage = self.mixer.current_soundscape_stage
+        if (
+            self.motif_playback_enabled
+            and current_stage == "fading in"
+            and self.previous_motif_stage == "silent"
+        ):
+            self._load_next_motif_asset()
+            current_stage = self.mixer.current_soundscape_stage
+
+        self.previous_motif_stage = current_stage
+
         evolution = self.noise_evolution_state.get()
 
         gain_ceiling_note = (
@@ -5728,6 +6109,8 @@ class MainWindow(QMainWindow):
         ambient_sample_spec, _, _, _, _ = (
             self.ambient_sample_state.get()
         )
+        ambient_sample_settings = asdict(ambient_sample_spec)
+        ambient_sample_settings["selected_filename"] = ""
         breath_spec, _ = self.breath_state.get()
         breath_evolution_spec = self.breath_evolution_state.get()
         motion_spec = self.motion_state.get()
@@ -5740,7 +6123,7 @@ class MainWindow(QMainWindow):
             "brown_noise_evolution": asdict(noise_evolution_spec),
             "body_movement": asdict(body_movement_spec),
             "heartbeat": asdict(heartbeat_spec),
-            "ambient_sample": asdict(ambient_sample_spec),
+            "ambient_sample": ambient_sample_settings,
             "soundscape_panel_expanded": (
                 self.soundscape_expand_button.isChecked()
             ),
@@ -6111,7 +6494,12 @@ def build_application() -> tuple[QApplication, MainWindow]:
         body_movement_spec = default_body_movement
 
     default_ambient_sample = AmbientSampleSpec()
-    ambient_sample_data = loaded.get("ambient_sample", {})
+    ambient_sample_data = dict(loaded.get("ambient_sample", {}))
+
+    # Audition selection is intentionally session-only. Never restore a file
+    # and begin playing it merely because it was selected in a previous run.
+    ambient_sample_data["selected_filename"] = ""
+
     try:
         ambient_sample_spec = AmbientSampleSpec(
             **{
