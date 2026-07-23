@@ -13,7 +13,7 @@ from typing import ClassVar
 import numpy as np
 import sounddevice as sd
 import av
-from steam_audio_renderer_v2 import SteamAudioRenderer, Vector3
+from steam_audio_renderer import SteamAudioRenderer, Vector3
 from scipy import signal
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
 )
 
 
-# Requires phonon.dll and steam_audio_renderer_v2.py beside this script.
+# Requires phonon.dll and steam_audio_renderer.py beside this script.
 #
 # Edit this path to point at the folder containing the WAV files you want
 # available in the Soundscape Sample Test dropdown.
@@ -61,26 +61,19 @@ SUPPORTED_AUDIO_EXTENSIONS = {
 DREAM_MOTIF_LAYER_THRESHOLD_SECONDS = 10.0
 
 # =============================================================================
-# Steam Audio spatial baseline
+# Steam Audio dual brown-source baseline
 # =============================================================================
 
 STEAM_SPATIAL_FRAME_SIZE = 2_048
 STEAM_DEFAULT_SOURCE_POSITION = Vector3(0.0, 0.0, -2.0)
 
-# Conservative baseline amounts preserve the accepted stereo character.
-STEAM_BROWN_SPATIAL_AMOUNT = 1.0
+# Fixed, deliberately wide positions for proving the dual-body architecture.
+# The viscous-fluid motion system will replace these constants later.
+STEAM_BROWN_LEFT_POSITION = Vector3(-2.75, 0.0, -2.0)
+STEAM_BROWN_RIGHT_POSITION = Vector3(2.75, 0.0, -2.0)
+
 STEAM_HEARTBEAT_SPATIAL_BLEND = 0.08
 STEAM_SOUNDSCAPE_SPATIAL_AMOUNT = 0.06
-
-STEAM_BROWN_DISTANCE_MIN_METERS = 0.20
-STEAM_BROWN_DISTANCE_MAX_METERS = 12.0
-STEAM_BROWN_DISTANCE_DEFAULT_METERS = 2.0
-STEAM_BROWN_AZIMUTH_MIN_DEGREES = -45.0
-STEAM_BROWN_AZIMUTH_MAX_DEGREES = 45.0
-STEAM_BROWN_AZIMUTH_DEFAULT_DEGREES = 0.0
-STEAM_BROWN_ELEVATION_MIN_DEGREES = -30.0
-STEAM_BROWN_ELEVATION_MAX_DEGREES = 45.0
-STEAM_BROWN_ELEVATION_DEFAULT_DEGREES = 0.0
 
 
 # =============================================================================
@@ -3374,10 +3367,19 @@ class LivingBrownNoiseMixer:
             validation_enabled=False,
             log_messages=False,
         )
-        self.brown_noise_spatial = self.spatial_renderer.create_source(
-            position=STEAM_DEFAULT_SOURCE_POSITION,
-            spatial_blend=1.0,
-            distance_attenuation_enabled=True,
+        self.brown_noise_left_spatial = (
+            self.spatial_renderer.create_source(
+                position=STEAM_BROWN_LEFT_POSITION,
+                spatial_blend=1.0,
+                distance_attenuation_enabled=False,
+            )
+        )
+        self.brown_noise_right_spatial = (
+            self.spatial_renderer.create_source(
+                position=STEAM_BROWN_RIGHT_POSITION,
+                spatial_blend=1.0,
+                distance_attenuation_enabled=False,
+            )
         )
         self.heartbeat_spatial = self.spatial_renderer.create_source(
             position=STEAM_DEFAULT_SOURCE_POSITION,
@@ -3604,48 +3606,15 @@ class LivingBrownNoiseMixer:
             spectral_amount,
         )
 
-        motion_start, motion_end = self.correlation_motion.advance(
-            frame_count / self.sample_rate
+        # Stereo correlation is replaced by two independent 3D brown-noise
+        # bodies. The pre-existing independent generators feed the two sources.
+        self.current_correlation = 0.0
+        stereo = np.column_stack(
+            (
+                independent_left,
+                independent_right,
+            )
         )
-
-        correlation_start = self._noise_to_correlation(
-            motion_start
-        )
-        correlation_end = self._noise_to_correlation(
-            motion_end
-        )
-
-        evolving_correlation = np.linspace(
-            correlation_start,
-            correlation_end,
-            frame_count,
-            endpoint=False,
-            dtype=np.float32,
-        )
-
-        correlation = evolving_correlation * correlation_curve
-        correlation -= bounded_breath * breath_spec.width_depth
-        np.clip(correlation, 0.0, 1.0, out=correlation)
-
-        self.current_correlation = float(correlation[-1])
-
-        common_gain = np.sqrt(correlation)
-        independent_gain = np.sqrt(1.0 - correlation)
-
-        stereo_left = (
-            common_gain * common
-            + independent_gain * independent_left
-        )
-        stereo_right = (
-            common_gain * common
-            + independent_gain * independent_right
-        )
-
-        mono = common
-        left = mono + (stereo_left - mono) * stereo_curve
-        right = mono + (stereo_right - mono) * stereo_curve
-
-        stereo = np.column_stack((left, right))
 
         breath_gain_db = (
             bounded_breath - 0.5 * breath_curve * prominence
@@ -3663,10 +3632,13 @@ class LivingBrownNoiseMixer:
         # Every major source now enters the final mix through a discrete fixed
         # 3D source renderer. All transforms are neutral/directly ahead in this
         # baseline, so it should remain close to the v2.4.1 sound.
-        stereo = self.brown_noise_spatial.process_stereo_bed(
-            stereo,
-            spatial_amount=STEAM_BROWN_SPATIAL_AMOUNT,
+        brown_left = self.brown_noise_left_spatial.process_mono(
+            stereo[:, 0]
         )
+        brown_right = self.brown_noise_right_spatial.process_mono(
+            stereo[:, 1]
+        )
+        stereo = brown_left + brown_right
 
         heartbeat = self.heartbeat.generate(frame_count)
         active_heartbeat = heartbeat * heartbeat_curve
@@ -4176,16 +4148,6 @@ class MainWindow(QMainWindow):
         self.motif_playback_enabled = False
         self.export_worker: ExportWorker | None = None
 
-        self._brown_source_distance_meters = (
-            STEAM_BROWN_DISTANCE_DEFAULT_METERS
-        )
-        self._brown_source_azimuth_degrees = (
-            STEAM_BROWN_AZIMUTH_DEFAULT_DEGREES
-        )
-        self._brown_source_elevation_degrees = (
-            STEAM_BROWN_ELEVATION_DEFAULT_DEGREES
-        )
-
         self.settings_save_timer = QTimer(self)
         self.settings_save_timer.setSingleShot(True)
         self.settings_save_timer.timeout.connect(self._save_settings)
@@ -4193,7 +4155,7 @@ class MainWindow(QMainWindow):
         self.default_breath_spec = BreathSpec()
 
         self.setWindowTitle(
-            "Living Brown Noise — Dream Instigator Lab v2.7.1 Full Spatial Position Test"
+            "Living Brown Noise — Dream Instigator Lab — Dual 3D Brown Sources"
         )
         self.resize(840, 1040)
 
@@ -4247,8 +4209,10 @@ class MainWindow(QMainWindow):
         self.correlation_checkbox = QCheckBox(
             "Correlation mixing — off uses fully independent L/R noise"
         )
-        self.correlation_checkbox.setChecked(
-            self.mode_state.get().correlation_enabled
+        self.correlation_checkbox.setChecked(False)
+        self.correlation_checkbox.setEnabled(False)
+        self.correlation_checkbox.setText(
+            "Legacy stereo correlation — replaced by dual 3D sources"
         )
 
         self.breath_checkbox = QCheckBox(
@@ -4643,48 +4607,6 @@ class MainWindow(QMainWindow):
         noise_form.addRow(
             "Resolved body:",
             self.noise_body_status,
-        )
-
-        self.brown_distance_control = FloatControl(
-            minimum=STEAM_BROWN_DISTANCE_MIN_METERS,
-            maximum=STEAM_BROWN_DISTANCE_MAX_METERS,
-            value=STEAM_BROWN_DISTANCE_DEFAULT_METERS,
-            step=0.05,
-            decimals=2,
-            suffix=" m",
-            on_change=self._update_brown_distance,
-        )
-        noise_form.addRow(
-            "Brown-noise source distance:",
-            self.brown_distance_control,
-        )
-
-        self.brown_azimuth_control = FloatControl(
-            minimum=STEAM_BROWN_AZIMUTH_MIN_DEGREES,
-            maximum=STEAM_BROWN_AZIMUTH_MAX_DEGREES,
-            value=STEAM_BROWN_AZIMUTH_DEFAULT_DEGREES,
-            step=0.5,
-            decimals=1,
-            suffix="°",
-            on_change=self._update_brown_azimuth,
-        )
-        noise_form.addRow(
-            "Brown-noise horizontal angle (full spatial):",
-            self.brown_azimuth_control,
-        )
-
-        self.brown_elevation_control = FloatControl(
-            minimum=STEAM_BROWN_ELEVATION_MIN_DEGREES,
-            maximum=STEAM_BROWN_ELEVATION_MAX_DEGREES,
-            value=STEAM_BROWN_ELEVATION_DEFAULT_DEGREES,
-            step=0.5,
-            decimals=1,
-            suffix="°",
-            on_change=self._update_brown_elevation,
-        )
-        noise_form.addRow(
-            "Brown-noise vertical angle:",
-            self.brown_elevation_control,
         )
 
         reset_noise_button = QPushButton(
@@ -5839,34 +5761,6 @@ class MainWindow(QMainWindow):
         self._update_noise_status()
         self._schedule_settings_save()
 
-    def _apply_brown_source_position(self) -> None:
-        azimuth = math.radians(
-            self._brown_source_azimuth_degrees
-        )
-        elevation = math.radians(
-            self._brown_source_elevation_degrees
-        )
-        distance = self._brown_source_distance_meters
-        horizontal = distance * math.cos(elevation)
-
-        x = horizontal * math.sin(azimuth)
-        y = distance * math.sin(elevation)
-        z = -horizontal * math.cos(azimuth)
-
-        self.mixer.brown_noise_spatial.set_position(x, y, z)
-
-    def _update_brown_distance(self, value: float) -> None:
-        self._brown_source_distance_meters = float(value)
-        self._apply_brown_source_position()
-
-    def _update_brown_azimuth(self, value: float) -> None:
-        self._brown_source_azimuth_degrees = float(value)
-        self._apply_brown_source_position()
-
-    def _update_brown_elevation(self, value: float) -> None:
-        self._brown_source_elevation_degrees = float(value)
-        self._apply_brown_source_position()
-
     def _update_noise_parameter(self, **changes: float) -> None:
         self.noise_state.update(**changes)
         self._update_noise_status()
@@ -5929,15 +5823,6 @@ class MainWindow(QMainWindow):
         evolution = BrownNoiseEvolutionSpec()
         movement = BodyMovementSpec()
 
-        self.brown_distance_control.set_value(
-            STEAM_BROWN_DISTANCE_DEFAULT_METERS
-        )
-        self.brown_azimuth_control.set_value(
-            STEAM_BROWN_AZIMUTH_DEFAULT_DEGREES
-        )
-        self.brown_elevation_control.set_value(
-            STEAM_BROWN_ELEVATION_DEFAULT_DEGREES
-        )
 
         self.noise_state.set(spec)
         self.noise_evolution_state.set(evolution)
@@ -6479,7 +6364,7 @@ class MainWindow(QMainWindow):
             )
 
         self.correlation_label.setText(
-            f"{self.mixer.current_correlation:.3f}"
+            "replaced by dual 3D sources"
         )
         self.breath_label.setText(
             f"{self.mixer.current_breath:.3f} "
