@@ -3747,6 +3747,10 @@ class MetabolismSpec:
     phase_min_minutes: float = 8.0
     phase_max_minutes: float = 35.0
 
+    # Percentage preference for resting states. Zero leaves the activity
+    # drive linear; 100 strongly favors rest while preserving rare excursions.
+    resting_tendency_percent: float = 75.0
+
     brown_body_min: float = 0.0
     brown_body_max: float = 1.0
     brown_slope_min: float = 0.75
@@ -3782,6 +3786,11 @@ class MetabolismSpec:
     brown_evolution_max: float = 0.65
 
     def validated(self) -> "MetabolismSpec":
+        if not 0.0 <= self.resting_tendency_percent <= 100.0:
+            raise ValueError(
+                "resting_tendency_percent must be between 0 and 100"
+            )
+
         pairs = (
             ("phase_min_minutes", "phase_max_minutes", 0.25, 240.0),
             ("brown_body_min", "brown_body_max", 0.0, 1.0),
@@ -3866,7 +3875,12 @@ class MetabolismState:
 
 @dataclass(frozen=True, slots=True)
 class MetabolismValues:
+    # Raw metabolic position drives texture and spatial shape.
     activity: float
+
+    # Quiet-weighted activity drives prominence, urgency and audible density.
+    activity_drive: float
+
     brown_body: float
     brown_slope: float
     brown_low_end_db: float
@@ -3910,10 +3924,10 @@ class MetabolismEngine:
         if not initial:
             self.start_activity = self.current_activity
 
-        # Bias toward calm-to-moderate metabolism while retaining active periods.
-        self.target_activity = float(
-            self.rng.beta(1.30, 1.85)
-        )
+        # The raw metabolic state explores the complete range without a quiet
+        # bias. Texture and spatial shape therefore remain fully dynamic even
+        # while the audible activity drive is predominantly subdued.
+        self.target_activity = float(self.rng.random())
         self.duration = float(
             self.rng.uniform(
                 spec.phase_min_minutes * 60.0,
@@ -3975,6 +3989,16 @@ class MetabolismEngine:
             np.clip(self.current_activity, 0.0, 1.0)
         )
 
+        # Shape only the dimensions associated with loudness, prominence,
+        # urgency, or moving-information density. At zero bias this is linear.
+        # At higher values, most of the journey remains near rest, while an
+        # exact high state can still reach the full configured maxima.
+        resting_tendency = (
+            spec.resting_tendency_percent / 100.0
+        )
+        quiet_exponent = 1.0 + 5.0 * resting_tendency
+        activity_drive = activity ** quiet_exponent
+
         texture_wave = 0.5 + 0.5 * math.sin(
             2.0 * math.pi * (activity + 0.17)
         )
@@ -3990,6 +4014,7 @@ class MetabolismEngine:
 
         return MetabolismValues(
             activity=activity,
+            activity_drive=activity_drive,
             brown_body=self._map(
                 body_wave, spec.brown_body_min, spec.brown_body_max
             ),
@@ -4007,36 +4032,42 @@ class MetabolismEngine:
                 spec.brown_texture_max,
             ),
             breath_prominence=self._map(
-                activity,
+                activity_drive,
                 spec.breath_prominence_min,
                 spec.breath_prominence_max,
             ),
             breath_tempo=self._map(
-                1.0 - activity,
+                1.0 - activity_drive,
                 spec.breath_tempo_min,
                 spec.breath_tempo_max,
             ),
             breath_gain_db=self._map(
-                activity, spec.breath_gain_min_db, spec.breath_gain_max_db
+                activity_drive,
+                spec.breath_gain_min_db,
+                spec.breath_gain_max_db,
             ),
             breath_spectral_depth=self._map(
-                activity, spec.breath_spectral_min, spec.breath_spectral_max
+                activity_drive,
+                spec.breath_spectral_min,
+                spec.breath_spectral_max,
             ),
             breath_width_depth=self._map(
-                activity, spec.breath_width_min, spec.breath_width_max
+                activity_drive,
+                spec.breath_width_min,
+                spec.breath_width_max,
             ),
             heartbeat_distance=self._map(
-                1.0 - activity,
+                1.0 - activity_drive,
                 spec.heartbeat_distance_min,
                 spec.heartbeat_distance_max,
             ),
             heartbeat_level_db=self._map(
-                activity,
+                activity_drive,
                 spec.heartbeat_level_min_db,
                 spec.heartbeat_level_max_db,
             ),
             brown_3d_amount=self._map(
-                activity,
+                activity_drive,
                 spec.brown_3d_amount_min,
                 spec.brown_3d_amount_max,
             ),
@@ -4051,7 +4082,7 @@ class MetabolismEngine:
                 spec.brown_center_distance_max,
             ),
             brown_evolution=self._map(
-                activity,
+                activity_drive,
                 spec.brown_evolution_min,
                 spec.brown_evolution_max,
             ),
@@ -5907,6 +5938,18 @@ class MainWindow(QMainWindow):
             0.25,
             2,
             " min",
+        )
+        self.metabolism_resting_tendency_control = (
+            add_metabolism_control(
+                metabolism_rhythm_form,
+                "Resting tendency:",
+                "resting_tendency_percent",
+                0.0,
+                100.0,
+                1.0,
+                0,
+                "%",
+            )
         )
 
         # Brown-noise style parameters.
@@ -7906,7 +7949,8 @@ class MainWindow(QMainWindow):
             )
             return
         self.metabolism_status_label.setText(
-            f"state {values.activity:.3f}; "
+            f"raw state {values.activity:.3f}; "
+            f"activity drive {values.activity_drive:.3f}; "
             f"body {values.brown_body:.2f}, slope {values.brown_slope:.2f}, "
             f"low end {values.brown_low_end_db:.1f} dB, "
             f"texture {values.brown_texture:.2f}; "
@@ -8565,7 +8609,20 @@ def build_application() -> tuple[QApplication, MainWindow]:
         heartbeat_spatial_spec = default_heartbeat_spatial
 
     default_metabolism = MetabolismSpec()
-    metabolism_data = loaded.get("metabolism", {})
+    metabolism_data = dict(loaded.get("metabolism", {}))
+
+    # Migrate the previous 0..1 quiet-state bias setting to the clearer
+    # percentage-based resting-tendency setting.
+    if (
+        "resting_tendency_percent" not in metabolism_data
+        and "quiet_state_bias" in metabolism_data
+    ):
+        try:
+            metabolism_data["resting_tendency_percent"] = (
+                float(metabolism_data["quiet_state_bias"]) * 100.0
+            )
+        except (TypeError, ValueError):
+            pass
 
     try:
         metabolism_spec = MetabolismSpec(
