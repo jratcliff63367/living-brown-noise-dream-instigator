@@ -72,8 +72,18 @@ STEAM_DEFAULT_SOURCE_POSITION = Vector3(0.0, 0.0, -2.0)
 STEAM_BROWN_LEFT_POSITION = Vector3(-2.75, 0.0, -2.0)
 STEAM_BROWN_RIGHT_POSITION = Vector3(2.75, 0.0, -2.0)
 
-STEAM_HEARTBEAT_SPATIAL_BLEND = 0.08
+STEAM_HEARTBEAT_SPATIAL_BLEND = 1.0
 STEAM_SOUNDSCAPE_SPATIAL_AMOUNT = 0.06
+
+HEARTBEAT_DISTANCE_MIN_METERS = 0.15
+HEARTBEAT_DISTANCE_MAX_METERS = 4.0
+HEARTBEAT_DISTANCE_DEFAULT_METERS = 0.75
+HEARTBEAT_HORIZONTAL_MIN_METERS = -2.5
+HEARTBEAT_HORIZONTAL_MAX_METERS = 2.5
+HEARTBEAT_HORIZONTAL_DEFAULT_METERS = 0.0
+HEARTBEAT_VERTICAL_MIN_METERS = -2.0
+HEARTBEAT_VERTICAL_MAX_METERS = 2.0
+HEARTBEAT_VERTICAL_DEFAULT_METERS = -0.25
 
 # The moving 3D bodies are an additive texture over the complete correlated
 # stereo foundation, not a replacement for it. Their amount is controlled live.
@@ -3601,6 +3611,44 @@ class DualBrownFluidMotion:
 
 
 @dataclass(frozen=True, slots=True)
+class HeartbeatSpatialSpec:
+    distance: float = HEARTBEAT_DISTANCE_DEFAULT_METERS
+    horizontal: float = HEARTBEAT_HORIZONTAL_DEFAULT_METERS
+    vertical: float = HEARTBEAT_VERTICAL_DEFAULT_METERS
+
+    def validated(self) -> "HeartbeatSpatialSpec":
+        if not HEARTBEAT_DISTANCE_MIN_METERS <= self.distance <= HEARTBEAT_DISTANCE_MAX_METERS:
+            raise ValueError("heartbeat distance outside range")
+        if not HEARTBEAT_HORIZONTAL_MIN_METERS <= self.horizontal <= HEARTBEAT_HORIZONTAL_MAX_METERS:
+            raise ValueError("heartbeat horizontal outside range")
+        if not HEARTBEAT_VERTICAL_MIN_METERS <= self.vertical <= HEARTBEAT_VERTICAL_MAX_METERS:
+            raise ValueError("heartbeat vertical outside range")
+        return self
+
+    @property
+    def position(self) -> Vector3:
+        return Vector3(self.horizontal, self.vertical, -self.distance)
+
+
+class HeartbeatSpatialState:
+    def __init__(self, spec: HeartbeatSpatialSpec) -> None:
+        self._lock = threading.Lock()
+        self._spec = spec.validated()
+
+    def get(self) -> HeartbeatSpatialSpec:
+        with self._lock:
+            return self._spec
+
+    def set(self, spec: HeartbeatSpatialSpec) -> None:
+        with self._lock:
+            self._spec = spec.validated()
+
+    def update(self, **changes) -> None:
+        with self._lock:
+            self._spec = replace(self._spec, **changes).validated()
+
+
+@dataclass(frozen=True, slots=True)
 class MixerSpec:
     correlation_min: float = 0.0
     correlation_max: float = 1.0
@@ -3625,6 +3673,7 @@ class LivingBrownNoiseMixer:
         breath_evolution_state: BreathEvolutionState,
         motion_state: OrganicMotionState,
         brown_motion_spec: DualBrownMotionSpec,
+        heartbeat_spatial_spec: HeartbeatSpatialSpec,
         mixer_spec: MixerSpec,
     ) -> None:
         self.sample_rate = float(sample_rate)
@@ -3670,9 +3719,14 @@ class LivingBrownNoiseMixer:
                 distance_attenuation_enabled=True,
             )
         )
+        self.heartbeat_spatial_state = HeartbeatSpatialState(
+            heartbeat_spatial_spec
+        )
+        self.heartbeat_spatial_rng = np.random.default_rng(881731)
         self.heartbeat_spatial = self.spatial_renderer.create_source(
-            position=STEAM_DEFAULT_SOURCE_POSITION,
+            position=heartbeat_spatial_spec.position,
             spatial_blend=STEAM_HEARTBEAT_SPATIAL_BLEND,
+            distance_attenuation_enabled=True,
         )
         self.soundscape_spatial = self.spatial_renderer.create_source(
             position=STEAM_DEFAULT_SOURCE_POSITION,
@@ -3731,12 +3785,39 @@ class LivingBrownNoiseMixer:
         self.current_body_movement_age = 0.0
         self.current_heartbeat = 0.0
         self.current_heart_interval = 60.0 / 50.0
+        self.current_heartbeat_position = heartbeat_spatial_spec.position
         self.current_soundscape_stage = "disabled"
         self.current_soundscape_gain_db = -80.0
         self.current_brown_3d_mix = 1.0
         self.current_brown_motion_separation = 180.0
         self.current_brown_left_position = STEAM_BROWN_LEFT_POSITION
         self.current_brown_right_position = STEAM_BROWN_RIGHT_POSITION
+
+    def set_heartbeat_position(self, **changes) -> None:
+        if changes:
+            self.heartbeat_spatial_state.update(**changes)
+        spec = self.heartbeat_spatial_state.get()
+        self.current_heartbeat_position = spec.position
+        self.heartbeat_spatial.set_position_vector(spec.position)
+
+    def _randomize_heartbeat_position(self) -> None:
+        spec = HeartbeatSpatialSpec(
+            distance=float(self.heartbeat_spatial_rng.uniform(
+                HEARTBEAT_DISTANCE_MIN_METERS,
+                HEARTBEAT_DISTANCE_MAX_METERS,
+            )),
+            horizontal=float(self.heartbeat_spatial_rng.uniform(
+                HEARTBEAT_HORIZONTAL_MIN_METERS,
+                HEARTBEAT_HORIZONTAL_MAX_METERS,
+            )),
+            vertical=float(self.heartbeat_spatial_rng.uniform(
+                HEARTBEAT_VERTICAL_MIN_METERS,
+                HEARTBEAT_VERTICAL_MAX_METERS,
+            )),
+        )
+        self.heartbeat_spatial_state.set(spec)
+        self.current_heartbeat_position = spec.position
+        self.heartbeat_spatial.set_position_vector(spec.position)
 
     def close(self) -> None:
         self.spatial_renderer.close()
@@ -3797,10 +3878,12 @@ class LivingBrownNoiseMixer:
             elapsed_seconds,
             static_noise_spec,
         )
-        self.body_movement.advance(
+        body_movement_triggered = self.body_movement.advance(
             elapsed_seconds,
             self.noise_evolution,
         )
+        if body_movement_triggered:
+            self._randomize_heartbeat_position()
         self.current_body_movement_count = self.body_movement.event_count
         self.current_body_movement_strength = self.body_movement.last_strength
         self.current_body_movement_age = self.body_movement.age
@@ -4018,6 +4101,11 @@ class LivingBrownNoiseMixer:
             self.heartbeat.current_interval_seconds
         )
 
+        heartbeat_position_spec = self.heartbeat_spatial_state.get()
+        self.current_heartbeat_position = heartbeat_position_spec.position
+        self.heartbeat_spatial.set_position_vector(
+            heartbeat_position_spec.position
+        )
         spatial_heartbeat = self.heartbeat_spatial.process_mono(
             active_heartbeat
         )
@@ -4163,6 +4251,7 @@ def build_mixer(
     breath_evolution_spec: BreathEvolutionSpec,
     motion_spec: OrganicMotionSpec,
     brown_motion_spec: DualBrownMotionSpec,
+    heartbeat_spatial_spec: HeartbeatSpatialSpec,
     seed_base: int,
 ) -> tuple[
     LivingBrownNoiseMixer,
@@ -4230,6 +4319,7 @@ def build_mixer(
         breath_evolution_state=breath_evolution_state,
         motion_state=motion_state,
         brown_motion_spec=brown_motion_spec,
+        heartbeat_spatial_spec=heartbeat_spatial_spec,
         mixer_spec=MixerSpec(),
     )
 
@@ -4274,6 +4364,7 @@ class ExportWorker(QThread):
         breath_evolution_spec: BreathEvolutionSpec,
         motion_spec: OrganicMotionSpec,
         brown_motion_spec: DualBrownMotionSpec,
+        heartbeat_spatial_spec: HeartbeatSpatialSpec,
     ) -> None:
         super().__init__()
         self.output_path = output_path
@@ -4290,6 +4381,7 @@ class ExportWorker(QThread):
         self.breath_evolution_spec = breath_evolution_spec
         self.motion_spec = motion_spec
         self.brown_motion_spec = brown_motion_spec
+        self.heartbeat_spatial_spec = heartbeat_spatial_spec
         self._cancel_requested = threading.Event()
 
     def request_cancel(self) -> None:
@@ -4317,6 +4409,7 @@ class ExportWorker(QThread):
                 breath_evolution_spec=self.breath_evolution_spec,
                 motion_spec=self.motion_spec,
                 brown_motion_spec=self.brown_motion_spec,
+                heartbeat_spatial_spec=self.heartbeat_spatial_spec,
                 seed_base=seed_base,
             )
 
@@ -4527,7 +4620,7 @@ class MainWindow(QMainWindow):
         self.default_breath_spec = BreathSpec()
 
         self.setWindowTitle(
-            "Living Brown Noise — Dream Instigator Lab — Independent Additive 3D Layer"
+            "Living Brown Noise — Dream Instigator Lab — 3D Heartbeat Position Lab"
         )
         self.resize(840, 1040)
 
@@ -5051,6 +5144,74 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.noise_panel)
         controls_layout.addWidget(self.base_checkbox)
         controls_layout.addWidget(self.heartbeat_checkbox)
+
+        self.heartbeat_spatial_expand_button = QToolButton()
+        self.heartbeat_spatial_expand_button.setText("Heartbeat 3D position")
+        self.heartbeat_spatial_expand_button.setCheckable(True)
+        self.heartbeat_spatial_expand_button.setChecked(
+            bool(self.loaded_settings.get(
+                "heartbeat_spatial_panel_expanded", True
+            ))
+        )
+        self.heartbeat_spatial_expand_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.heartbeat_spatial_expand_button.setArrowType(
+            Qt.ArrowType.RightArrow
+        )
+        controls_layout.addWidget(self.heartbeat_spatial_expand_button)
+
+        self.heartbeat_spatial_panel = QWidget()
+        heartbeat_spatial_form = QFormLayout(self.heartbeat_spatial_panel)
+        heartbeat_spatial_form.setContentsMargins(24, 4, 0, 8)
+        heartbeat_position = self.mixer.heartbeat_spatial_state.get()
+
+        self.heartbeat_distance_control = FloatControl(
+            minimum=HEARTBEAT_DISTANCE_MIN_METERS,
+            maximum=HEARTBEAT_DISTANCE_MAX_METERS,
+            value=heartbeat_position.distance,
+            step=0.05,
+            decimals=2,
+            suffix=" m",
+            on_change=lambda value: self._update_heartbeat_position(distance=value),
+        )
+        heartbeat_spatial_form.addRow(
+            "Forward distance:", self.heartbeat_distance_control
+        )
+
+        self.heartbeat_horizontal_control = FloatControl(
+            minimum=HEARTBEAT_HORIZONTAL_MIN_METERS,
+            maximum=HEARTBEAT_HORIZONTAL_MAX_METERS,
+            value=heartbeat_position.horizontal,
+            step=0.05,
+            decimals=2,
+            suffix=" m",
+            on_change=lambda value: self._update_heartbeat_position(horizontal=value),
+        )
+        heartbeat_spatial_form.addRow(
+            "Left / right:", self.heartbeat_horizontal_control
+        )
+
+        self.heartbeat_vertical_control = FloatControl(
+            minimum=HEARTBEAT_VERTICAL_MIN_METERS,
+            maximum=HEARTBEAT_VERTICAL_MAX_METERS,
+            value=heartbeat_position.vertical,
+            step=0.05,
+            decimals=2,
+            suffix=" m",
+            on_change=lambda value: self._update_heartbeat_position(vertical=value),
+        )
+        heartbeat_spatial_form.addRow(
+            "Down / up:", self.heartbeat_vertical_control
+        )
+
+        self.heartbeat_position_status = QLabel("")
+        self.heartbeat_position_status.setWordWrap(True)
+        heartbeat_spatial_form.addRow(
+            "Current position:", self.heartbeat_position_status
+        )
+        controls_layout.addWidget(self.heartbeat_spatial_panel)
+
         controls_layout.addWidget(self.soundscape_checkbox)
         controls_layout.addWidget(self.stereo_checkbox)
         controls_layout.addWidget(self.correlation_checkbox)
@@ -5822,6 +5983,9 @@ class MainWindow(QMainWindow):
         self.heartbeat_checkbox.toggled.connect(
             self._on_modes_changed
         )
+        self.heartbeat_spatial_expand_button.toggled.connect(
+            self._toggle_heartbeat_spatial_panel
+        )
         self.soundscape_checkbox.toggled.connect(
             self._on_modes_changed
         )
@@ -5900,6 +6064,10 @@ class MainWindow(QMainWindow):
         self._toggle_noise_panel(
             self.noise_expand_button.isChecked()
         )
+        self._toggle_heartbeat_spatial_panel(
+            self.heartbeat_spatial_expand_button.isChecked()
+        )
+        self._update_heartbeat_position_status()
         self._toggle_brown_motion_panel(
             self.brown_motion_expand_button.isChecked()
         )
@@ -6667,6 +6835,25 @@ class MainWindow(QMainWindow):
             f"R ({right.x:.2f}, {right.y:.2f}, {right.z:.2f})"
         )
 
+    def _toggle_heartbeat_spatial_panel(self, expanded: bool) -> None:
+        self.heartbeat_spatial_panel.setVisible(expanded)
+        self.heartbeat_spatial_expand_button.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+        )
+        self._schedule_settings_save()
+
+    def _update_heartbeat_position(self, **changes) -> None:
+        self.mixer.set_heartbeat_position(**changes)
+        self._update_heartbeat_position_status()
+        self._schedule_settings_save()
+
+    def _update_heartbeat_position_status(self) -> None:
+        position = self.mixer.current_heartbeat_position
+        self.heartbeat_position_status.setText(
+            f"({position.x:.2f}, {position.y:.2f}, {position.z:.2f}) m; "
+            "abruptly randomized by body movement events"
+        )
+
     def _on_modes_changed(self) -> None:
         stereo = self.stereo_checkbox.isChecked()
 
@@ -6717,6 +6904,7 @@ class MainWindow(QMainWindow):
         breath_evolution_spec = self.breath_evolution_state.get()
         motion_spec = self.motion_state.get()
         brown_motion_spec = self.mixer.brown_motion_state.get()
+        heartbeat_spatial_spec = self.mixer.heartbeat_spatial_state.get()
         modes = self.mode_state.get()
 
         data = {
@@ -6740,6 +6928,10 @@ class MainWindow(QMainWindow):
             ),
             "organic_motion": asdict(motion_spec),
             "dual_brown_motion": asdict(brown_motion_spec),
+            "heartbeat_spatial": asdict(heartbeat_spatial_spec),
+            "heartbeat_spatial_panel_expanded": (
+                self.heartbeat_spatial_expand_button.isChecked()
+            ),
             "brown_motion_panel_expanded": (
                 self.brown_motion_expand_button.isChecked()
             ),
@@ -6815,6 +7007,7 @@ class MainWindow(QMainWindow):
         breath_evolution_spec = self.breath_evolution_state.get()
         motion_spec = self.motion_state.get()
         brown_motion_spec = self.mixer.brown_motion_state.get()
+        heartbeat_spatial_spec = self.mixer.heartbeat_spatial_state.get()
 
         self.export_worker = ExportWorker(
             output_path=output_path,
@@ -6831,6 +7024,7 @@ class MainWindow(QMainWindow):
             breath_evolution_spec=breath_evolution_spec,
             motion_spec=motion_spec,
             brown_motion_spec=brown_motion_spec,
+            heartbeat_spatial_spec=heartbeat_spatial_spec,
         )
 
         self.export_worker.progress_changed.connect(
@@ -6929,6 +7123,7 @@ class MainWindow(QMainWindow):
             )
 
         self._update_brown_motion_status()
+        self._update_heartbeat_position_status()
 
         self.correlation_label.setText(
             f"{self.mixer.current_correlation:.3f}"
@@ -7188,6 +7383,21 @@ def build_application() -> tuple[QApplication, MainWindow]:
     except Exception:
         brown_motion_spec = default_brown_motion
 
+    default_heartbeat_spatial = HeartbeatSpatialSpec()
+    heartbeat_spatial_data = loaded.get("heartbeat_spatial", {})
+    try:
+        heartbeat_spatial_spec = HeartbeatSpatialSpec(
+            **{
+                field_name: heartbeat_spatial_data.get(
+                    field_name,
+                    getattr(default_heartbeat_spatial, field_name),
+                )
+                for field_name in asdict(default_heartbeat_spatial)
+            }
+        ).validated()
+    except Exception:
+        heartbeat_spatial_spec = default_heartbeat_spatial
+
     default_breath = BreathSpec()
     breath_data = dict(loaded.get("breath", {}))
 
@@ -7254,6 +7464,7 @@ def build_application() -> tuple[QApplication, MainWindow]:
         breath_evolution_spec=breath_evolution_spec,
         motion_spec=motion_spec,
         brown_motion_spec=brown_motion_spec,
+        heartbeat_spatial_spec=heartbeat_spatial_spec,
         seed_base=1000,
     )
 
