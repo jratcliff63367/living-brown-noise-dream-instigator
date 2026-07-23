@@ -75,6 +75,9 @@ STEAM_BROWN_RIGHT_POSITION = Vector3(2.75, 0.0, -2.0)
 STEAM_HEARTBEAT_SPATIAL_BLEND = 0.08
 STEAM_SOUNDSCAPE_SPATIAL_AMOUNT = 0.06
 
+# The moving 3D bodies are an additive texture over the complete correlated
+# stereo foundation, not a replacement for it. Their amount is controlled live.
+
 
 # =============================================================================
 # Organic motion generator
@@ -3317,12 +3320,18 @@ class ModeState:
 class DualBrownMotionSpec:
     """Live controls for the two brown-noise bodies moving on a sphere."""
 
+    layer_enabled: bool = True
+    layer_amount: float = 0.35
     enabled: bool = True
     sphere_radius: float = 2.75
     center_distance: float = 2.0
     evolution_rate: float = 0.32
 
     def validated(self) -> "DualBrownMotionSpec":
+        if not 0.0 <= self.layer_amount <= 1.5:
+            raise ValueError(
+                "layer_amount must be between 0 and 1.5"
+            )
         if not 0.0 <= self.sphere_radius <= 10.0:
             raise ValueError(
                 "sphere_radius must be between 0 and 10 meters"
@@ -3724,6 +3733,7 @@ class LivingBrownNoiseMixer:
         self.current_heart_interval = 60.0 / 50.0
         self.current_soundscape_stage = "disabled"
         self.current_soundscape_gain_db = -80.0
+        self.current_brown_3d_mix = 1.0
         self.current_brown_motion_separation = 180.0
         self.current_brown_left_position = STEAM_BROWN_LEFT_POSITION
         self.current_brown_right_position = STEAM_BROWN_RIGHT_POSITION
@@ -3895,15 +3905,48 @@ class LivingBrownNoiseMixer:
             spectral_amount,
         )
 
-        # Stereo correlation is replaced by two independent 3D brown-noise
-        # bodies. The pre-existing independent generators feed the two sources.
-        self.current_correlation = 0.0
-        stereo = np.column_stack(
-            (
-                independent_left,
-                independent_right,
-            )
+        motion_start, motion_end = self.correlation_motion.advance(
+            frame_count / self.sample_rate
         )
+
+        correlation_start = self._noise_to_correlation(
+            motion_start
+        )
+        correlation_end = self._noise_to_correlation(
+            motion_end
+        )
+
+        evolving_correlation = np.linspace(
+            correlation_start,
+            correlation_end,
+            frame_count,
+            endpoint=False,
+            dtype=np.float32,
+        )
+
+        correlation = evolving_correlation * correlation_curve
+        correlation -= bounded_breath * breath_spec.width_depth
+        np.clip(correlation, 0.0, 1.0, out=correlation)
+
+        self.current_correlation = float(correlation[-1])
+
+        common_gain = np.sqrt(correlation)
+        independent_gain = np.sqrt(1.0 - correlation)
+
+        stereo_left = (
+            common_gain * common
+            + independent_gain * independent_left
+        )
+        stereo_right = (
+            common_gain * common
+            + independent_gain * independent_right
+        )
+
+        mono = common
+        left = mono + (stereo_left - mono) * stereo_curve
+        right = mono + (stereo_right - mono) * stereo_curve
+
+        stereo = np.column_stack((left, right))
 
         breath_gain_db = (
             bounded_breath - 0.5 * breath_curve * prominence
@@ -3933,13 +3976,36 @@ class LivingBrownNoiseMixer:
             self.brown_motion.current_separation_degrees
         )
 
-        brown_left = self.brown_noise_left_spatial.process_mono(
-            stereo[:, 0]
+        # The spatial bodies use the independent generators directly. The
+        # correlated stereo bed above remains completely intact.
+        brown_left_3d = self.brown_noise_left_spatial.process_mono(
+            independent_left
         )
-        brown_right = self.brown_noise_right_spatial.process_mono(
-            stereo[:, 1]
+        brown_right_3d = self.brown_noise_right_spatial.process_mono(
+            independent_right
         )
-        stereo = brown_left + brown_right
+        brown_3d = brown_left_3d + brown_right_3d
+
+        brown_motion_spec = self.brown_motion_state.get()
+        brown_3d_curve = self._approach_target(
+            self.current_brown_3d_mix,
+            1.0 if brown_motion_spec.layer_enabled else 0.0,
+            frame_count,
+        )
+        self.current_brown_3d_mix = float(brown_3d_curve[-1])
+
+        # The 3D layer shares the organic breath modulation, but it is a
+        # separate bus and must not inherit the 2D foundation's enable curve.
+        brown_3d *= np.power(
+            10.0,
+            breath_gain_db / 20.0,
+        )[:, np.newaxis]
+
+        stereo += (
+            brown_3d
+            * brown_3d_curve[:, np.newaxis]
+            * brown_motion_spec.layer_amount
+        )
 
         heartbeat = self.heartbeat.generate(frame_count)
         active_heartbeat = heartbeat * heartbeat_curve
@@ -4461,7 +4527,7 @@ class MainWindow(QMainWindow):
         self.default_breath_spec = BreathSpec()
 
         self.setWindowTitle(
-            "Living Brown Noise — Dream Instigator Lab — Fluid 3D Brown Sources"
+            "Living Brown Noise — Dream Instigator Lab — Independent Additive 3D Layer"
         )
         self.resize(840, 1040)
 
@@ -4515,11 +4581,10 @@ class MainWindow(QMainWindow):
         self.correlation_checkbox = QCheckBox(
             "Correlation mixing — off uses fully independent L/R noise"
         )
-        self.correlation_checkbox.setChecked(False)
-        self.correlation_checkbox.setEnabled(False)
-        self.correlation_checkbox.setText(
-            "Legacy stereo correlation — replaced by dual 3D sources"
+        self.correlation_checkbox.setChecked(
+            self.mode_state.get().correlation_enabled
         )
+        self.correlation_checkbox.setEnabled(True)
 
         self.breath_checkbox = QCheckBox(
             "Breath algorithm — gain + spectral + width modulation"
@@ -5018,6 +5083,33 @@ class MainWindow(QMainWindow):
         brown_motion_form.setContentsMargins(24, 4, 0, 8)
 
         brown_motion_spec = self.mixer.brown_motion_state.get()
+
+        self.brown_3d_layer_checkbox = QCheckBox(
+            "Enable additive 3D position layer"
+        )
+        self.brown_3d_layer_checkbox.setChecked(
+            brown_motion_spec.layer_enabled
+        )
+        brown_motion_form.addRow(
+            "",
+            self.brown_3d_layer_checkbox,
+        )
+
+        self.brown_3d_amount_control = FloatControl(
+            minimum=0.0,
+            maximum=1.5,
+            value=brown_motion_spec.layer_amount,
+            step=0.01,
+            decimals=2,
+            suffix="",
+            on_change=lambda value: self._update_brown_motion(
+                layer_amount=value
+            ),
+        )
+        brown_motion_form.addRow(
+            "3D layer amount:",
+            self.brown_3d_amount_control,
+        )
 
         self.brown_motion_enabled_checkbox = QCheckBox(
             "Enable continuous fluid motion"
@@ -5700,7 +5792,7 @@ class MainWindow(QMainWindow):
         status_form.addRow("Active path:", self.mode_label)
         status_form.addRow("Correlation:", self.correlation_label)
         self.pipeline_label = QLabel(
-            "Dual independent brown generators in a soft-coupled 3D fluid field"
+            "Correlated stereo foundation plus a soft-coupled moving 3D layer"
         )
         status_form.addRow("DSP pipeline:", self.pipeline_label)
         status_form.addRow("Breath:", self.breath_label)
@@ -5763,6 +5855,9 @@ class MainWindow(QMainWindow):
         )
         self.brown_motion_expand_button.toggled.connect(
             self._toggle_brown_motion_panel
+        )
+        self.brown_3d_layer_checkbox.toggled.connect(
+            self._on_brown_3d_layer_toggled
         )
         self.brown_motion_enabled_checkbox.toggled.connect(
             self._on_brown_motion_toggled
@@ -6534,6 +6629,14 @@ class MainWindow(QMainWindow):
         )
         self._schedule_settings_save()
 
+    def _on_brown_3d_layer_toggled(
+        self,
+        checked: bool,
+    ) -> None:
+        self._update_brown_motion(
+            layer_enabled=bool(checked)
+        )
+
     def _on_brown_motion_toggled(
         self,
         checked: bool,
@@ -6551,7 +6654,13 @@ class MainWindow(QMainWindow):
         right = self.mixer.current_brown_right_position
 
         state_text = "moving" if spec.enabled else "frozen"
+        layer_text = (
+            "3D audible"
+            if spec.layer_enabled
+            else "3D muted"
+        )
         self.brown_motion_status_label.setText(
+            f"{layer_text} @ {spec.layer_amount:.2f}; "
             f"{state_text}; separation "
             f"{self.mixer.current_brown_motion_separation:.1f}°; "
             f"L ({left.x:.2f}, {left.y:.2f}, {left.z:.2f}); "
@@ -6822,7 +6931,7 @@ class MainWindow(QMainWindow):
         self._update_brown_motion_status()
 
         self.correlation_label.setText(
-            "replaced by dual 3D sources"
+            f"{self.mixer.current_correlation:.3f}"
         )
         self.breath_label.setText(
             f"{self.mixer.current_breath:.3f} "
