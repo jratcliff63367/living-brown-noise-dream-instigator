@@ -3312,6 +3312,285 @@ class ModeState:
             )
 
 
+
+@dataclass(frozen=True, slots=True)
+class DualBrownMotionSpec:
+    """Live controls for the two brown-noise bodies moving on a sphere."""
+
+    enabled: bool = True
+    sphere_radius: float = 2.75
+    center_distance: float = 2.0
+    evolution_rate: float = 0.32
+
+    def validated(self) -> "DualBrownMotionSpec":
+        if not 0.0 <= self.sphere_radius <= 10.0:
+            raise ValueError(
+                "sphere_radius must be between 0 and 10 meters"
+            )
+        if not 0.05 <= self.center_distance <= 12.0:
+            raise ValueError(
+                "center_distance must be between 0.05 and 12 meters"
+            )
+        if not 0.0 <= self.evolution_rate <= 1.0:
+            raise ValueError(
+                "evolution_rate must be between 0 and 1"
+            )
+        return self
+
+    @property
+    def simulation_speed(self) -> float:
+        if self.evolution_rate <= 0.0:
+            return 0.0
+
+        slow = 0.055
+        fast = 5.0
+        return math.exp(
+            math.log(slow)
+            + self.evolution_rate
+            * (math.log(fast) - math.log(slow))
+        )
+
+
+class DualBrownMotionState:
+    """Thread-safe motion settings shared by GUI and audio engine."""
+
+    def __init__(self, spec: DualBrownMotionSpec) -> None:
+        self._lock = threading.Lock()
+        self._spec = spec.validated()
+
+    def get(self) -> DualBrownMotionSpec:
+        with self._lock:
+            return self._spec
+
+    def set(self, spec: DualBrownMotionSpec) -> None:
+        with self._lock:
+            self._spec = spec.validated()
+
+    def update(self, **changes) -> None:
+        with self._lock:
+            self._spec = replace(
+                self._spec,
+                **changes,
+            ).validated()
+
+
+class DualBrownFluidMotion:
+    """
+    Soft-coupled lava-lamp motion over a sphere.
+
+    There is no orbit or destination. Both bodies have tangential velocity and
+    inertia. A shared slowly wandering angular current carries them, independent
+    local eddies introduce lag and flex, viscous drag dissipates momentum, and
+    a soft opposition spring prevents the stereo field from collapsing onto one
+    side without forcing an exact rigid diameter.
+    """
+
+    def __init__(
+        self,
+        state: DualBrownMotionState,
+        seed: int = 920_117,
+    ) -> None:
+        self.state = state
+        self.rng = np.random.default_rng(seed)
+
+        self.left_direction = np.array(
+            [-1.0, 0.0, 0.0],
+            dtype=np.float64,
+        )
+        self.right_direction = np.array(
+            [1.0, 0.0, 0.0],
+            dtype=np.float64,
+        )
+        self.left_velocity = np.zeros(3, dtype=np.float64)
+        self.right_velocity = np.zeros(3, dtype=np.float64)
+
+        self.shared_omega = np.array(
+            [0.08, 0.22, -0.05],
+            dtype=np.float64,
+        )
+        self.left_local_omega = np.zeros(3, dtype=np.float64)
+        self.right_local_omega = np.zeros(3, dtype=np.float64)
+
+        self.current_separation_degrees = 180.0
+        self.current_left_position = Vector3(-2.75, 0.0, -2.0)
+        self.current_right_position = Vector3(2.75, 0.0, -2.0)
+
+    @staticmethod
+    def _normalize(vector: np.ndarray) -> np.ndarray:
+        length = float(np.linalg.norm(vector))
+        if length <= 1e-12:
+            return np.array([1.0, 0.0, 0.0], dtype=np.float64)
+        return vector / length
+
+    @staticmethod
+    def _project_tangent(
+        vector: np.ndarray,
+        direction: np.ndarray,
+    ) -> np.ndarray:
+        return vector - direction * float(
+            np.dot(vector, direction)
+        )
+
+    def _advance_flow_field(
+        self,
+        current: np.ndarray,
+        dt: float,
+        smoothing_seconds: float,
+        scale: float,
+    ) -> np.ndarray:
+        decay = math.exp(-dt / smoothing_seconds)
+        innovation = math.sqrt(
+            max(0.0, 1.0 - decay * decay)
+        )
+        return (
+            current * decay
+            + self.rng.standard_normal(3)
+            * innovation
+            * scale
+        )
+
+    def _integrate_body(
+        self,
+        direction: np.ndarray,
+        velocity: np.ndarray,
+        other_direction: np.ndarray,
+        flow_omega: np.ndarray,
+        dt: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        desired_flow = np.cross(flow_omega, direction)
+
+        desired_opposite = -other_direction
+        opposition_error = self._project_tangent(
+            desired_opposite,
+            direction,
+        )
+
+        dot_value = float(
+            np.clip(
+                np.dot(direction, other_direction),
+                -1.0,
+                1.0,
+            )
+        )
+
+        # Permissive while broadly opposite; much firmer if both bodies begin
+        # collapsing into the same hemisphere.
+        collapse_amount = float(
+            np.clip((dot_value + 0.78) / 1.78, 0.0, 1.0)
+        )
+        spring_strength = 0.75 + 5.0 * collapse_amount
+
+        acceleration = (
+            desired_flow * 2.0
+            + opposition_error * spring_strength
+            - velocity * 1.35
+        )
+
+        velocity = velocity + acceleration * dt
+        velocity = self._project_tangent(velocity, direction)
+
+        direction = self._normalize(
+            direction + velocity * dt
+        )
+        velocity = self._project_tangent(velocity, direction)
+
+        return direction, velocity
+
+    def advance(
+        self,
+        elapsed_seconds: float,
+    ) -> tuple[Vector3, Vector3]:
+        spec = self.state.get()
+        simulated_seconds = (
+            max(0.0, float(elapsed_seconds))
+            * spec.simulation_speed
+        )
+
+        if spec.enabled and simulated_seconds > 0.0:
+            remaining = simulated_seconds
+
+            while remaining > 0.0:
+                dt = min(1.0 / 120.0, remaining)
+                remaining -= dt
+
+                self.shared_omega = self._advance_flow_field(
+                    self.shared_omega,
+                    dt,
+                    smoothing_seconds=5.5,
+                    scale=0.48,
+                )
+                self.left_local_omega = self._advance_flow_field(
+                    self.left_local_omega,
+                    dt,
+                    smoothing_seconds=2.4,
+                    scale=0.17,
+                )
+                self.right_local_omega = self._advance_flow_field(
+                    self.right_local_omega,
+                    dt,
+                    smoothing_seconds=2.9,
+                    scale=0.17,
+                )
+
+                self.left_direction, self.left_velocity = (
+                    self._integrate_body(
+                        self.left_direction,
+                        self.left_velocity,
+                        self.right_direction,
+                        self.shared_omega
+                        + self.left_local_omega,
+                        dt,
+                    )
+                )
+                self.right_direction, self.right_velocity = (
+                    self._integrate_body(
+                        self.right_direction,
+                        self.right_velocity,
+                        self.left_direction,
+                        self.shared_omega
+                        + self.right_local_omega,
+                        dt,
+                    )
+                )
+
+        center = np.array(
+            [0.0, 0.0, -spec.center_distance],
+            dtype=np.float64,
+        )
+        left = center + self.left_direction * spec.sphere_radius
+        right = center + self.right_direction * spec.sphere_radius
+
+        self.current_left_position = Vector3(
+            float(left[0]),
+            float(left[1]),
+            float(left[2]),
+        )
+        self.current_right_position = Vector3(
+            float(right[0]),
+            float(right[1]),
+            float(right[2]),
+        )
+
+        separation_dot = float(
+            np.clip(
+                np.dot(
+                    self.left_direction,
+                    self.right_direction,
+                ),
+                -1.0,
+                1.0,
+            )
+        )
+        self.current_separation_degrees = math.degrees(
+            math.acos(separation_dot)
+        )
+
+        return (
+            self.current_left_position,
+            self.current_right_position,
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class MixerSpec:
     correlation_min: float = 0.0
@@ -3336,6 +3615,7 @@ class LivingBrownNoiseMixer:
         breath_state: BreathState,
         breath_evolution_state: BreathEvolutionState,
         motion_state: OrganicMotionState,
+        brown_motion_spec: DualBrownMotionSpec,
         mixer_spec: MixerSpec,
     ) -> None:
         self.sample_rate = float(sample_rate)
@@ -3371,14 +3651,14 @@ class LivingBrownNoiseMixer:
             self.spatial_renderer.create_source(
                 position=STEAM_BROWN_LEFT_POSITION,
                 spatial_blend=1.0,
-                distance_attenuation_enabled=False,
+                distance_attenuation_enabled=True,
             )
         )
         self.brown_noise_right_spatial = (
             self.spatial_renderer.create_source(
                 position=STEAM_BROWN_RIGHT_POSITION,
                 spatial_blend=1.0,
-                distance_attenuation_enabled=False,
+                distance_attenuation_enabled=True,
             )
         )
         self.heartbeat_spatial = self.spatial_renderer.create_source(
@@ -3393,6 +3673,12 @@ class LivingBrownNoiseMixer:
         self.breath_state = breath_state
         self.breath_evolution_state = breath_evolution_state
         self.motion_state = motion_state
+        self.brown_motion_state = DualBrownMotionState(
+            brown_motion_spec
+        )
+        self.brown_motion = DualBrownFluidMotion(
+            self.brown_motion_state
+        )
         self.mixer_spec = mixer_spec
 
         self.correlation_motion = OrganicMotion1D(
@@ -3438,6 +3724,9 @@ class LivingBrownNoiseMixer:
         self.current_heart_interval = 60.0 / 50.0
         self.current_soundscape_stage = "disabled"
         self.current_soundscape_gain_db = -80.0
+        self.current_brown_motion_separation = 180.0
+        self.current_brown_left_position = STEAM_BROWN_LEFT_POSITION
+        self.current_brown_right_position = STEAM_BROWN_RIGHT_POSITION
 
     def close(self) -> None:
         self.spatial_renderer.close()
@@ -3629,9 +3918,21 @@ class LivingBrownNoiseMixer:
         # for heartbeat debugging without stopping its internal state.
         stereo *= base_curve[:, np.newaxis]
 
-        # Every major source now enters the final mix through a discrete fixed
-        # 3D source renderer. All transforms are neutral/directly ahead in this
-        # baseline, so it should remain close to the v2.4.1 sound.
+        left_position, right_position = self.brown_motion.advance(
+            elapsed_seconds
+        )
+        self.brown_noise_left_spatial.set_position_vector(
+            left_position
+        )
+        self.brown_noise_right_spatial.set_position_vector(
+            right_position
+        )
+        self.current_brown_left_position = left_position
+        self.current_brown_right_position = right_position
+        self.current_brown_motion_separation = (
+            self.brown_motion.current_separation_degrees
+        )
+
         brown_left = self.brown_noise_left_spatial.process_mono(
             stereo[:, 0]
         )
@@ -3795,6 +4096,7 @@ def build_mixer(
     breath_spec: BreathSpec,
     breath_evolution_spec: BreathEvolutionSpec,
     motion_spec: OrganicMotionSpec,
+    brown_motion_spec: DualBrownMotionSpec,
     seed_base: int,
 ) -> tuple[
     LivingBrownNoiseMixer,
@@ -3861,6 +4163,7 @@ def build_mixer(
         breath_state=breath_state,
         breath_evolution_state=breath_evolution_state,
         motion_state=motion_state,
+        brown_motion_spec=brown_motion_spec,
         mixer_spec=MixerSpec(),
     )
 
@@ -3904,6 +4207,7 @@ class ExportWorker(QThread):
         breath_spec: BreathSpec,
         breath_evolution_spec: BreathEvolutionSpec,
         motion_spec: OrganicMotionSpec,
+        brown_motion_spec: DualBrownMotionSpec,
     ) -> None:
         super().__init__()
         self.output_path = output_path
@@ -3919,6 +4223,7 @@ class ExportWorker(QThread):
         self.breath_spec = breath_spec
         self.breath_evolution_spec = breath_evolution_spec
         self.motion_spec = motion_spec
+        self.brown_motion_spec = brown_motion_spec
         self._cancel_requested = threading.Event()
 
     def request_cancel(self) -> None:
@@ -3945,6 +4250,7 @@ class ExportWorker(QThread):
                 breath_spec=self.breath_spec,
                 breath_evolution_spec=self.breath_evolution_spec,
                 motion_spec=self.motion_spec,
+                brown_motion_spec=self.brown_motion_spec,
                 seed_base=seed_base,
             )
 
@@ -4155,7 +4461,7 @@ class MainWindow(QMainWindow):
         self.default_breath_spec = BreathSpec()
 
         self.setWindowTitle(
-            "Living Brown Noise — Dream Instigator Lab — Dual 3D Brown Sources"
+            "Living Brown Noise — Dream Instigator Lab — Fluid 3D Brown Sources"
         )
         self.resize(840, 1040)
 
@@ -4683,6 +4989,103 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.soundscape_checkbox)
         controls_layout.addWidget(self.stereo_checkbox)
         controls_layout.addWidget(self.correlation_checkbox)
+
+        self.brown_motion_expand_button = QToolButton()
+        self.brown_motion_expand_button.setText(
+            "Dual 3D brown-source fluid motion"
+        )
+        self.brown_motion_expand_button.setCheckable(True)
+        self.brown_motion_expand_button.setChecked(
+            bool(
+                self.loaded_settings.get(
+                    "brown_motion_panel_expanded",
+                    True,
+                )
+            )
+        )
+        self.brown_motion_expand_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.brown_motion_expand_button.setArrowType(
+            Qt.ArrowType.RightArrow
+        )
+        controls_layout.addWidget(self.brown_motion_expand_button)
+
+        self.brown_motion_panel = QWidget()
+        brown_motion_form = QFormLayout(
+            self.brown_motion_panel
+        )
+        brown_motion_form.setContentsMargins(24, 4, 0, 8)
+
+        brown_motion_spec = self.mixer.brown_motion_state.get()
+
+        self.brown_motion_enabled_checkbox = QCheckBox(
+            "Enable continuous fluid motion"
+        )
+        self.brown_motion_enabled_checkbox.setChecked(
+            brown_motion_spec.enabled
+        )
+        brown_motion_form.addRow(
+            "",
+            self.brown_motion_enabled_checkbox,
+        )
+
+        self.brown_motion_radius_control = FloatControl(
+            minimum=0.0,
+            maximum=10.0,
+            value=brown_motion_spec.sphere_radius,
+            step=0.05,
+            decimals=2,
+            suffix=" m",
+            on_change=lambda value: self._update_brown_motion(
+                sphere_radius=value
+            ),
+        )
+        brown_motion_form.addRow(
+            "Sphere radius:",
+            self.brown_motion_radius_control,
+        )
+
+        self.brown_motion_center_control = FloatControl(
+            minimum=0.05,
+            maximum=12.0,
+            value=brown_motion_spec.center_distance,
+            step=0.05,
+            decimals=2,
+            suffix=" m",
+            on_change=lambda value: self._update_brown_motion(
+                center_distance=value
+            ),
+        )
+        brown_motion_form.addRow(
+            "Sphere-center distance:",
+            self.brown_motion_center_control,
+        )
+
+        self.brown_motion_rate_control = FloatControl(
+            minimum=0.0,
+            maximum=1.0,
+            value=brown_motion_spec.evolution_rate,
+            step=0.01,
+            decimals=2,
+            suffix="",
+            on_change=lambda value: self._update_brown_motion(
+                evolution_rate=value
+            ),
+        )
+        brown_motion_form.addRow(
+            "Evolution rate:",
+            self.brown_motion_rate_control,
+        )
+
+        self.brown_motion_status_label = QLabel("")
+        self.brown_motion_status_label.setWordWrap(True)
+        brown_motion_form.addRow(
+            "Motion status:",
+            self.brown_motion_status_label,
+        )
+
+        controls_layout.addWidget(self.brown_motion_panel)
 
         self.motion_expand_button = QToolButton()
         self.motion_expand_button.setText(
@@ -5297,7 +5700,7 @@ class MainWindow(QMainWindow):
         status_form.addRow("Active path:", self.mode_label)
         status_form.addRow("Correlation:", self.correlation_label)
         self.pipeline_label = QLabel(
-            "Fixed spectral anchors; sample-ramped mixing; correlation afterward"
+            "Dual independent brown generators in a soft-coupled 3D fluid field"
         )
         status_form.addRow("DSP pipeline:", self.pipeline_label)
         status_form.addRow("Breath:", self.breath_label)
@@ -5358,6 +5761,12 @@ class MainWindow(QMainWindow):
         self.correlation_checkbox.toggled.connect(
             self._on_modes_changed
         )
+        self.brown_motion_expand_button.toggled.connect(
+            self._toggle_brown_motion_panel
+        )
+        self.brown_motion_enabled_checkbox.toggled.connect(
+            self._on_brown_motion_toggled
+        )
         self.breath_checkbox.toggled.connect(self._on_modes_changed)
         self.breath_evolution_checkbox.toggled.connect(
             self._on_breath_evolution_toggled
@@ -5396,6 +5805,10 @@ class MainWindow(QMainWindow):
         self._toggle_noise_panel(
             self.noise_expand_button.isChecked()
         )
+        self._toggle_brown_motion_panel(
+            self.brown_motion_expand_button.isChecked()
+        )
+        self._update_brown_motion_status()
         self._toggle_motion_panel(
             self.motion_expand_button.isChecked()
         )
@@ -6109,6 +6522,42 @@ class MainWindow(QMainWindow):
 
         self._schedule_settings_save()
 
+    def _toggle_brown_motion_panel(
+        self,
+        expanded: bool,
+    ) -> None:
+        self.brown_motion_panel.setVisible(expanded)
+        self.brown_motion_expand_button.setArrowType(
+            Qt.ArrowType.DownArrow
+            if expanded
+            else Qt.ArrowType.RightArrow
+        )
+        self._schedule_settings_save()
+
+    def _on_brown_motion_toggled(
+        self,
+        checked: bool,
+    ) -> None:
+        self._update_brown_motion(enabled=bool(checked))
+
+    def _update_brown_motion(self, **changes) -> None:
+        self.mixer.brown_motion_state.update(**changes)
+        self._update_brown_motion_status()
+        self._schedule_settings_save()
+
+    def _update_brown_motion_status(self) -> None:
+        spec = self.mixer.brown_motion_state.get()
+        left = self.mixer.current_brown_left_position
+        right = self.mixer.current_brown_right_position
+
+        state_text = "moving" if spec.enabled else "frozen"
+        self.brown_motion_status_label.setText(
+            f"{state_text}; separation "
+            f"{self.mixer.current_brown_motion_separation:.1f}°; "
+            f"L ({left.x:.2f}, {left.y:.2f}, {left.z:.2f}); "
+            f"R ({right.x:.2f}, {right.y:.2f}, {right.z:.2f})"
+        )
+
     def _on_modes_changed(self) -> None:
         stereo = self.stereo_checkbox.isChecked()
 
@@ -6158,6 +6607,7 @@ class MainWindow(QMainWindow):
         breath_spec, _ = self.breath_state.get()
         breath_evolution_spec = self.breath_evolution_state.get()
         motion_spec = self.motion_state.get()
+        brown_motion_spec = self.mixer.brown_motion_state.get()
         modes = self.mode_state.get()
 
         data = {
@@ -6180,6 +6630,10 @@ class MainWindow(QMainWindow):
                 self.breath_evolution_expand_button.isChecked()
             ),
             "organic_motion": asdict(motion_spec),
+            "dual_brown_motion": asdict(brown_motion_spec),
+            "brown_motion_panel_expanded": (
+                self.brown_motion_expand_button.isChecked()
+            ),
             "motion_panel_expanded": (
                 self.motion_expand_button.isChecked()
             ),
@@ -6251,6 +6705,7 @@ class MainWindow(QMainWindow):
         breath_spec, _ = self.breath_state.get()
         breath_evolution_spec = self.breath_evolution_state.get()
         motion_spec = self.motion_state.get()
+        brown_motion_spec = self.mixer.brown_motion_state.get()
 
         self.export_worker = ExportWorker(
             output_path=output_path,
@@ -6266,6 +6721,7 @@ class MainWindow(QMainWindow):
             breath_spec=breath_spec,
             breath_evolution_spec=breath_evolution_spec,
             motion_spec=motion_spec,
+            brown_motion_spec=brown_motion_spec,
         )
 
         self.export_worker.progress_changed.connect(
@@ -6362,6 +6818,8 @@ class MainWindow(QMainWindow):
             self.playback_label.setText(
                 f"Audio error: {self.engine.callback_error}"
             )
+
+        self._update_brown_motion_status()
 
         self.correlation_label.setText(
             "replaced by dual 3D sources"
@@ -6606,6 +7064,21 @@ def build_application() -> tuple[QApplication, MainWindow]:
     except Exception:
         motion_spec = default_motion
 
+    default_brown_motion = DualBrownMotionSpec()
+    brown_motion_data = loaded.get("dual_brown_motion", {})
+    try:
+        brown_motion_spec = DualBrownMotionSpec(
+            **{
+                field_name: brown_motion_data.get(
+                    field_name,
+                    getattr(default_brown_motion, field_name),
+                )
+                for field_name in asdict(default_brown_motion)
+            }
+        ).validated()
+    except Exception:
+        brown_motion_spec = default_brown_motion
+
     default_breath = BreathSpec()
     breath_data = dict(loaded.get("breath", {}))
 
@@ -6671,6 +7144,7 @@ def build_application() -> tuple[QApplication, MainWindow]:
         breath_spec=breath_spec,
         breath_evolution_spec=breath_evolution_spec,
         motion_spec=motion_spec,
+        brown_motion_spec=brown_motion_spec,
         seed_base=1000,
     )
 
