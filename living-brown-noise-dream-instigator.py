@@ -2040,17 +2040,15 @@ class SmoothRandomJourney:
 
 class HeartbeatGenerator:
     """
-    Separate centered pulse layer made entirely from filtered brown-noise
-    excitation.
+    Procedural resonant heartbeat instrument.
 
-    The pulse is shaped as one physical event:
+    Each cardiac cycle creates a low, physical "lub" followed by a smaller,
+    slightly brighter "dub". The sound is synthesized from decaying resonant
+    modes plus extremely faint valve and turbulence detail. Beat strength,
+    timing, pitch, decay, and lub/dub spacing vary subtly so long playback does
+    not expose a repeated sample.
 
-      broad low-frequency first contraction
-      smaller secondary response
-      shared resonant settling decay
-
-    Fixed resonant filters provide body and presence. Only gains and envelopes
-    evolve during playback, so the layer cannot introduce coefficient clicks.
+    The existing slow rate and prominence journeys remain intact.
     """
 
     def __init__(
@@ -2065,56 +2063,9 @@ class HeartbeatGenerator:
 
         spec = self.heartbeat_state.get()
 
-        # Broad low body centered around approximately 48 Hz.
-        body_b, body_a = signal.iirpeak(
-            48.0,
-            Q=0.72,
-            fs=self.sample_rate,
-        )
-        self.body_sos = signal.tf2sos(body_b, body_a)
-        self.body_filter_state = (
-            signal.sosfilt_zi(self.body_sos) * 0.0
-        )
-
-        # Smaller secondary presence centered around approximately 92 Hz.
-        presence_b, presence_a = signal.iirpeak(
-            92.0,
-            Q=0.95,
-            fs=self.sample_rate,
-        )
-        self.presence_sos = signal.tf2sos(
-            presence_b,
-            presence_a,
-        )
-        self.presence_filter_state = (
-            signal.sosfilt_zi(self.presence_sos) * 0.0
-        )
-
-        # Remove very low drift before exciting the resonances.
-        conditioning_sections = [
-            signal.butter(
-                1,
-                14.0,
-                btype="highpass",
-                fs=self.sample_rate,
-                output="sos",
-            ),
-            signal.butter(
-                1,
-                180.0,
-                btype="lowpass",
-                fs=self.sample_rate,
-                output="sos",
-            ),
-        ]
-        self.conditioning_sos = np.vstack(conditioning_sections)
-        self.conditioning_state = (
-            signal.sosfilt_zi(self.conditioning_sos) * 0.0
-        )
-
         self.absolute_sample = 0
         self.next_beat_sample = 0
-        self.active_beats: list[tuple[int, float]] = []
+        self.active_beats: list[dict[str, float]] = []
 
         self.current_envelope = 0.0
         self.current_rate_bpm = 50.0
@@ -2144,8 +2095,6 @@ class HeartbeatGenerator:
 
     def _schedule_next_beat(self) -> None:
         mean_interval = 60.0 / max(1.0, self.current_rate_bpm)
-
-        # Very small physiological jitter around the evolving mean rate.
         jitter = float(
             np.clip(
                 self.rng.normal(0.0, 0.010),
@@ -2155,136 +2104,218 @@ class HeartbeatGenerator:
         )
         interval = mean_interval * (1.0 + jitter)
         self.current_interval_seconds = interval
-
         self.next_beat_sample += max(
             1,
             int(interval * self.sample_rate),
         )
 
+    def _new_beat(self, sample_index: int) -> dict[str, float]:
+        strength = float(
+            np.clip(self.rng.normal(1.0, 0.055), 0.84, 1.17)
+        )
+        pitch_scale = float(
+            np.clip(self.rng.normal(1.0, 0.025), 0.94, 1.07)
+        )
+        decay_scale = float(
+            np.clip(self.rng.normal(1.0, 0.075), 0.82, 1.20)
+        )
+        dub_delay = float(
+            np.clip(self.rng.normal(0.185, 0.012), 0.155, 0.220)
+        )
+        dub_strength = float(
+            np.clip(self.rng.normal(0.60, 0.055), 0.46, 0.73)
+        )
+        phase = float(self.rng.uniform(-0.10, 0.10))
+
+        return {
+            "sample": float(sample_index),
+            "strength": strength,
+            "pitch_scale": pitch_scale,
+            "decay_scale": decay_scale,
+            "dub_delay": dub_delay,
+            "dub_strength": dub_strength,
+            "phase": phase,
+            "detail_seed": float(self.rng.uniform(0.0, 2.0 * math.pi)),
+        }
+
     @staticmethod
-    def _sin2_lobe(
-        relative_samples: np.ndarray,
-        start_seconds: float,
-        duration_seconds: float,
-        amplitude: float,
-        sample_rate: float,
+    def _attack_decay(
+        age: np.ndarray,
+        attack_seconds: float,
+        decay_seconds: float,
     ) -> np.ndarray:
-        start = int(start_seconds * sample_rate)
-        duration = max(1, int(duration_seconds * sample_rate))
+        active = age >= 0.0
+        envelope = np.zeros_like(age, dtype=np.float64)
+        if not np.any(active):
+            return envelope
 
-        local = (relative_samples - start) / duration
-        active = (local >= 0.0) & (local < 1.0)
-
-        output = np.zeros_like(local, dtype=np.float64)
-        phase = local[active]
-        output[active] = (
-            amplitude * np.sin(np.pi * phase) ** 2
+        active_age = age[active]
+        attack = 1.0 - np.exp(
+            -active_age / max(1e-5, attack_seconds)
         )
-        return output
+        decay = np.exp(
+            -active_age / max(1e-5, decay_seconds)
+        )
+        envelope[active] = attack * decay
+        return envelope
 
-    def _build_envelopes(
+    @staticmethod
+    def _resonance(
+        age: np.ndarray,
+        frequency_hz: float,
+        attack_seconds: float,
+        decay_seconds: float,
+        phase: float = 0.0,
+    ) -> np.ndarray:
+        envelope = HeartbeatGenerator._attack_decay(
+            age,
+            attack_seconds,
+            decay_seconds,
+        )
+        return envelope * np.sin(
+            2.0 * np.pi * frequency_hz * np.maximum(age, 0.0)
+            + phase
+        )
+
+    def _render_beat(
         self,
-        frame_count: int,
+        beat: dict[str, float],
+        absolute_samples: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
-        buffer_start = self.absolute_sample
-        buffer_end = buffer_start + frame_count
+        beat_sample = int(beat["sample"])
+        age = (
+            absolute_samples - beat_sample
+        ) / self.sample_rate
 
-        while self.next_beat_sample < buffer_end:
-            beat_strength = float(
-                np.clip(
-                    self.rng.normal(1.0, 0.035),
-                    0.90,
-                    1.10,
-                )
-            )
-            self.active_beats.append(
-                (self.next_beat_sample, beat_strength)
-            )
-            self._schedule_next_beat()
+        strength = beat["strength"]
+        pitch = beat["pitch_scale"]
+        decay = beat["decay_scale"]
+        phase = beat["phase"]
 
-        absolute = np.arange(
-            buffer_start,
-            buffer_end,
-            dtype=np.int64,
+        # LUB: broad chest/body impact with several modes that settle at
+        # different rates. The low modes provide physical weight; the upper
+        # mode gives enough identity to remain perceptible in dense noise.
+        lub = (
+            1.00
+            * self._resonance(
+                age,
+                38.0 * pitch,
+                0.006,
+                0.205 * decay,
+                phase,
+            )
+            + 0.64
+            * self._resonance(
+                age,
+                58.0 * pitch,
+                0.004,
+                0.145 * decay,
+                phase * 0.7,
+            )
+            + 0.25
+            * self._resonance(
+                age,
+                91.0 * pitch,
+                0.003,
+                0.088 * decay,
+                phase * 0.35,
+            )
         )
 
-        body_envelope = np.zeros(frame_count, dtype=np.float64)
-        presence_envelope = np.zeros(frame_count, dtype=np.float64)
-
-        retained: list[tuple[int, float]] = []
-        tail_seconds = 0.48
-
-        for beat_sample, beat_strength in self.active_beats:
-            relative = absolute - beat_sample
-
-            # First broad contraction.
-            body_envelope += self._sin2_lobe(
-                relative,
-                start_seconds=0.000,
-                duration_seconds=0.145,
-                amplitude=1.00 * beat_strength,
-                sample_rate=self.sample_rate,
-            )
-
-            # Smaller secondary response.
-            body_envelope += self._sin2_lobe(
-                relative,
-                start_seconds=0.185,
-                duration_seconds=0.105,
-                amplitude=0.56 * beat_strength,
-                sample_rate=self.sample_rate,
-            )
-
-            presence_envelope += self._sin2_lobe(
-                relative,
-                start_seconds=0.020,
-                duration_seconds=0.080,
-                amplitude=0.48 * beat_strength,
-                sample_rate=self.sample_rate,
-            )
-            presence_envelope += self._sin2_lobe(
-                relative,
-                start_seconds=0.195,
-                duration_seconds=0.065,
-                amplitude=0.25 * beat_strength,
-                sample_rate=self.sample_rate,
-            )
-
-            # Shared decaying pressure tail ties both pulses into one event.
-            tail_start = int(0.055 * self.sample_rate)
-            tail_age = (relative - tail_start) / self.sample_rate
-            active_tail = (tail_age >= 0.0) & (tail_age < tail_seconds)
-
-            shared_tail = np.zeros(frame_count, dtype=np.float64)
-            shared_tail[active_tail] = (
-                0.25
-                * beat_strength
-                * np.exp(-tail_age[active_tail] / 0.145)
-            )
-            body_envelope += shared_tail
-            presence_envelope += 0.26 * shared_tail
-
-            if (
-                beat_sample
-                + int(tail_seconds * self.sample_rate)
-                >= buffer_end
-            ):
-                retained.append((beat_sample, beat_strength))
-
-        self.active_beats = retained
-        self.absolute_sample = buffer_end
-
-        body_envelope = np.tanh(body_envelope * 1.08)
-        presence_envelope = np.tanh(presence_envelope * 1.05)
-
-        self.current_envelope = float(
-            max(body_envelope[-1], presence_envelope[-1])
+        # A non-oscillatory pressure component makes the first sound read as
+        # a physical contraction rather than merely a low musical tone.
+        pressure = self._attack_decay(
+            age,
+            0.0035,
+            0.090 * decay,
+        )
+        pressure *= np.exp(
+            -np.maximum(age, 0.0) / (0.18 * decay)
         )
 
-        return (
-            body_envelope.astype(np.float32),
-            presence_envelope.astype(np.float32),
+        # DUB: delayed, lighter, and slightly brighter.
+        dub_age = age - beat["dub_delay"]
+        dub = beat["dub_strength"] * (
+            0.82
+            * self._resonance(
+                dub_age,
+                48.0 * pitch,
+                0.004,
+                0.125 * decay,
+                -phase,
+            )
+            + 0.48
+            * self._resonance(
+                dub_age,
+                76.0 * pitch,
+                0.003,
+                0.090 * decay,
+                phase * 0.4,
+            )
+            + 0.18
+            * self._resonance(
+                dub_age,
+                118.0 * pitch,
+                0.002,
+                0.052 * decay,
+                -phase * 0.3,
+            )
         )
+
+        # Very faint valve detail. It is deliberately tonal/noisy enough to
+        # identify the events, but far below the low resonant body.
+        # Soft valve detail. Both components begin at a zero crossing and use
+        # a several-millisecond attack so they add definition without producing
+        # a phase-dependent click or pop at onset.
+        click_lub = 0.022 * self._resonance(
+            age,
+            310.0 * pitch,
+            0.0040,
+            0.018,
+            0.0,
+        )
+        click_dub = 0.014 * self._resonance(
+            dub_age,
+            390.0 * pitch,
+            0.0045,
+            0.015,
+            0.0,
+        )
+
+        waveform = strength * (
+            0.76 * lub
+            + 0.28 * pressure
+            + 0.72 * dub
+            + click_lub
+            + click_dub
+        )
+
+        event_envelope = np.maximum(
+            self._attack_decay(age, 0.003, 0.24 * decay),
+            self._attack_decay(dub_age, 0.002, 0.16 * decay),
+        )
+
+        # The resonances still contain a small amount of energy after their
+        # audible body has ended. Never discard that tail abruptly. Fade every
+        # beat smoothly to an exact zero between 0.58 and 0.92 seconds.
+        release_start = 0.58
+        release_end = 0.92
+        release_position = np.clip(
+            (age - release_start)
+            / (release_end - release_start),
+            0.0,
+            1.0,
+        )
+        terminal_gain = 0.5 + 0.5 * np.cos(
+            np.pi * release_position
+        )
+        terminal_gain[age < 0.0] = 0.0
+        terminal_gain[age >= release_end] = 0.0
+
+        waveform *= terminal_gain
+        event_envelope *= terminal_gain
+
+        return waveform, event_envelope
 
     def generate(self, frame_count: int) -> np.ndarray:
         elapsed_seconds = frame_count / self.sample_rate
@@ -2296,47 +2327,62 @@ class HeartbeatGenerator:
             elapsed_seconds
         )
 
-        white = self.rng.standard_normal(frame_count)
+        buffer_start = self.absolute_sample
+        buffer_end = buffer_start + frame_count
 
-        conditioned, self.conditioning_state = signal.sosfilt(
-            self.conditioning_sos,
-            white,
-            zi=self.conditioning_state,
+        while self.next_beat_sample < buffer_end:
+            self.active_beats.append(
+                self._new_beat(self.next_beat_sample)
+            )
+            self._schedule_next_beat()
+
+        absolute = np.arange(
+            buffer_start,
+            buffer_end,
+            dtype=np.int64,
         )
 
-        body_noise, self.body_filter_state = signal.sosfilt(
-            self.body_sos,
-            conditioned,
-            zi=self.body_filter_state,
-        )
-        presence_noise, self.presence_filter_state = signal.sosfilt(
-            self.presence_sos,
-            conditioned,
-            zi=self.presence_filter_state,
-        )
+        output = np.zeros(frame_count, dtype=np.float64)
+        envelope = np.zeros(frame_count, dtype=np.float64)
+        retained: list[dict[str, float]] = []
 
-        body_envelope, presence_envelope = self._build_envelopes(
-            frame_count
-        )
+        # Must extend beyond the terminal fade's exact-zero endpoint.
+        tail_seconds = 0.96
 
-        # Production prominence range: absent through clearly detectable, but
-        # below the former stress-test maximum.
+        for beat in self.active_beats:
+            rendered, beat_envelope = self._render_beat(
+                beat,
+                absolute,
+            )
+            output += rendered
+            envelope = np.maximum(envelope, beat_envelope)
+
+            if (
+                int(beat["sample"])
+                + int(tail_seconds * self.sample_rate)
+                >= buffer_end
+            ):
+                retained.append(beat)
+
+        self.active_beats = retained
+        self.absolute_sample = buffer_end
+        self.current_envelope = float(envelope[-1])
+
+        # Keep the existing long-form prominence evolution, but make the new
+        # instrument substantially more audible than the former noise pulse.
         prominence = self.current_prominence
         gain = (
-            0.08 * prominence
-            + 1.78 * prominence * prominence
+            0.18 * prominence
+            + 2.85 * prominence * prominence
         )
 
-        pulse = gain * (
-            body_noise * body_envelope
-            + 0.44 * presence_noise * presence_envelope
-        )
+        output *= gain
 
-        # Warm, rounded pressure rather than a hard transient.
-        pulse = 0.70 * np.tanh(pulse * 1.55)
+        # Gentle saturation supplies chest-like density and prevents rare
+        # overlapping events from producing hard digital peaks.
+        output = 0.88 * np.tanh(output * 1.35)
 
-        return pulse.astype(np.float32, copy=False)
-
+        return output.astype(np.float32, copy=False)
 
 
 # =============================================================================
@@ -3615,6 +3661,7 @@ class HeartbeatSpatialSpec:
     distance: float = HEARTBEAT_DISTANCE_DEFAULT_METERS
     horizontal: float = HEARTBEAT_HORIZONTAL_DEFAULT_METERS
     vertical: float = HEARTBEAT_VERTICAL_DEFAULT_METERS
+    level_db: float = 12.0
 
     def validated(self) -> "HeartbeatSpatialSpec":
         if not HEARTBEAT_DISTANCE_MIN_METERS <= self.distance <= HEARTBEAT_DISTANCE_MAX_METERS:
@@ -3623,6 +3670,8 @@ class HeartbeatSpatialSpec:
             raise ValueError("heartbeat horizontal outside range")
         if not HEARTBEAT_VERTICAL_MIN_METERS <= self.vertical <= HEARTBEAT_VERTICAL_MAX_METERS:
             raise ValueError("heartbeat vertical outside range")
+        if not -24.0 <= self.level_db <= 24.0:
+            raise ValueError("heartbeat level must be between -24 and +24 dB")
         return self
 
     @property
@@ -3801,6 +3850,7 @@ class LivingBrownNoiseMixer:
         self.heartbeat_spatial.set_position_vector(spec.position)
 
     def _randomize_heartbeat_position(self) -> None:
+        current = self.heartbeat_spatial_state.get()
         spec = HeartbeatSpatialSpec(
             distance=float(self.heartbeat_spatial_rng.uniform(
                 HEARTBEAT_DISTANCE_MIN_METERS,
@@ -3814,6 +3864,7 @@ class LivingBrownNoiseMixer:
                 HEARTBEAT_VERTICAL_MIN_METERS,
                 HEARTBEAT_VERTICAL_MAX_METERS,
             )),
+            level_db=current.level_db,
         )
         self.heartbeat_spatial_state.set(spec)
         self.current_heartbeat_position = spec.position
@@ -4091,7 +4142,17 @@ class LivingBrownNoiseMixer:
         )
 
         heartbeat = self.heartbeat.generate(frame_count)
-        active_heartbeat = heartbeat * heartbeat_curve
+        heartbeat_position_spec = (
+            self.heartbeat_spatial_state.get()
+        )
+        heartbeat_level = 10.0 ** (
+            heartbeat_position_spec.level_db / 20.0
+        )
+        active_heartbeat = (
+            heartbeat
+            * heartbeat_curve
+            * heartbeat_level
+        )
 
         self.current_heartbeat = float(
             self.heartbeat.current_envelope
@@ -4101,7 +4162,6 @@ class LivingBrownNoiseMixer:
             self.heartbeat.current_interval_seconds
         )
 
-        heartbeat_position_spec = self.heartbeat_spatial_state.get()
         self.current_heartbeat_position = heartbeat_position_spec.position
         self.heartbeat_spatial.set_position_vector(
             heartbeat_position_spec.position
@@ -4620,7 +4680,7 @@ class MainWindow(QMainWindow):
         self.default_breath_spec = BreathSpec()
 
         self.setWindowTitle(
-            "Living Brown Noise — Dream Instigator Lab — 3D Heartbeat Position Lab"
+            "Living Brown Noise — Dream Instigator Lab — Tail-Safe Synthesized Heartbeat"
         )
         self.resize(840, 1040)
 
@@ -4651,7 +4711,7 @@ class MainWindow(QMainWindow):
         )
 
         self.heartbeat_checkbox = QCheckBox(
-            "Heartbeat / pulse — separate centered brown-noise layer"
+            "Heartbeat / pulse — synthesized resonant lub-dub instrument"
         )
         self.heartbeat_checkbox.setChecked(
             self.mode_state.get().heartbeat_enabled
@@ -5165,6 +5225,24 @@ class MainWindow(QMainWindow):
         heartbeat_spatial_form = QFormLayout(self.heartbeat_spatial_panel)
         heartbeat_spatial_form.setContentsMargins(24, 4, 0, 8)
         heartbeat_position = self.mixer.heartbeat_spatial_state.get()
+
+        self.heartbeat_level_control = FloatControl(
+            minimum=-24.0,
+            maximum=24.0,
+            value=heartbeat_position.level_db,
+            step=0.5,
+            decimals=1,
+            suffix=" dB",
+            on_change=lambda value: (
+                self._update_heartbeat_position(
+                    level_db=value
+                )
+            ),
+        )
+        heartbeat_spatial_form.addRow(
+            "Heartbeat level:",
+            self.heartbeat_level_control,
+        )
 
         self.heartbeat_distance_control = FloatControl(
             minimum=HEARTBEAT_DISTANCE_MIN_METERS,
@@ -6849,9 +6927,11 @@ class MainWindow(QMainWindow):
 
     def _update_heartbeat_position_status(self) -> None:
         position = self.mixer.current_heartbeat_position
+        spec = self.mixer.heartbeat_spatial_state.get()
         self.heartbeat_position_status.setText(
+            f"{spec.level_db:+.1f} dB; "
             f"({position.x:.2f}, {position.y:.2f}, {position.z:.2f}) m; "
-            "abruptly randomized by body movement events"
+            "position abruptly randomized by body movement events"
         )
 
     def _on_modes_changed(self) -> None:
