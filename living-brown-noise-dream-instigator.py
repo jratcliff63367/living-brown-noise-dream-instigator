@@ -386,6 +386,10 @@ class BreathEnvelope:
         self._cycle_rest_scale = 1.0
         self.current_event = "normal"
 
+        # Metabolism may change this later, but it must exist before the first
+        # call to _duration_for_stage during construction.
+        self.external_tempo_multiplier = 1.0
+
         spec, version = self.breath_state.get()
         self._seen_spec_version = version
         self._choose_new_cycle(spec)
@@ -395,6 +399,36 @@ class BreathEnvelope:
         )
 
         self.current_value = 0.0
+
+    def set_external_tempo_multiplier(
+        self,
+        multiplier: float,
+    ) -> None:
+        multiplier = float(
+            np.clip(multiplier, 0.25, 5.0)
+        )
+
+        if abs(
+            multiplier - self.external_tempo_multiplier
+        ) < 1e-6:
+            return
+
+        old_duration = max(1, self.stage_duration_samples)
+        progress = min(
+            1.0,
+            self.stage_position_samples / old_duration,
+        )
+
+        self.external_tempo_multiplier = multiplier
+
+        spec, _ = self.breath_state.get()
+        self.stage_duration_samples = self._duration_for_stage(
+            self.stage,
+            spec,
+        )
+        self.stage_position_samples = int(
+            progress * self.stage_duration_samples
+        )
 
     @staticmethod
     def _correlated_step(
@@ -501,6 +535,8 @@ class BreathEnvelope:
             )
         else:
             raise ValueError(f"Unknown breath stage: {stage}")
+
+        seconds *= self.external_tempo_multiplier
 
         # Tiny per-stage variation prevents every phase from scaling in
         # perfect lockstep while retaining the same overall cycle identity.
@@ -3564,8 +3600,13 @@ class DualBrownFluidMotion:
     def advance(
         self,
         elapsed_seconds: float,
+        override_spec: DualBrownMotionSpec | None = None,
     ) -> tuple[Vector3, Vector3]:
-        spec = self.state.get()
+        spec = (
+            override_spec
+            if override_spec is not None
+            else self.state.get()
+        )
         simulated_seconds = (
             max(0.0, float(elapsed_seconds))
             * spec.simulation_speed
@@ -3697,6 +3738,326 @@ class HeartbeatSpatialState:
             self._spec = replace(self._spec, **changes).validated()
 
 
+
+@dataclass(frozen=True, slots=True)
+class MetabolismSpec:
+    """Independent ranges for the central living-system controller."""
+
+    enabled: bool = False
+    phase_min_minutes: float = 8.0
+    phase_max_minutes: float = 35.0
+
+    brown_body_min: float = 0.0
+    brown_body_max: float = 1.0
+    brown_slope_min: float = 0.75
+    brown_slope_max: float = 1.0
+    brown_low_end_min_db: float = 0.0
+    brown_low_end_max_db: float = 8.0
+    brown_texture_min: float = 0.0
+    brown_texture_max: float = 1.0
+
+    breath_prominence_min: float = 0.02
+    breath_prominence_max: float = 0.85
+    breath_tempo_min: float = 1.0
+    breath_tempo_max: float = 2.6
+    breath_gain_min_db: float = 0.25
+    breath_gain_max_db: float = 4.5
+    breath_spectral_min: float = 0.05
+    breath_spectral_max: float = 0.35
+    breath_width_min: float = 0.03
+    breath_width_max: float = 0.18
+
+    heartbeat_distance_min: float = 0.75
+    heartbeat_distance_max: float = 4.0
+    heartbeat_level_min_db: float = 0.0
+    heartbeat_level_max_db: float = 18.0
+
+    brown_3d_amount_min: float = 0.02
+    brown_3d_amount_max: float = 0.55
+    brown_radius_min: float = 0.25
+    brown_radius_max: float = 5.0
+    brown_center_distance_min: float = 0.5
+    brown_center_distance_max: float = 5.0
+    brown_evolution_min: float = 0.02
+    brown_evolution_max: float = 0.65
+
+    def validated(self) -> "MetabolismSpec":
+        pairs = (
+            ("phase_min_minutes", "phase_max_minutes", 0.25, 240.0),
+            ("brown_body_min", "brown_body_max", 0.0, 1.0),
+            ("brown_slope_min", "brown_slope_max", 0.75, 1.0),
+            ("brown_low_end_min_db", "brown_low_end_max_db", 0.0, 8.0),
+            ("brown_texture_min", "brown_texture_max", 0.0, 1.0),
+            ("breath_prominence_min", "breath_prominence_max", 0.0, 1.5),
+            ("breath_tempo_min", "breath_tempo_max", 0.25, 5.0),
+            ("breath_gain_min_db", "breath_gain_max_db", 0.0, 12.0),
+            ("breath_spectral_min", "breath_spectral_max", 0.0, 1.0),
+            ("breath_width_min", "breath_width_max", 0.0, 1.0),
+            ("heartbeat_distance_min", "heartbeat_distance_max", 0.15, 4.0),
+            ("heartbeat_level_min_db", "heartbeat_level_max_db", -24.0, 24.0),
+            ("brown_3d_amount_min", "brown_3d_amount_max", 0.0, 1.5),
+            ("brown_radius_min", "brown_radius_max", 0.0, 10.0),
+            ("brown_center_distance_min", "brown_center_distance_max", 0.05, 12.0),
+            ("brown_evolution_min", "brown_evolution_max", 0.0, 1.0),
+        )
+        for lo_name, hi_name, lo_bound, hi_bound in pairs:
+            lo = float(getattr(self, lo_name))
+            hi = float(getattr(self, hi_name))
+            if not lo_bound <= lo <= hi_bound:
+                raise ValueError(f"{lo_name} outside range")
+            if not lo_bound <= hi <= hi_bound:
+                raise ValueError(f"{hi_name} outside range")
+            if lo > hi:
+                raise ValueError(f"{lo_name} cannot exceed {hi_name}")
+        return self
+
+
+class MetabolismState:
+    """Thread-safe metabolism settings with interactive min/max normalization."""
+
+    _PAIRS = (
+        ("phase_min_minutes", "phase_max_minutes"),
+        ("brown_body_min", "brown_body_max"),
+        ("brown_slope_min", "brown_slope_max"),
+        ("brown_low_end_min_db", "brown_low_end_max_db"),
+        ("brown_texture_min", "brown_texture_max"),
+        ("breath_prominence_min", "breath_prominence_max"),
+        ("breath_tempo_min", "breath_tempo_max"),
+        ("breath_gain_min_db", "breath_gain_max_db"),
+        ("breath_spectral_min", "breath_spectral_max"),
+        ("breath_width_min", "breath_width_max"),
+        ("heartbeat_distance_min", "heartbeat_distance_max"),
+        ("heartbeat_level_min_db", "heartbeat_level_max_db"),
+        ("brown_3d_amount_min", "brown_3d_amount_max"),
+        ("brown_radius_min", "brown_radius_max"),
+        ("brown_center_distance_min", "brown_center_distance_max"),
+        ("brown_evolution_min", "brown_evolution_max"),
+    )
+
+    def __init__(self, spec: MetabolismSpec) -> None:
+        self._lock = threading.Lock()
+        self._spec = spec.validated()
+
+    def get(self) -> MetabolismSpec:
+        with self._lock:
+            return self._spec
+
+    def set(self, spec: MetabolismSpec) -> None:
+        with self._lock:
+            self._spec = spec.validated()
+
+    def update(self, **changes) -> None:
+        with self._lock:
+            values = asdict(self._spec)
+            values.update(changes)
+
+            for minimum_name, maximum_name in self._PAIRS:
+                minimum = float(values[minimum_name])
+                maximum = float(values[maximum_name])
+
+                if minimum > maximum:
+                    if minimum_name in changes:
+                        values[maximum_name] = minimum
+                    else:
+                        values[minimum_name] = maximum
+
+            self._spec = MetabolismSpec(**values).validated()
+
+
+@dataclass(frozen=True, slots=True)
+class MetabolismValues:
+    activity: float
+    brown_body: float
+    brown_slope: float
+    brown_low_end_db: float
+    brown_texture: float
+    breath_prominence: float
+    breath_tempo: float
+    breath_gain_db: float
+    breath_spectral_depth: float
+    breath_width_depth: float
+    heartbeat_distance: float
+    heartbeat_level_db: float
+    brown_3d_amount: float
+    brown_radius: float
+    brown_center_distance: float
+    brown_evolution: float
+
+
+class MetabolismEngine:
+    """Smooth, nonperiodic travel through the independent metabolism envelope."""
+
+    def __init__(
+        self,
+        state: MetabolismState,
+        seed: int = 730221,
+    ) -> None:
+        self.state = state
+        self.rng = np.random.default_rng(seed)
+
+        self.start_activity = 0.30
+        self.current_activity = 0.30
+        self.target_activity = 0.30
+        self.elapsed = 0.0
+        self.duration = 1.0
+        self._was_enabled = False
+
+        self._choose_target(initial=True)
+
+    def _choose_target(self, initial: bool = False) -> None:
+        spec = self.state.get()
+
+        if not initial:
+            self.start_activity = self.current_activity
+
+        # Bias toward calm-to-moderate metabolism while retaining active periods.
+        self.target_activity = float(
+            self.rng.beta(1.30, 1.85)
+        )
+        self.duration = float(
+            self.rng.uniform(
+                spec.phase_min_minutes * 60.0,
+                spec.phase_max_minutes * 60.0,
+            )
+        )
+        self.elapsed = 0.0
+
+    @staticmethod
+    def _smoothstep5(value: float) -> float:
+        value = float(np.clip(value, 0.0, 1.0))
+        return value ** 3 * (
+            value * (value * 6.0 - 15.0) + 10.0
+        )
+
+    @staticmethod
+    def _map(
+        activity: float,
+        minimum: float,
+        maximum: float,
+    ) -> float:
+        return minimum + activity * (maximum - minimum)
+
+    def advance(
+        self,
+        elapsed_seconds: float,
+    ) -> MetabolismValues | None:
+        spec = self.state.get()
+
+        if not spec.enabled:
+            self._was_enabled = False
+            return None
+
+        if not self._was_enabled:
+            self._was_enabled = True
+            self.start_activity = self.current_activity
+            self._choose_target()
+
+        remaining = max(0.0, float(elapsed_seconds))
+
+        while remaining > 0.0:
+            available = max(0.0, self.duration - self.elapsed)
+            step = min(remaining, available)
+            self.elapsed += step
+            remaining -= step
+
+            progress = self.elapsed / max(1e-9, self.duration)
+            blend = self._smoothstep5(progress)
+            self.current_activity = (
+                self.start_activity
+                + (self.target_activity - self.start_activity) * blend
+            )
+
+            if self.elapsed >= self.duration - 1e-9:
+                self.current_activity = self.target_activity
+                self._choose_target()
+
+        activity = float(
+            np.clip(self.current_activity, 0.0, 1.0)
+        )
+
+        texture_wave = 0.5 + 0.5 * math.sin(
+            2.0 * math.pi * (activity + 0.17)
+        )
+        body_wave = 0.5 + 0.5 * math.sin(
+            2.0 * math.pi * (activity * 0.73 + 0.41)
+        )
+        slope_wave = 0.5 + 0.5 * math.sin(
+            2.0 * math.pi * (activity * 0.61 + 0.08)
+        )
+        spatial_wave = 0.5 + 0.5 * math.sin(
+            2.0 * math.pi * (activity * 0.83 + 0.29)
+        )
+
+        return MetabolismValues(
+            activity=activity,
+            brown_body=self._map(
+                body_wave, spec.brown_body_min, spec.brown_body_max
+            ),
+            brown_slope=self._map(
+                slope_wave, spec.brown_slope_min, spec.brown_slope_max
+            ),
+            brown_low_end_db=self._map(
+                texture_wave,
+                spec.brown_low_end_min_db,
+                spec.brown_low_end_max_db,
+            ),
+            brown_texture=self._map(
+                1.0 - texture_wave,
+                spec.brown_texture_min,
+                spec.brown_texture_max,
+            ),
+            breath_prominence=self._map(
+                activity,
+                spec.breath_prominence_min,
+                spec.breath_prominence_max,
+            ),
+            breath_tempo=self._map(
+                1.0 - activity,
+                spec.breath_tempo_min,
+                spec.breath_tempo_max,
+            ),
+            breath_gain_db=self._map(
+                activity, spec.breath_gain_min_db, spec.breath_gain_max_db
+            ),
+            breath_spectral_depth=self._map(
+                activity, spec.breath_spectral_min, spec.breath_spectral_max
+            ),
+            breath_width_depth=self._map(
+                activity, spec.breath_width_min, spec.breath_width_max
+            ),
+            heartbeat_distance=self._map(
+                1.0 - activity,
+                spec.heartbeat_distance_min,
+                spec.heartbeat_distance_max,
+            ),
+            heartbeat_level_db=self._map(
+                activity,
+                spec.heartbeat_level_min_db,
+                spec.heartbeat_level_max_db,
+            ),
+            brown_3d_amount=self._map(
+                activity,
+                spec.brown_3d_amount_min,
+                spec.brown_3d_amount_max,
+            ),
+            brown_radius=self._map(
+                spatial_wave,
+                spec.brown_radius_min,
+                spec.brown_radius_max,
+            ),
+            brown_center_distance=self._map(
+                1.0 - spatial_wave,
+                spec.brown_center_distance_min,
+                spec.brown_center_distance_max,
+            ),
+            brown_evolution=self._map(
+                activity,
+                spec.brown_evolution_min,
+                spec.brown_evolution_max,
+            ),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class MixerSpec:
     correlation_min: float = 0.0
@@ -3723,6 +4084,7 @@ class LivingBrownNoiseMixer:
         motion_state: OrganicMotionState,
         brown_motion_spec: DualBrownMotionSpec,
         heartbeat_spatial_spec: HeartbeatSpatialSpec,
+        metabolism_spec: MetabolismSpec,
         mixer_spec: MixerSpec,
     ) -> None:
         self.sample_rate = float(sample_rate)
@@ -3785,6 +4147,11 @@ class LivingBrownNoiseMixer:
         self.breath_state = breath_state
         self.breath_evolution_state = breath_evolution_state
         self.motion_state = motion_state
+        self.metabolism_state = MetabolismState(metabolism_spec)
+        self.metabolism = MetabolismEngine(self.metabolism_state)
+        self.current_metabolism_activity = 0.0
+        self.current_metabolism_values: MetabolismValues | None = None
+
         self.brown_motion_state = DualBrownMotionState(
             brown_motion_spec
         )
@@ -3924,11 +4291,32 @@ class LivingBrownNoiseMixer:
     def generate(self, frame_count: int) -> np.ndarray:
         modes = self.mode_state.get()
         elapsed_seconds = frame_count / self.sample_rate
+
+        metabolism_values = self.metabolism.advance(elapsed_seconds)
+        self.current_metabolism_values = metabolism_values
+
+        if metabolism_values is None:
+            self.current_metabolism_activity = 0.0
+            self.breath.set_external_tempo_multiplier(1.0)
+        else:
+            self.current_metabolism_activity = metabolism_values.activity
+            self.breath.set_external_tempo_multiplier(
+                metabolism_values.breath_tempo
+            )
         static_noise_spec, _ = self.noise_state.get()
-        evolved_noise_spec = self.noise_evolution.advance(
-            elapsed_seconds,
-            static_noise_spec,
-        )
+        if metabolism_values is None:
+            evolved_noise_spec = self.noise_evolution.advance(
+                elapsed_seconds,
+                static_noise_spec,
+            )
+        else:
+            evolved_noise_spec = replace(
+                static_noise_spec,
+                body=metabolism_values.brown_body,
+                slope_strength=metabolism_values.brown_slope,
+                low_end_emphasis_db=metabolism_values.brown_low_end_db,
+                upper_texture=metabolism_values.brown_texture,
+            ).validated(self.sample_rate)
         body_movement_triggered = self.body_movement.advance(
             elapsed_seconds,
             self.noise_evolution,
@@ -3944,7 +4332,16 @@ class LivingBrownNoiseMixer:
             evolved_noise_spec.low_end_emphasis_db
         )
         self.current_noise_texture = evolved_noise_spec.upper_texture
-        breath_spec, _ = self.breath_state.get()
+        manual_breath_spec, _ = self.breath_state.get()
+        if metabolism_values is None:
+            breath_spec = manual_breath_spec
+        else:
+            breath_spec = replace(
+                manual_breath_spec,
+                gain_range_db=metabolism_values.breath_gain_db,
+                spectral_depth=metabolism_values.breath_spectral_depth,
+                width_depth=metabolism_values.breath_width_depth,
+            ).validated()
 
         base_curve = self._approach_target(
             self.base_mix,
@@ -3986,6 +4383,9 @@ class LivingBrownNoiseMixer:
 
         raw_breath = self.breath.generate(frame_count)
         prominence = self.breath_prominence.generate(frame_count)
+        if metabolism_values is not None:
+            prominence *= metabolism_values.breath_prominence
+
         active_breath = raw_breath * breath_curve
 
         self.current_breath = float(active_breath[-1])
@@ -4095,8 +4495,25 @@ class LivingBrownNoiseMixer:
         # for heartbeat debugging without stopping its internal state.
         stereo *= base_curve[:, np.newaxis]
 
+        manual_brown_motion_spec = self.brown_motion_state.get()
+
+        if metabolism_values is None:
+            effective_brown_motion_spec = manual_brown_motion_spec
+        else:
+            effective_brown_motion_spec = DualBrownMotionSpec(
+                layer_enabled=True,
+                layer_amount=metabolism_values.brown_3d_amount,
+                enabled=True,
+                sphere_radius=metabolism_values.brown_radius,
+                center_distance=(
+                    metabolism_values.brown_center_distance
+                ),
+                evolution_rate=metabolism_values.brown_evolution,
+            ).validated()
+
         left_position, right_position = self.brown_motion.advance(
-            elapsed_seconds
+            elapsed_seconds,
+            override_spec=effective_brown_motion_spec,
         )
         self.brown_noise_left_spatial.set_position_vector(
             left_position
@@ -4120,7 +4537,7 @@ class LivingBrownNoiseMixer:
         )
         brown_3d = brown_left_3d + brown_right_3d
 
-        brown_motion_spec = self.brown_motion_state.get()
+        brown_motion_spec = effective_brown_motion_spec
         brown_3d_curve = self._approach_target(
             self.current_brown_3d_mix,
             1.0 if brown_motion_spec.layer_enabled else 0.0,
@@ -4142,9 +4559,18 @@ class LivingBrownNoiseMixer:
         )
 
         heartbeat = self.heartbeat.generate(frame_count)
-        heartbeat_position_spec = (
+        manual_heartbeat_position_spec = (
             self.heartbeat_spatial_state.get()
         )
+        if metabolism_values is None:
+            heartbeat_position_spec = manual_heartbeat_position_spec
+        else:
+            heartbeat_position_spec = replace(
+                manual_heartbeat_position_spec,
+                distance=metabolism_values.heartbeat_distance,
+                level_db=metabolism_values.heartbeat_level_db,
+            ).validated()
+
         heartbeat_level = 10.0 ** (
             heartbeat_position_spec.level_db / 20.0
         )
@@ -4312,6 +4738,7 @@ def build_mixer(
     motion_spec: OrganicMotionSpec,
     brown_motion_spec: DualBrownMotionSpec,
     heartbeat_spatial_spec: HeartbeatSpatialSpec,
+    metabolism_spec: MetabolismSpec,
     seed_base: int,
 ) -> tuple[
     LivingBrownNoiseMixer,
@@ -4380,6 +4807,7 @@ def build_mixer(
         motion_state=motion_state,
         brown_motion_spec=brown_motion_spec,
         heartbeat_spatial_spec=heartbeat_spatial_spec,
+        metabolism_spec=metabolism_spec,
         mixer_spec=MixerSpec(),
     )
 
@@ -4425,6 +4853,7 @@ class ExportWorker(QThread):
         motion_spec: OrganicMotionSpec,
         brown_motion_spec: DualBrownMotionSpec,
         heartbeat_spatial_spec: HeartbeatSpatialSpec,
+        metabolism_spec: MetabolismSpec,
     ) -> None:
         super().__init__()
         self.output_path = output_path
@@ -4442,6 +4871,7 @@ class ExportWorker(QThread):
         self.motion_spec = motion_spec
         self.brown_motion_spec = brown_motion_spec
         self.heartbeat_spatial_spec = heartbeat_spatial_spec
+        self.metabolism_spec = metabolism_spec
         self._cancel_requested = threading.Event()
 
     def request_cancel(self) -> None:
@@ -4482,6 +4912,7 @@ class ExportWorker(QThread):
                 motion_spec=self.motion_spec,
                 brown_motion_spec=self.brown_motion_spec,
                 heartbeat_spatial_spec=self.heartbeat_spatial_spec,
+                metabolism_spec=self.metabolism_spec,
                 seed_base=seed_base,
             )
 
@@ -4701,7 +5132,7 @@ class MainWindow(QMainWindow):
         self.default_breath_spec = BreathSpec()
 
         self.setWindowTitle(
-            "Living Brown Noise — Dream Instigator Lab — Frame-Safe Spatial Export"
+            "Living Brown Noise — Dream Instigator Lab — Metabolism Controller"
         )
         self.resize(840, 1040)
 
@@ -5314,6 +5745,469 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.soundscape_checkbox)
         controls_layout.addWidget(self.stereo_checkbox)
         controls_layout.addWidget(self.correlation_checkbox)
+
+        self.metabolism_expand_button = QToolButton()
+        self.metabolism_expand_button.setText("Metabolism")
+        self.metabolism_expand_button.setCheckable(True)
+        self.metabolism_expand_button.setChecked(
+            bool(
+                self.loaded_settings.get(
+                    "metabolism_panel_expanded",
+                    True,
+                )
+            )
+        )
+        self.metabolism_expand_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.metabolism_expand_button.setArrowType(
+            Qt.ArrowType.RightArrow
+        )
+        controls_layout.addWidget(self.metabolism_expand_button)
+
+        self.metabolism_panel = QWidget()
+        metabolism_layout = QVBoxLayout(self.metabolism_panel)
+        metabolism_layout.setContentsMargins(24, 4, 0, 8)
+        metabolism_layout.setSpacing(4)
+
+        metabolism_spec = self.mixer.metabolism_state.get()
+
+        self.metabolism_enabled_checkbox = QCheckBox(
+            "Enable metabolism — central controller owns all sound parameters"
+        )
+        self.metabolism_enabled_checkbox.setChecked(
+            metabolism_spec.enabled
+        )
+        metabolism_layout.addWidget(
+            self.metabolism_enabled_checkbox
+        )
+
+        def create_metabolism_subgroup(
+            title: str,
+            settings_key: str,
+            default_expanded: bool,
+        ) -> tuple[QToolButton, QWidget, QFormLayout]:
+            button = QToolButton()
+            button.setText(title)
+            button.setCheckable(True)
+            button.setChecked(
+                bool(
+                    self.loaded_settings.get(
+                        settings_key,
+                        default_expanded,
+                    )
+                )
+            )
+            button.setToolButtonStyle(
+                Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+            )
+            button.setArrowType(Qt.ArrowType.RightArrow)
+            metabolism_layout.addWidget(button)
+
+            panel = QWidget()
+            form = QFormLayout(panel)
+            form.setContentsMargins(20, 2, 0, 6)
+            metabolism_layout.addWidget(panel)
+
+            return button, panel, form
+
+        (
+            self.metabolism_rhythm_button,
+            self.metabolism_rhythm_panel,
+            metabolism_rhythm_form,
+        ) = create_metabolism_subgroup(
+            "Circadian rhythm",
+            "metabolism_rhythm_expanded",
+            True,
+        )
+
+        (
+            self.metabolism_brown_button,
+            self.metabolism_brown_panel,
+            metabolism_brown_form,
+        ) = create_metabolism_subgroup(
+            "Brown-noise style parameters",
+            "metabolism_brown_expanded",
+            True,
+        )
+
+        (
+            self.metabolism_breath_button,
+            self.metabolism_breath_panel,
+            metabolism_breath_form,
+        ) = create_metabolism_subgroup(
+            "Breath parameters",
+            "metabolism_breath_expanded",
+            False,
+        )
+
+        (
+            self.metabolism_heartbeat_button,
+            self.metabolism_heartbeat_panel,
+            metabolism_heartbeat_form,
+        ) = create_metabolism_subgroup(
+            "Heartbeat / pulse",
+            "metabolism_heartbeat_expanded",
+            False,
+        )
+
+        (
+            self.metabolism_3d_button,
+            self.metabolism_3d_panel,
+            metabolism_3d_form,
+        ) = create_metabolism_subgroup(
+            "Dual 3D brown-noise motion",
+            "metabolism_3d_expanded",
+            False,
+        )
+
+        def add_metabolism_control(
+            form: QFormLayout,
+            label: str,
+            field_name: str,
+            minimum: float,
+            maximum: float,
+            step: float,
+            decimals: int,
+            suffix: str = "",
+        ) -> FloatControl:
+            control = FloatControl(
+                minimum=minimum,
+                maximum=maximum,
+                value=getattr(metabolism_spec, field_name),
+                step=step,
+                decimals=decimals,
+                suffix=suffix,
+                on_change=lambda value, field_name=field_name: (
+                    self._update_metabolism(
+                        **{field_name: value}
+                    )
+                ),
+            )
+            form.addRow(label, control)
+            return control
+
+        # Circadian rhythm.
+        self.metabolism_control_0 = add_metabolism_control(
+            metabolism_rhythm_form,
+            "Phase minimum:",
+            "phase_min_minutes",
+            0.25,
+            120.0,
+            0.25,
+            2,
+            " min",
+        )
+        self.metabolism_control_1 = add_metabolism_control(
+            metabolism_rhythm_form,
+            "Phase maximum:",
+            "phase_max_minutes",
+            0.25,
+            240.0,
+            0.25,
+            2,
+            " min",
+        )
+
+        # Brown-noise style parameters.
+        self.metabolism_control_2 = add_metabolism_control(
+            metabolism_brown_form,
+            "Body minimum:",
+            "brown_body_min",
+            0.0,
+            1.0,
+            0.01,
+            2,
+        )
+        self.metabolism_control_3 = add_metabolism_control(
+            metabolism_brown_form,
+            "Body maximum:",
+            "brown_body_max",
+            0.0,
+            1.0,
+            0.01,
+            2,
+        )
+        self.metabolism_control_4 = add_metabolism_control(
+            metabolism_brown_form,
+            "Slope minimum:",
+            "brown_slope_min",
+            0.75,
+            1.0,
+            0.01,
+            2,
+        )
+        self.metabolism_control_5 = add_metabolism_control(
+            metabolism_brown_form,
+            "Slope maximum:",
+            "brown_slope_max",
+            0.75,
+            1.0,
+            0.01,
+            2,
+        )
+        self.metabolism_control_6 = add_metabolism_control(
+            metabolism_brown_form,
+            "Low-end minimum:",
+            "brown_low_end_min_db",
+            0.0,
+            8.0,
+            0.1,
+            1,
+            " dB",
+        )
+        self.metabolism_control_7 = add_metabolism_control(
+            metabolism_brown_form,
+            "Low-end maximum:",
+            "brown_low_end_max_db",
+            0.0,
+            8.0,
+            0.1,
+            1,
+            " dB",
+        )
+        self.metabolism_control_8 = add_metabolism_control(
+            metabolism_brown_form,
+            "Upper texture minimum:",
+            "brown_texture_min",
+            0.0,
+            1.0,
+            0.01,
+            2,
+        )
+        self.metabolism_control_9 = add_metabolism_control(
+            metabolism_brown_form,
+            "Upper texture maximum:",
+            "brown_texture_max",
+            0.0,
+            1.0,
+            0.01,
+            2,
+        )
+
+        # Breath parameters.
+        self.metabolism_control_10 = add_metabolism_control(
+            metabolism_breath_form,
+            "Prominence minimum:",
+            "breath_prominence_min",
+            0.0,
+            1.5,
+            0.01,
+            2,
+        )
+        self.metabolism_control_11 = add_metabolism_control(
+            metabolism_breath_form,
+            "Prominence maximum:",
+            "breath_prominence_max",
+            0.0,
+            1.5,
+            0.01,
+            2,
+        )
+        self.metabolism_control_12 = add_metabolism_control(
+            metabolism_breath_form,
+            "Tempo minimum:",
+            "breath_tempo_min",
+            0.25,
+            5.0,
+            0.05,
+            2,
+            "×",
+        )
+        self.metabolism_control_13 = add_metabolism_control(
+            metabolism_breath_form,
+            "Tempo maximum:",
+            "breath_tempo_max",
+            0.25,
+            5.0,
+            0.05,
+            2,
+            "×",
+        )
+        self.metabolism_control_14 = add_metabolism_control(
+            metabolism_breath_form,
+            "Gain minimum:",
+            "breath_gain_min_db",
+            0.0,
+            12.0,
+            0.1,
+            1,
+            " dB",
+        )
+        self.metabolism_control_15 = add_metabolism_control(
+            metabolism_breath_form,
+            "Gain maximum:",
+            "breath_gain_max_db",
+            0.0,
+            12.0,
+            0.1,
+            1,
+            " dB",
+        )
+        self.metabolism_control_16 = add_metabolism_control(
+            metabolism_breath_form,
+            "Spectral minimum:",
+            "breath_spectral_min",
+            0.0,
+            1.0,
+            0.01,
+            2,
+        )
+        self.metabolism_control_17 = add_metabolism_control(
+            metabolism_breath_form,
+            "Spectral maximum:",
+            "breath_spectral_max",
+            0.0,
+            1.0,
+            0.01,
+            2,
+        )
+        self.metabolism_control_18 = add_metabolism_control(
+            metabolism_breath_form,
+            "Width minimum:",
+            "breath_width_min",
+            0.0,
+            1.0,
+            0.01,
+            2,
+        )
+        self.metabolism_control_19 = add_metabolism_control(
+            metabolism_breath_form,
+            "Width maximum:",
+            "breath_width_max",
+            0.0,
+            1.0,
+            0.01,
+            2,
+        )
+
+        # Heartbeat / pulse.
+        self.metabolism_control_20 = add_metabolism_control(
+            metabolism_heartbeat_form,
+            "Distance minimum:",
+            "heartbeat_distance_min",
+            0.15,
+            4.0,
+            0.05,
+            2,
+            " m",
+        )
+        self.metabolism_control_21 = add_metabolism_control(
+            metabolism_heartbeat_form,
+            "Distance maximum:",
+            "heartbeat_distance_max",
+            0.15,
+            4.0,
+            0.05,
+            2,
+            " m",
+        )
+        self.metabolism_control_22 = add_metabolism_control(
+            metabolism_heartbeat_form,
+            "Level minimum:",
+            "heartbeat_level_min_db",
+            -24.0,
+            24.0,
+            0.5,
+            1,
+            " dB",
+        )
+        self.metabolism_control_23 = add_metabolism_control(
+            metabolism_heartbeat_form,
+            "Level maximum:",
+            "heartbeat_level_max_db",
+            -24.0,
+            24.0,
+            0.5,
+            1,
+            " dB",
+        )
+
+        # Dual 3D brown-noise motion.
+        self.metabolism_control_24 = add_metabolism_control(
+            metabolism_3d_form,
+            "Layer amount minimum:",
+            "brown_3d_amount_min",
+            0.0,
+            1.5,
+            0.01,
+            2,
+        )
+        self.metabolism_control_25 = add_metabolism_control(
+            metabolism_3d_form,
+            "Layer amount maximum:",
+            "brown_3d_amount_max",
+            0.0,
+            1.5,
+            0.01,
+            2,
+        )
+        self.metabolism_control_26 = add_metabolism_control(
+            metabolism_3d_form,
+            "Sphere radius minimum:",
+            "brown_radius_min",
+            0.0,
+            10.0,
+            0.05,
+            2,
+            " m",
+        )
+        self.metabolism_control_27 = add_metabolism_control(
+            metabolism_3d_form,
+            "Sphere radius maximum:",
+            "brown_radius_max",
+            0.0,
+            10.0,
+            0.05,
+            2,
+            " m",
+        )
+        self.metabolism_control_28 = add_metabolism_control(
+            metabolism_3d_form,
+            "Center distance minimum:",
+            "brown_center_distance_min",
+            0.05,
+            12.0,
+            0.05,
+            2,
+            " m",
+        )
+        self.metabolism_control_29 = add_metabolism_control(
+            metabolism_3d_form,
+            "Center distance maximum:",
+            "brown_center_distance_max",
+            0.05,
+            12.0,
+            0.05,
+            2,
+            " m",
+        )
+        self.metabolism_control_30 = add_metabolism_control(
+            metabolism_3d_form,
+            "Evolution minimum:",
+            "brown_evolution_min",
+            0.0,
+            1.0,
+            0.01,
+            2,
+        )
+        self.metabolism_control_31 = add_metabolism_control(
+            metabolism_3d_form,
+            "Evolution maximum:",
+            "brown_evolution_max",
+            0.0,
+            1.0,
+            0.01,
+            2,
+        )
+
+        self.metabolism_status_label = QLabel("")
+        self.metabolism_status_label.setWordWrap(True)
+        metabolism_layout.addWidget(
+            self.metabolism_status_label
+        )
+
+        controls_layout.addWidget(self.metabolism_panel)
 
         self.brown_motion_expand_button = QToolButton()
         self.brown_motion_expand_button.setText(
@@ -6116,6 +7010,47 @@ class MainWindow(QMainWindow):
         self.correlation_checkbox.toggled.connect(
             self._on_modes_changed
         )
+        self.metabolism_expand_button.toggled.connect(
+            self._toggle_metabolism_panel
+        )
+        self.metabolism_enabled_checkbox.toggled.connect(
+            self._on_metabolism_toggled
+        )
+        self.metabolism_rhythm_button.toggled.connect(
+            lambda expanded: self._toggle_metabolism_subgroup(
+                self.metabolism_rhythm_button,
+                self.metabolism_rhythm_panel,
+                expanded,
+            )
+        )
+        self.metabolism_brown_button.toggled.connect(
+            lambda expanded: self._toggle_metabolism_subgroup(
+                self.metabolism_brown_button,
+                self.metabolism_brown_panel,
+                expanded,
+            )
+        )
+        self.metabolism_breath_button.toggled.connect(
+            lambda expanded: self._toggle_metabolism_subgroup(
+                self.metabolism_breath_button,
+                self.metabolism_breath_panel,
+                expanded,
+            )
+        )
+        self.metabolism_heartbeat_button.toggled.connect(
+            lambda expanded: self._toggle_metabolism_subgroup(
+                self.metabolism_heartbeat_button,
+                self.metabolism_heartbeat_panel,
+                expanded,
+            )
+        )
+        self.metabolism_3d_button.toggled.connect(
+            lambda expanded: self._toggle_metabolism_subgroup(
+                self.metabolism_3d_button,
+                self.metabolism_3d_panel,
+                expanded,
+            )
+        )
         self.brown_motion_expand_button.toggled.connect(
             self._toggle_brown_motion_panel
         )
@@ -6167,6 +7102,35 @@ class MainWindow(QMainWindow):
             self.heartbeat_spatial_expand_button.isChecked()
         )
         self._update_heartbeat_position_status()
+        self._toggle_metabolism_panel(
+            self.metabolism_expand_button.isChecked()
+        )
+        self._toggle_metabolism_subgroup(
+            self.metabolism_rhythm_button,
+            self.metabolism_rhythm_panel,
+            self.metabolism_rhythm_button.isChecked(),
+        )
+        self._toggle_metabolism_subgroup(
+            self.metabolism_brown_button,
+            self.metabolism_brown_panel,
+            self.metabolism_brown_button.isChecked(),
+        )
+        self._toggle_metabolism_subgroup(
+            self.metabolism_breath_button,
+            self.metabolism_breath_panel,
+            self.metabolism_breath_button.isChecked(),
+        )
+        self._toggle_metabolism_subgroup(
+            self.metabolism_heartbeat_button,
+            self.metabolism_heartbeat_panel,
+            self.metabolism_heartbeat_button.isChecked(),
+        )
+        self._toggle_metabolism_subgroup(
+            self.metabolism_3d_button,
+            self.metabolism_3d_panel,
+            self.metabolism_3d_button.isChecked(),
+        )
+        self._update_metabolism_status()
         self._toggle_brown_motion_panel(
             self.brown_motion_expand_button.isChecked()
         )
@@ -6187,6 +7151,18 @@ class MainWindow(QMainWindow):
             not self.noise_evolution_checkbox.isChecked()
         )
         self._update_noise_status()
+
+        saved_sound_effects_checked = self.loaded_settings.get(
+            "sound_effects_checkbox_checked",
+            self.mode_state.get().soundscape_enabled,
+        )
+        self.soundscape_checkbox.setChecked(
+            bool(saved_sound_effects_checked)
+        )
+        self.soundscape_panel_enable.setChecked(
+            bool(saved_sound_effects_checked)
+        )
+
         self._on_modes_changed()
 
     def _toggle_motif_panel(self, expanded: bool) -> None:
@@ -6884,6 +7860,67 @@ class MainWindow(QMainWindow):
 
         self._schedule_settings_save()
 
+    def _toggle_metabolism_subgroup(
+        self,
+        button: QToolButton,
+        panel: QWidget,
+        expanded: bool,
+    ) -> None:
+        panel.setVisible(expanded)
+        button.setArrowType(
+            Qt.ArrowType.DownArrow
+            if expanded
+            else Qt.ArrowType.RightArrow
+        )
+        self._schedule_settings_save()
+
+    def _toggle_metabolism_panel(
+        self,
+        expanded: bool,
+    ) -> None:
+        self.metabolism_panel.setVisible(expanded)
+        self.metabolism_expand_button.setArrowType(
+            Qt.ArrowType.DownArrow
+            if expanded
+            else Qt.ArrowType.RightArrow
+        )
+        self._schedule_settings_save()
+
+    def _on_metabolism_toggled(
+        self,
+        checked: bool,
+    ) -> None:
+        self._update_metabolism(enabled=bool(checked))
+
+    def _update_metabolism(self, **changes) -> None:
+        self.mixer.metabolism_state.update(**changes)
+        self._update_metabolism_status()
+        self._schedule_settings_save()
+
+    def _update_metabolism_status(self) -> None:
+        spec = self.mixer.metabolism_state.get()
+        values = self.mixer.current_metabolism_values
+        if not spec.enabled or values is None:
+            self.metabolism_status_label.setText(
+                "off — all existing manual controls are active"
+            )
+            return
+        self.metabolism_status_label.setText(
+            f"state {values.activity:.3f}; "
+            f"body {values.brown_body:.2f}, slope {values.brown_slope:.2f}, "
+            f"low end {values.brown_low_end_db:.1f} dB, "
+            f"texture {values.brown_texture:.2f}; "
+            f"breath {values.breath_gain_db:.1f} dB/"
+            f"{values.breath_tempo:.2f}×; "
+            f"heart {values.heartbeat_distance:.2f} m/"
+            f"{values.heartbeat_level_db:+.1f} dB; "
+            f"3D {values.brown_3d_amount:.2f}, "
+            f"radius {values.brown_radius:.2f} m, "
+            f"center {values.brown_center_distance:.2f} m, "
+            f"evolution {values.brown_evolution:.2f}"
+        )
+
+
     def _toggle_brown_motion_panel(
         self,
         expanded: bool,
@@ -7006,11 +8043,17 @@ class MainWindow(QMainWindow):
         motion_spec = self.motion_state.get()
         brown_motion_spec = self.mixer.brown_motion_state.get()
         heartbeat_spatial_spec = self.mixer.heartbeat_spatial_state.get()
+        metabolism_spec = self.mixer.metabolism_state.get()
         modes = self.mode_state.get()
 
         data = {
             "version": 2,
             "modes": asdict(modes),
+            # Stored explicitly because soundscape catalog initialization can
+            # otherwise overwrite the checkbox state during startup.
+            "sound_effects_checkbox_checked": (
+                self.soundscape_checkbox.isChecked()
+            ),
             "brown_noise": asdict(noise_spec),
             "brown_noise_evolution": asdict(noise_evolution_spec),
             "body_movement": asdict(body_movement_spec),
@@ -7030,6 +8073,25 @@ class MainWindow(QMainWindow):
             "organic_motion": asdict(motion_spec),
             "dual_brown_motion": asdict(brown_motion_spec),
             "heartbeat_spatial": asdict(heartbeat_spatial_spec),
+            "metabolism": asdict(metabolism_spec),
+            "metabolism_panel_expanded": (
+                self.metabolism_expand_button.isChecked()
+            ),
+            "metabolism_rhythm_expanded": (
+                self.metabolism_rhythm_button.isChecked()
+            ),
+            "metabolism_brown_expanded": (
+                self.metabolism_brown_button.isChecked()
+            ),
+            "metabolism_breath_expanded": (
+                self.metabolism_breath_button.isChecked()
+            ),
+            "metabolism_heartbeat_expanded": (
+                self.metabolism_heartbeat_button.isChecked()
+            ),
+            "metabolism_3d_expanded": (
+                self.metabolism_3d_button.isChecked()
+            ),
             "heartbeat_spatial_panel_expanded": (
                 self.heartbeat_spatial_expand_button.isChecked()
             ),
@@ -7109,6 +8171,7 @@ class MainWindow(QMainWindow):
         motion_spec = self.motion_state.get()
         brown_motion_spec = self.mixer.brown_motion_state.get()
         heartbeat_spatial_spec = self.mixer.heartbeat_spatial_state.get()
+        metabolism_spec = self.mixer.metabolism_state.get()
 
         self.export_worker = ExportWorker(
             output_path=output_path,
@@ -7126,6 +8189,7 @@ class MainWindow(QMainWindow):
             motion_spec=motion_spec,
             brown_motion_spec=brown_motion_spec,
             heartbeat_spatial_spec=heartbeat_spatial_spec,
+            metabolism_spec=metabolism_spec,
         )
 
         self.export_worker.progress_changed.connect(
@@ -7223,6 +8287,7 @@ class MainWindow(QMainWindow):
                 f"Audio error: {self.engine.callback_error}"
             )
 
+        self._update_metabolism_status()
         self._update_brown_motion_status()
         self._update_heartbeat_position_status()
 
@@ -7499,6 +8564,22 @@ def build_application() -> tuple[QApplication, MainWindow]:
     except Exception:
         heartbeat_spatial_spec = default_heartbeat_spatial
 
+    default_metabolism = MetabolismSpec()
+    metabolism_data = loaded.get("metabolism", {})
+
+    try:
+        metabolism_spec = MetabolismSpec(
+            **{
+                field_name: metabolism_data.get(
+                    field_name,
+                    getattr(default_metabolism, field_name),
+                )
+                for field_name in asdict(default_metabolism)
+            }
+        ).validated()
+    except Exception:
+        metabolism_spec = default_metabolism
+
     default_breath = BreathSpec()
     breath_data = dict(loaded.get("breath", {}))
 
@@ -7566,6 +8647,7 @@ def build_application() -> tuple[QApplication, MainWindow]:
         motion_spec=motion_spec,
         brown_motion_spec=brown_motion_spec,
         heartbeat_spatial_spec=heartbeat_spatial_spec,
+        metabolism_spec=metabolism_spec,
         seed_base=1000,
     )
 
