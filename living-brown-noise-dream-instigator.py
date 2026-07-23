@@ -4453,7 +4453,19 @@ class ExportWorker(QThread):
             total_frames = int(
                 self.duration_minutes * 60 * self.sample_rate
             )
-            chunk_frames = max(2048, self.sample_rate // 2)
+            # Steam Audio effects retain convolution state across fixed
+            # STEAM_SPATIAL_FRAME_SIZE blocks. Every ordinary export request
+            # must therefore contain an exact whole number of spatial frames.
+            # Only the final request at the true end of the file may be short.
+            approximate_chunk_frames = max(
+                STEAM_SPATIAL_FRAME_SIZE,
+                self.sample_rate // 2,
+            )
+            chunk_frames = (
+                approximate_chunk_frames
+                // STEAM_SPATIAL_FRAME_SIZE
+                * STEAM_SPATIAL_FRAME_SIZE
+            )
 
             seed_base = int(time.time_ns() & 0x7FFFFFFF)
             mixer, _, _, _, _, _, _, _, _, _ = build_mixer(
@@ -4487,9 +4499,18 @@ class ExportWorker(QThread):
                     if self._cancel_requested.is_set():
                         raise InterruptedError
 
-                    frame_count = min(
-                        chunk_frames,
-                        total_frames - frames_written,
+                    remaining_frames = (
+                        total_frames - frames_written
+                    )
+
+                    # Normal chunks are exact Steam Audio frame multiples.
+                    # A short request occurs only once, at the true end of the
+                    # complete export, so zero padding can never contaminate
+                    # persistent HRTF state between ordinary chunks.
+                    frame_count = (
+                        chunk_frames
+                        if remaining_frames > chunk_frames
+                        else remaining_frames
                     )
 
                     audio = mixer.generate(frame_count)
@@ -4680,7 +4701,7 @@ class MainWindow(QMainWindow):
         self.default_breath_spec = BreathSpec()
 
         self.setWindowTitle(
-            "Living Brown Noise — Dream Instigator Lab — Tail-Safe Synthesized Heartbeat"
+            "Living Brown Noise — Dream Instigator Lab — Frame-Safe Spatial Export"
         )
         self.resize(840, 1040)
 
