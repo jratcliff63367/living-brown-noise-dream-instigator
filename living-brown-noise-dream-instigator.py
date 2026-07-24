@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import sys
 import threading
@@ -44,6 +45,89 @@ from PySide6.QtWidgets import (
 SOUND_EFFECTS_DIRECTORY = Path(
     r"D:\github\living-brown-noise-dream-instigator\sounds"
 )
+
+LOG_DIRECTORY = Path.home() / ".living_brown_noise"
+STARTUP_LOG_PATH = LOG_DIRECTORY / "startup.log"
+
+
+def configure_startup_logging() -> logging.Logger:
+    LOG_DIRECTORY.mkdir(parents=True, exist_ok=True)
+
+    logger = logging.getLogger("dream_instigator")
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+
+    if not logger.handlers:
+        formatter = logging.Formatter(
+            "%(asctime)s.%(msecs)03d [%(levelname)s] "
+            "[%(threadName)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+
+        file_handler = logging.FileHandler(
+            STARTUP_LOG_PATH,
+            mode="w",
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+
+    return logger
+
+
+LOGGER = configure_startup_logging()
+
+
+def log_stage(message: str) -> None:
+    LOGGER.info(message)
+    for handler in LOGGER.handlers:
+        try:
+            handler.flush()
+        except Exception:
+            pass
+
+
+def install_exception_logging() -> None:
+    def log_unhandled_exception(
+        exception_type,
+        exception_value,
+        exception_traceback,
+    ) -> None:
+        if issubclass(exception_type, KeyboardInterrupt):
+            sys.__excepthook__(
+                exception_type,
+                exception_value,
+                exception_traceback,
+            )
+            return
+        LOGGER.critical(
+            "Unhandled exception",
+            exc_info=(
+                exception_type,
+                exception_value,
+                exception_traceback,
+            ),
+        )
+
+    sys.excepthook = log_unhandled_exception
+
+    if hasattr(threading, "excepthook"):
+        def log_thread_exception(args) -> None:
+            LOGGER.critical(
+                "Unhandled thread exception in %s",
+                getattr(args.thread, "name", "unknown"),
+                exc_info=(
+                    args.exc_type,
+                    args.exc_value,
+                    args.exc_traceback,
+                ),
+            )
+        threading.excepthook = log_thread_exception
+
 
 SUPPORTED_AUDIO_EXTENSIONS = {
     ".wav",
@@ -4221,6 +4305,792 @@ class HeartbeatProminenceLimiter:
         return effective_level_db
 
 
+
+@dataclass(frozen=True, slots=True)
+class DreamMotifSpatialSpec:
+    enabled: bool = True
+
+    far_distance: float = 14.0
+    near_distance: float = 2.0
+
+    fade_in_seconds: float = 90.0
+    fade_out_seconds: float = 90.0
+
+    dominant_min_seconds: float = 180.0
+    dominant_max_seconds: float = 420.0
+
+    distant_gain_db: float = -42.0
+    dominant_gain_db: float = -22.0
+
+    event_interval_min_seconds: float = 25.0
+    event_interval_max_seconds: float = 75.0
+    event_gain_db: float = -16.0
+    event_travel_seconds: float = 14.0
+
+    def validated(self) -> "DreamMotifSpatialSpec":
+        if not 1.0 <= self.far_distance <= 100.0:
+            raise ValueError("invalid motif far distance")
+        if not 0.15 <= self.near_distance <= 20.0:
+            raise ValueError("invalid motif near distance")
+        if self.near_distance >= self.far_distance:
+            raise ValueError("motif near distance must be less than far distance")
+
+        if not 1.0 <= self.fade_in_seconds <= 3600.0:
+            raise ValueError("invalid motif fade-in time")
+        if not 1.0 <= self.fade_out_seconds <= 3600.0:
+            raise ValueError("invalid motif fade-out time")
+
+        if not (
+            5.0
+            <= self.dominant_min_seconds
+            <= self.dominant_max_seconds
+            <= 86_400.0
+        ):
+            raise ValueError("invalid motif dominant duration")
+
+        if not -80.0 <= self.distant_gain_db <= 0.0:
+            raise ValueError("invalid distant motif gain")
+        if not -80.0 <= self.dominant_gain_db <= 6.0:
+            raise ValueError("invalid dominant motif gain")
+        if self.distant_gain_db > self.dominant_gain_db:
+            raise ValueError("distant motif cannot exceed dominant motif")
+
+        if not (
+            1.0
+            <= self.event_interval_min_seconds
+            <= self.event_interval_max_seconds
+            <= 86_400.0
+        ):
+            raise ValueError("invalid motif event interval")
+        if not -80.0 <= self.event_gain_db <= 12.0:
+            raise ValueError("invalid motif event gain")
+        if not 1.0 <= self.event_travel_seconds <= 300.0:
+            raise ValueError("invalid motif event travel time")
+
+        return self
+
+
+class DreamMotifSpatialState:
+    def __init__(self, spec: DreamMotifSpatialSpec) -> None:
+        self._lock = threading.Lock()
+        self._spec = spec.validated()
+
+    def get(self) -> DreamMotifSpatialSpec:
+        with self._lock:
+            return self._spec
+
+    def set(self, spec: DreamMotifSpatialSpec) -> None:
+        with self._lock:
+            self._spec = spec.validated()
+
+    def update(self, **changes) -> None:
+        with self._lock:
+            values = asdict(self._spec)
+            values.update(changes)
+
+            if values["near_distance"] >= values["far_distance"]:
+                if "near_distance" in changes:
+                    values["far_distance"] = (
+                        float(values["near_distance"]) + 0.1
+                    )
+                else:
+                    values["near_distance"] = max(
+                        0.15,
+                        float(values["far_distance"]) - 0.1,
+                    )
+
+            if (
+                values["dominant_min_seconds"]
+                > values["dominant_max_seconds"]
+            ):
+                if "dominant_min_seconds" in changes:
+                    values["dominant_max_seconds"] = values[
+                        "dominant_min_seconds"
+                    ]
+                else:
+                    values["dominant_min_seconds"] = values[
+                        "dominant_max_seconds"
+                    ]
+
+            if (
+                values["event_interval_min_seconds"]
+                > values["event_interval_max_seconds"]
+            ):
+                if "event_interval_min_seconds" in changes:
+                    values["event_interval_max_seconds"] = values[
+                        "event_interval_min_seconds"
+                    ]
+                else:
+                    values["event_interval_min_seconds"] = values[
+                        "event_interval_max_seconds"
+                    ]
+
+            self._spec = DreamMotifSpatialSpec(
+                **values
+            ).validated()
+
+
+class DreamMotifShuffleBag:
+    """Uses every motif before any motif name is repeated."""
+
+    def __init__(
+        self,
+        motifs: tuple[DreamMotif, ...],
+        rng: np.random.Generator,
+    ) -> None:
+        self.motifs = tuple(
+            motif for motif in motifs if motif.total_assets > 0
+        )
+        self.rng = rng
+        self._bag: list[DreamMotif] = []
+        self._last_name = ""
+
+    def _refill(self) -> None:
+        self._bag = list(self.motifs)
+        self.rng.shuffle(self._bag)
+
+        # Avoid a repeat across the bag boundary whenever possible.
+        if (
+            len(self._bag) > 1
+            and self._bag[-1].name == self._last_name
+        ):
+            self._bag[-1], self._bag[0] = (
+                self._bag[0],
+                self._bag[-1],
+            )
+
+    def next(
+        self,
+        excluded_names: set[str] | None = None,
+    ) -> DreamMotif | None:
+        if not self.motifs:
+            return None
+
+        excluded_names = excluded_names or set()
+
+        for _ in range(max(2, len(self.motifs) * 3)):
+            if not self._bag:
+                self._refill()
+
+            motif = self._bag.pop()
+            if (
+                motif.name in excluded_names
+                and len(self.motifs) > len(excluded_names)
+            ):
+                self._bag.insert(0, motif)
+                continue
+
+            self._last_name = motif.name
+            return motif
+
+        return self.motifs[0]
+
+
+@dataclass(slots=True)
+class LoadedDreamMotif:
+    motif: DreamMotif
+    ambient_audio: tuple[np.ndarray, ...]
+    layered_audio: tuple[np.ndarray, ...]
+
+
+@dataclass(slots=True)
+class DreamMotifSlot:
+    loaded: LoadedDreamMotif | None
+    source: object
+    direction: np.ndarray
+    distance: float
+    target_distance: float
+    gain_linear: float
+    target_gain_linear: float
+    read_position: int = 0
+    ambient_index: int = 0
+
+
+@dataclass(slots=True)
+class ActiveDreamMotifEvent:
+    audio: np.ndarray
+    source: object
+    read_position: int
+    elapsed_seconds: float
+    travel_seconds: float
+    start: np.ndarray
+    control: np.ndarray
+    end: np.ndarray
+    gain_linear: float
+    active: bool = True
+
+
+class DreamMotif3DEngine:
+    """
+    Two concurrent motif worlds.
+
+    One motif slowly approaches awareness while the other remains distant.
+    They cross simultaneously. After the retiring motif is fully distant, it
+    is replaced from a shuffle bag that exhausts every motif before repeating.
+
+    Layered effects begin at their owning motif and then travel on a curved
+    path toward, above, around, and beyond the listener.
+    """
+
+    PHASE_INITIAL_APPROACH = "initial approach"
+    PHASE_DOMINANT = "dominant"
+    PHASE_CROSSFADE = "crossfade"
+
+    def __init__(
+        self,
+        sample_rate: int,
+        renderer: SteamAudioRenderer,
+        root_directory: Path,
+        state: DreamMotifSpatialState,
+        seed: int = 7712301,
+    ) -> None:
+        self.sample_rate = int(sample_rate)
+        self.renderer = renderer
+        self.root_directory = root_directory
+        self.state = state
+        self.rng = np.random.default_rng(seed)
+
+        log_stage(
+            f"DreamMotif3DEngine: initialization begin; "
+            f"root={root_directory}"
+        )
+        self.catalog = DreamMotifCatalog(
+            root_directory=root_directory,
+            layer_threshold_seconds=(
+                DREAM_MOTIF_LAYER_THRESHOLD_SECONDS
+            ),
+        )
+        scan_started = time.perf_counter()
+        log_stage("DreamMotif3DEngine: catalogue scan begin")
+        motifs = self.catalog.scan()
+        log_stage(
+            f"DreamMotif3DEngine: catalogue scan complete; "
+            f"motifs={len(motifs)}; "
+            f"elapsed={time.perf_counter() - scan_started:.3f}s"
+        )
+
+        preload_started = time.perf_counter()
+        log_stage("DreamMotif3DEngine: preload begin")
+        self.loaded = self._preload_motifs(motifs)
+        log_stage(
+            f"DreamMotif3DEngine: preload complete; "
+            f"loaded={len(self.loaded)}; "
+            f"elapsed={time.perf_counter() - preload_started:.3f}s"
+        )
+        loaded_motifs = tuple(item.motif for item in self.loaded)
+        self.bag = DreamMotifShuffleBag(
+            loaded_motifs,
+            self.rng,
+        )
+        self.loaded_by_name = {
+            item.motif.name: item for item in self.loaded
+        }
+
+        spec = self.state.get()
+        self.slots = [
+            self._make_slot(spec.far_distance),
+            self._make_slot(spec.far_distance),
+        ]
+
+        first = self.bag.next()
+        second = self.bag.next(
+            {first.name} if first is not None else set()
+        )
+        self._assign_slot(0, first, spec.far_distance)
+        self._assign_slot(1, second, spec.far_distance)
+
+        self.dominant_index = 0
+        self.phase = self.PHASE_INITIAL_APPROACH
+        self.phase_elapsed = 0.0
+        self.phase_duration = max(1.0, spec.fade_in_seconds)
+
+        self.next_event_seconds = self._new_event_interval(spec)
+        self.event_sources = [
+            renderer.create_source(
+                position=STEAM_DEFAULT_SOURCE_POSITION,
+                spatial_blend=1.0,
+                distance_attenuation_enabled=True,
+            )
+            for _ in range(6)
+        ]
+        self.events: list[ActiveDreamMotifEvent] = []
+
+        self.current_status = "no motifs"
+        self.current_dominant_name = (
+            self.slots[0].loaded.motif.name
+            if self.slots[0].loaded is not None
+            else ""
+        )
+        self.current_distant_name = (
+            self.slots[1].loaded.motif.name
+            if self.slots[1].loaded is not None
+            else ""
+        )
+
+    @staticmethod
+    def _smoothstep5(value: float) -> float:
+        value = float(np.clip(value, 0.0, 1.0))
+        return value ** 3 * (
+            value * (value * 6.0 - 15.0) + 10.0
+        )
+
+    def _random_direction(self) -> np.ndarray:
+        vector = self.rng.normal(0.0, 1.0, size=3)
+        length = float(np.linalg.norm(vector))
+        if length < 1e-9:
+            vector = np.array([0.0, 0.0, -1.0])
+        else:
+            vector /= length
+        return vector.astype(np.float64)
+
+    @staticmethod
+    def _vector3(vector: np.ndarray) -> Vector3:
+        return Vector3(
+            float(vector[0]),
+            float(vector[1]),
+            float(vector[2]),
+        )
+
+    def _make_slot(self, distance: float) -> DreamMotifSlot:
+        direction = self._random_direction()
+        position = direction * distance
+        source = self.renderer.create_source(
+            position=self._vector3(position),
+            spatial_blend=1.0,
+            distance_attenuation_enabled=True,
+        )
+        return DreamMotifSlot(
+            loaded=None,
+            source=source,
+            direction=direction,
+            distance=float(distance),
+            target_distance=float(distance),
+            gain_linear=0.0,
+            target_gain_linear=0.0,
+        )
+
+    def _decode_asset(self, asset: DreamMotifAsset) -> np.ndarray | None:
+        started = time.perf_counter()
+        log_stage(
+            f"DreamMotif3DEngine: decode begin; "
+            f"file={asset.path}; "
+            f"duration={asset.duration_seconds:.3f}s"
+        )
+        temporary = AmbientSampleState(
+            sample_rate=self.sample_rate,
+            spec=AmbientSampleSpec(),
+        )
+        temporary.load_file(asset.path)
+        _, audio, _, error, _ = temporary.get()
+        if error or audio is None or len(audio) < 2:
+            log_stage(
+                f"DreamMotif3DEngine: decode failed; "
+                f"file={asset.path}; error={error!r}; "
+                f"elapsed={time.perf_counter() - started:.3f}s"
+            )
+            return None
+
+        mono = np.mean(
+            audio.astype(np.float64),
+            axis=1,
+        ).astype(np.float32)
+        result = np.ascontiguousarray(mono)
+        log_stage(
+            f"DreamMotif3DEngine: decode complete; "
+            f"file={asset.path}; samples={len(result)}; "
+            f"elapsed={time.perf_counter() - started:.3f}s"
+        )
+        return result
+
+    def _preload_motifs(
+        self,
+        motifs: tuple[DreamMotif, ...],
+    ) -> tuple[LoadedDreamMotif, ...]:
+        loaded: list[LoadedDreamMotif] = []
+
+        for motif in motifs:
+            motif_started = time.perf_counter()
+            log_stage(
+                f"DreamMotif3DEngine: motif preload begin; "
+                f"name={motif.name}; "
+                f"ambient={len(motif.ambient_assets)}; "
+                f"layered={len(motif.layered_assets)}"
+            )
+            ambient_audio = tuple(
+                audio
+                for asset in motif.ambient_assets
+                if (audio := self._decode_asset(asset)) is not None
+            )
+            layered_audio = tuple(
+                audio
+                for asset in motif.layered_assets
+                if (audio := self._decode_asset(asset)) is not None
+            )
+
+            if ambient_audio or layered_audio:
+                loaded.append(
+                    LoadedDreamMotif(
+                        motif=motif,
+                        ambient_audio=ambient_audio,
+                        layered_audio=layered_audio,
+                    )
+                )
+
+            log_stage(
+                f"DreamMotif3DEngine: motif preload complete; "
+                f"name={motif.name}; "
+                f"decoded_ambient={len(ambient_audio)}; "
+                f"decoded_layered={len(layered_audio)}; "
+                f"elapsed={time.perf_counter() - motif_started:.3f}s"
+            )
+
+        return tuple(loaded)
+
+    def _assign_slot(
+        self,
+        index: int,
+        motif: DreamMotif | None,
+        distance: float,
+    ) -> None:
+        slot = self.slots[index]
+        slot.loaded = (
+            self.loaded_by_name.get(motif.name)
+            if motif is not None
+            else None
+        )
+        slot.direction = self._random_direction()
+        slot.distance = float(distance)
+        slot.target_distance = float(distance)
+        slot.gain_linear = 0.0
+        slot.target_gain_linear = 0.0
+        slot.read_position = 0
+        slot.ambient_index = 0
+
+        position = slot.direction * slot.distance
+        slot.source.set_position_vector(
+            self._vector3(position)
+        )
+
+    def _new_event_interval(
+        self,
+        spec: DreamMotifSpatialSpec,
+    ) -> float:
+        return float(
+            self.rng.uniform(
+                spec.event_interval_min_seconds,
+                spec.event_interval_max_seconds,
+            )
+        )
+
+    def _new_dominant_duration(
+        self,
+        spec: DreamMotifSpatialSpec,
+    ) -> float:
+        return float(
+            self.rng.uniform(
+                spec.dominant_min_seconds,
+                spec.dominant_max_seconds,
+            )
+        )
+
+    @staticmethod
+    def _db_gain(db: float) -> float:
+        return 10.0 ** (float(db) / 20.0)
+
+    def _render_loop(
+        self,
+        slot: DreamMotifSlot,
+        frame_count: int,
+    ) -> np.ndarray:
+        if (
+            slot.loaded is None
+            or not slot.loaded.ambient_audio
+        ):
+            return np.zeros(frame_count, dtype=np.float32)
+
+        audio = slot.loaded.ambient_audio[
+            slot.ambient_index % len(slot.loaded.ambient_audio)
+        ]
+        indices = (
+            np.arange(frame_count, dtype=np.int64)
+            + slot.read_position
+        ) % len(audio)
+        slot.read_position = int(
+            (slot.read_position + frame_count) % len(audio)
+        )
+        return audio[indices]
+
+    def _spawn_event(
+        self,
+        slot_index: int,
+        spec: DreamMotifSpatialSpec,
+    ) -> None:
+        slot = self.slots[slot_index]
+        if (
+            slot.loaded is None
+            or not slot.loaded.layered_audio
+        ):
+            return
+
+        free_source = None
+        for source in self.event_sources:
+            if all(event.source is not source for event in self.events):
+                free_source = source
+                break
+        if free_source is None:
+            return
+
+        audio = slot.loaded.layered_audio[
+            int(self.rng.integers(
+                0,
+                len(slot.loaded.layered_audio),
+            ))
+        ]
+
+        start = slot.direction * slot.distance
+
+        # Travel through an asymmetric overhead/side control point and end
+        # beyond the listener. This produces passes that can cross an ear,
+        # arc above the head, or sweep diagonally through the listening space.
+        side = self.rng.uniform(-2.5, 2.5)
+        above = self.rng.uniform(0.4, 2.8)
+        forward = self.rng.uniform(-0.7, 0.7)
+        control = np.array(
+            [side, above, forward],
+            dtype=np.float64,
+        )
+        end_direction = self._random_direction()
+        end_direction[2] = abs(end_direction[2])
+        end = end_direction * self.rng.uniform(1.5, 4.5)
+
+        free_source.set_position_vector(
+            self._vector3(start)
+        )
+        self.events.append(
+            ActiveDreamMotifEvent(
+                audio=audio,
+                source=free_source,
+                read_position=0,
+                elapsed_seconds=0.0,
+                travel_seconds=max(
+                    spec.event_travel_seconds,
+                    len(audio) / self.sample_rate,
+                ),
+                start=start,
+                control=control,
+                end=end,
+                gain_linear=self._db_gain(spec.event_gain_db),
+            )
+        )
+
+    def _advance_phase(
+        self,
+        elapsed_seconds: float,
+        spec: DreamMotifSpatialSpec,
+    ) -> None:
+        self.phase_elapsed += elapsed_seconds
+
+        if self.phase == self.PHASE_INITIAL_APPROACH:
+            if self.phase_elapsed >= self.phase_duration:
+                self.phase = self.PHASE_DOMINANT
+                self.phase_elapsed = 0.0
+                self.phase_duration = self._new_dominant_duration(spec)
+
+        elif self.phase == self.PHASE_DOMINANT:
+            if self.phase_elapsed >= self.phase_duration:
+                self.phase = self.PHASE_CROSSFADE
+                self.phase_elapsed = 0.0
+                self.phase_duration = max(
+                    spec.fade_in_seconds,
+                    spec.fade_out_seconds,
+                )
+
+        elif self.phase == self.PHASE_CROSSFADE:
+            if self.phase_elapsed >= self.phase_duration:
+                retired_index = self.dominant_index
+                self.dominant_index = 1 - self.dominant_index
+
+                retained_name = (
+                    self.slots[self.dominant_index].loaded.motif.name
+                    if self.slots[self.dominant_index].loaded is not None
+                    else ""
+                )
+                replacement = self.bag.next(
+                    {retained_name} if retained_name else set()
+                )
+                self._assign_slot(
+                    retired_index,
+                    replacement,
+                    spec.far_distance,
+                )
+
+                self.phase = self.PHASE_DOMINANT
+                self.phase_elapsed = 0.0
+                self.phase_duration = self._new_dominant_duration(spec)
+
+    def _slot_targets(
+        self,
+        spec: DreamMotifSpatialSpec,
+    ) -> tuple[tuple[float, float], tuple[float, float]]:
+        far_gain = self._db_gain(spec.distant_gain_db)
+        near_gain = self._db_gain(spec.dominant_gain_db)
+
+        dominant = self.dominant_index
+        other = 1 - dominant
+
+        targets = [
+            (spec.far_distance, far_gain),
+            (spec.far_distance, far_gain),
+        ]
+
+        if self.phase == self.PHASE_INITIAL_APPROACH:
+            progress = self._smoothstep5(
+                self.phase_elapsed / max(1e-9, spec.fade_in_seconds)
+            )
+            targets[dominant] = (
+                spec.far_distance
+                + (spec.near_distance - spec.far_distance) * progress,
+                far_gain + (near_gain - far_gain) * progress,
+            )
+
+        elif self.phase == self.PHASE_DOMINANT:
+            targets[dominant] = (
+                spec.near_distance,
+                near_gain,
+            )
+
+        else:
+            out_progress = self._smoothstep5(
+                self.phase_elapsed / max(1e-9, spec.fade_out_seconds)
+            )
+            in_progress = self._smoothstep5(
+                self.phase_elapsed / max(1e-9, spec.fade_in_seconds)
+            )
+            targets[dominant] = (
+                spec.near_distance
+                + (spec.far_distance - spec.near_distance) * out_progress,
+                near_gain + (far_gain - near_gain) * out_progress,
+            )
+            targets[other] = (
+                spec.far_distance
+                + (spec.near_distance - spec.far_distance) * in_progress,
+                far_gain + (near_gain - far_gain) * in_progress,
+            )
+
+        return targets[0], targets[1]
+
+    def _render_events(
+        self,
+        frame_count: int,
+        elapsed_seconds: float,
+    ) -> np.ndarray:
+        stereo = np.zeros((frame_count, 2), dtype=np.float32)
+        retained: list[ActiveDreamMotifEvent] = []
+
+        for event in self.events:
+            start = event.read_position
+            end = min(len(event.audio), start + frame_count)
+            mono = np.zeros(frame_count, dtype=np.float32)
+            if end > start:
+                mono[: end - start] = event.audio[start:end]
+            event.read_position = end
+            event.elapsed_seconds += elapsed_seconds
+
+            t = float(
+                np.clip(
+                    event.elapsed_seconds / max(1e-9, event.travel_seconds),
+                    0.0,
+                    1.0,
+                )
+            )
+            one_minus = 1.0 - t
+            position = (
+                one_minus * one_minus * event.start
+                + 2.0 * one_minus * t * event.control
+                + t * t * event.end
+            )
+            event.source.set_position_vector(
+                self._vector3(position)
+            )
+
+            # Soft ends protect against arbitrary source-file edges.
+            fade = min(1.0, event.elapsed_seconds / 0.8)
+            remaining = max(
+                0.0,
+                (len(event.audio) - event.read_position)
+                / self.sample_rate,
+            )
+            fade *= min(1.0, remaining / 0.8)
+
+            stereo += event.source.process_mono(
+                mono * event.gain_linear * fade
+            )
+
+            if event.read_position < len(event.audio):
+                retained.append(event)
+
+        self.events = retained
+        return stereo
+
+    def generate(
+        self,
+        frame_count: int,
+        enabled: bool,
+    ) -> np.ndarray:
+        spec = self.state.get()
+        elapsed_seconds = frame_count / self.sample_rate
+
+        if not spec.enabled or not enabled or not self.loaded:
+            return np.zeros((frame_count, 2), dtype=np.float32)
+
+        self._advance_phase(elapsed_seconds, spec)
+        targets = self._slot_targets(spec)
+
+        stereo = np.zeros((frame_count, 2), dtype=np.float32)
+
+        for index, slot in enumerate(self.slots):
+            slot.distance, slot.gain_linear = targets[index]
+            position = slot.direction * slot.distance
+            slot.source.set_position_vector(
+                self._vector3(position)
+            )
+            mono = self._render_loop(slot, frame_count)
+            stereo += slot.source.process_mono(
+                mono * slot.gain_linear
+            )
+
+        self.next_event_seconds -= elapsed_seconds
+        if self.next_event_seconds <= 0.0:
+            self._spawn_event(self.dominant_index, spec)
+            self.next_event_seconds = self._new_event_interval(spec)
+
+        stereo += self._render_events(
+            frame_count,
+            elapsed_seconds,
+        )
+
+        dominant = self.slots[self.dominant_index]
+        distant = self.slots[1 - self.dominant_index]
+        self.current_dominant_name = (
+            dominant.loaded.motif.name
+            if dominant.loaded is not None
+            else ""
+        )
+        self.current_distant_name = (
+            distant.loaded.motif.name
+            if distant.loaded is not None
+            else ""
+        )
+        self.current_status = (
+            f"{self.phase}; dominant {self.current_dominant_name or 'none'} "
+            f"@ {dominant.distance:.2f} m; distant "
+            f"{self.current_distant_name or 'none'} "
+            f"@ {distant.distance:.2f} m; events {len(self.events)}"
+        )
+
+        return stereo
+
+
 @dataclass(frozen=True, slots=True)
 class MixerSpec:
     correlation_min: float = 0.0
@@ -4248,6 +5118,8 @@ class LivingBrownNoiseMixer:
         brown_motion_spec: DualBrownMotionSpec,
         heartbeat_spatial_spec: HeartbeatSpatialSpec,
         metabolism_spec: MetabolismSpec,
+        dream_motif_spatial_spec: DreamMotifSpatialSpec,
+        sound_effects_directory: Path,
         mixer_spec: MixerSpec,
     ) -> None:
         self.sample_rate = float(sample_rate)
@@ -4317,6 +5189,15 @@ class LivingBrownNoiseMixer:
         self.soundscape_spatial = self.spatial_renderer.create_source(
             position=STEAM_DEFAULT_SOURCE_POSITION,
             spatial_blend=1.0,
+        )
+        self.dream_motif_spatial_state = (
+            DreamMotifSpatialState(dream_motif_spatial_spec)
+        )
+        self.dream_motif_3d = DreamMotif3DEngine(
+            sample_rate=int(self.sample_rate),
+            renderer=self.spatial_renderer,
+            root_directory=sound_effects_directory,
+            state=self.dream_motif_spatial_state,
         )
 
         self.breath_state = breath_state
@@ -4809,6 +5690,11 @@ class LivingBrownNoiseMixer:
         )
         stereo += spatial_soundscape
 
+        stereo += self.dream_motif_3d.generate(
+            frame_count,
+            enabled=modes.soundscape_enabled,
+        )
+
         self.current_soundscape_stage = (
             self.ambient_sample.current_stage_name
         )
@@ -4943,6 +5829,7 @@ def build_mixer(
     brown_motion_spec: DualBrownMotionSpec,
     heartbeat_spatial_spec: HeartbeatSpatialSpec,
     metabolism_spec: MetabolismSpec,
+    dream_motif_spatial_spec: DreamMotifSpatialSpec,
     seed_base: int,
 ) -> tuple[
     LivingBrownNoiseMixer,
@@ -4956,6 +5843,9 @@ def build_mixer(
     BreathEvolutionState,
     OrganicMotionState,
 ]:
+    log_stage("build_mixer: begin")
+    build_started = time.perf_counter()
+
     noise_state = BrownNoiseState(sample_rate, noise_spec)
     noise_evolution_state = BrownNoiseEvolutionState(
         noise_evolution_spec
@@ -4995,6 +5885,10 @@ def build_mixer(
     )
     motion_state = OrganicMotionState(motion_spec)
 
+    log_stage(
+        "build_mixer: constructing LivingBrownNoiseMixer "
+        "(Steam Audio and dream motifs initialize here)"
+    )
     mixer = LivingBrownNoiseMixer(
         sample_rate=sample_rate,
         common=common,
@@ -5012,9 +5906,15 @@ def build_mixer(
         brown_motion_spec=brown_motion_spec,
         heartbeat_spatial_spec=heartbeat_spatial_spec,
         metabolism_spec=metabolism_spec,
+        dream_motif_spatial_spec=dream_motif_spatial_spec,
+        sound_effects_directory=sound_effects_directory,
         mixer_spec=MixerSpec(),
     )
 
+    log_stage(
+        f"build_mixer: complete; "
+        f"elapsed={time.perf_counter() - build_started:.3f}s"
+    )
     return (
         mixer,
         mode_state,
@@ -5058,6 +5958,7 @@ class ExportWorker(QThread):
         brown_motion_spec: DualBrownMotionSpec,
         heartbeat_spatial_spec: HeartbeatSpatialSpec,
         metabolism_spec: MetabolismSpec,
+        dream_motif_spatial_spec: DreamMotifSpatialSpec,
     ) -> None:
         super().__init__()
         self.output_path = output_path
@@ -5076,6 +5977,7 @@ class ExportWorker(QThread):
         self.brown_motion_spec = brown_motion_spec
         self.heartbeat_spatial_spec = heartbeat_spatial_spec
         self.metabolism_spec = metabolism_spec
+        self.dream_motif_spatial_spec = dream_motif_spatial_spec
         self._cancel_requested = threading.Event()
 
     def request_cancel(self) -> None:
@@ -5117,6 +6019,7 @@ class ExportWorker(QThread):
                 brown_motion_spec=self.brown_motion_spec,
                 heartbeat_spatial_spec=self.heartbeat_spatial_spec,
                 metabolism_spec=self.metabolism_spec,
+                dream_motif_spatial_spec=self.dream_motif_spatial_spec,
                 seed_base=seed_base,
             )
 
@@ -5445,6 +6348,99 @@ class MainWindow(QMainWindow):
         self.motif_playing_label = QLabel("No motif audio active")
         self.motif_playing_label.setWordWrap(True)
         motif_form.addRow("Motif playback:", self.motif_playing_label)
+
+        motif_spatial_spec = self.mixer.dream_motif_spatial_state.get()
+
+        self.motif_3d_enabled_checkbox = QCheckBox(
+            "Enable two-world 3D dream-motif engine"
+        )
+        self.motif_3d_enabled_checkbox.setChecked(
+            motif_spatial_spec.enabled
+        )
+        motif_form.addRow("", self.motif_3d_enabled_checkbox)
+
+        def add_motif_spatial_control(
+            label,
+            field_name,
+            minimum,
+            maximum,
+            step,
+            decimals,
+            suffix="",
+        ):
+            control = FloatControl(
+                minimum=minimum,
+                maximum=maximum,
+                value=getattr(motif_spatial_spec, field_name),
+                step=step,
+                decimals=decimals,
+                suffix=suffix,
+                on_change=lambda value, field_name=field_name: (
+                    self._update_dream_motif_spatial(
+                        **{field_name: value}
+                    )
+                ),
+            )
+            motif_form.addRow(label, control)
+            return control
+
+        self.motif_far_distance_control = add_motif_spatial_control(
+            "Far distance:",
+            "far_distance",
+            1.0,
+            100.0,
+            0.25,
+            2,
+            " m",
+        )
+        self.motif_near_distance_control = add_motif_spatial_control(
+            "Near distance:",
+            "near_distance",
+            0.15,
+            20.0,
+            0.05,
+            2,
+            " m",
+        )
+        self.motif_fade_in_control = add_motif_spatial_control(
+            "Move/fade in:",
+            "fade_in_seconds",
+            1.0,
+            1800.0,
+            1.0,
+            0,
+            " s",
+        )
+        self.motif_fade_out_control = add_motif_spatial_control(
+            "Move/fade out:",
+            "fade_out_seconds",
+            1.0,
+            1800.0,
+            1.0,
+            0,
+            " s",
+        )
+        self.motif_dominant_min_control = add_motif_spatial_control(
+            "Dominant minimum:",
+            "dominant_min_seconds",
+            5.0,
+            3600.0,
+            5.0,
+            0,
+            " s",
+        )
+        self.motif_dominant_max_control = add_motif_spatial_control(
+            "Dominant maximum:",
+            "dominant_max_seconds",
+            5.0,
+            7200.0,
+            5.0,
+            0,
+            " s",
+        )
+        self.motif_3d_status_label = QLabel("")
+        self.motif_3d_status_label.setWordWrap(True)
+        motif_form.addRow("3D motif state:", self.motif_3d_status_label)
 
         controls_layout.addWidget(self.motif_panel)
 
@@ -7216,6 +8212,11 @@ class MainWindow(QMainWindow):
         self.motif_reload_button.clicked.connect(
             self._reload_dream_motifs
         )
+        self.motif_3d_enabled_checkbox.toggled.connect(
+            lambda checked: self._update_dream_motif_spatial(
+                enabled=bool(checked)
+            )
+        )
         self.motif_combo.currentTextChanged.connect(
             self._on_motif_changed
         )
@@ -7381,6 +8382,10 @@ class MainWindow(QMainWindow):
 
         self._on_modes_changed()
 
+    def _update_dream_motif_spatial(self, **changes) -> None:
+        self.mixer.dream_motif_spatial_state.update(**changes)
+        self._schedule_settings_save()
+
     def _toggle_motif_panel(self, expanded: bool) -> None:
         self.motif_panel.setVisible(expanded)
         self.motif_expand_button.setArrowType(
@@ -7532,7 +8537,8 @@ class MainWindow(QMainWindow):
             f"[{layered_names}]."
         )
 
-        self._load_next_motif_asset()
+        # Selection here is catalogue inspection only. Automatic playback is
+        # owned by the two-world 3D motif engine.
         self._schedule_settings_save()
 
     def _toggle_soundscape_panel(self, expanded: bool) -> None:
@@ -8261,6 +9267,9 @@ class MainWindow(QMainWindow):
         brown_motion_spec = self.mixer.brown_motion_state.get()
         heartbeat_spatial_spec = self.mixer.heartbeat_spatial_state.get()
         metabolism_spec = self.mixer.metabolism_state.get()
+        dream_motif_spatial_spec = (
+            self.mixer.dream_motif_spatial_state.get()
+        )
         modes = self.mode_state.get()
 
         data = {
@@ -8291,6 +9300,9 @@ class MainWindow(QMainWindow):
             "dual_brown_motion": asdict(brown_motion_spec),
             "heartbeat_spatial": asdict(heartbeat_spatial_spec),
             "metabolism": asdict(metabolism_spec),
+            "dream_motif_spatial": asdict(
+                dream_motif_spatial_spec
+            ),
             "metabolism_panel_expanded": (
                 self.metabolism_expand_button.isChecked()
             ),
@@ -8389,6 +9401,9 @@ class MainWindow(QMainWindow):
         brown_motion_spec = self.mixer.brown_motion_state.get()
         heartbeat_spatial_spec = self.mixer.heartbeat_spatial_state.get()
         metabolism_spec = self.mixer.metabolism_state.get()
+        dream_motif_spatial_spec = (
+            self.mixer.dream_motif_spatial_state.get()
+        )
 
         self.export_worker = ExportWorker(
             output_path=output_path,
@@ -8407,6 +9422,7 @@ class MainWindow(QMainWindow):
             brown_motion_spec=brown_motion_spec,
             heartbeat_spatial_spec=heartbeat_spatial_spec,
             metabolism_spec=metabolism_spec,
+            dream_motif_spatial_spec=dream_motif_spatial_spec,
         )
 
         self.export_worker.progress_changed.connect(
@@ -8505,6 +9521,15 @@ class MainWindow(QMainWindow):
             )
 
         self._update_metabolism_status()
+        self.motif_3d_status_label.setText(
+            self.mixer.dream_motif_3d.current_status
+        )
+        self.motif_playing_label.setText(
+            f"Dominant: "
+            f"{self.mixer.dream_motif_3d.current_dominant_name or 'none'}; "
+            f"distant: "
+            f"{self.mixer.dream_motif_3d.current_distant_name or 'none'}"
+        )
         self._update_brown_motion_status()
         self._update_heartbeat_position_status()
 
@@ -8589,12 +9614,23 @@ class MainWindow(QMainWindow):
 # =============================================================================
 
 def build_application() -> tuple[QApplication, MainWindow]:
+    log_stage("build_application: begin")
+    application_started = time.perf_counter()
     sample_rate = 44_100
 
+    log_stage("build_application: creating QApplication")
     app = QApplication(sys.argv)
+    log_stage("build_application: QApplication created")
 
     settings_store = SettingsStore()
+    log_stage(
+        f"build_application: loading settings from "
+        f"{settings_store.path}"
+    )
     loaded = settings_store.load()
+    log_stage(
+        f"build_application: settings loaded; keys={len(loaded)}"
+    )
 
     default_modes = EngineModes()
     mode_data = loaded.get("modes", {})
@@ -8786,6 +9822,24 @@ def build_application() -> tuple[QApplication, MainWindow]:
     except Exception:
         heartbeat_spatial_spec = default_heartbeat_spatial
 
+    default_dream_motif_spatial = DreamMotifSpatialSpec()
+    dream_motif_spatial_data = loaded.get(
+        "dream_motif_spatial",
+        {},
+    )
+    try:
+        dream_motif_spatial_spec = DreamMotifSpatialSpec(
+            **{
+                field_name: dream_motif_spatial_data.get(
+                    field_name,
+                    getattr(default_dream_motif_spatial, field_name),
+                )
+                for field_name in asdict(default_dream_motif_spatial)
+            }
+        ).validated()
+    except Exception:
+        dream_motif_spatial_spec = default_dream_motif_spatial
+
     default_metabolism = MetabolismSpec()
     metabolism_data = dict(loaded.get("metabolism", {}))
 
@@ -8883,6 +9937,7 @@ def build_application() -> tuple[QApplication, MainWindow]:
         brown_motion_spec=brown_motion_spec,
         heartbeat_spatial_spec=heartbeat_spatial_spec,
         metabolism_spec=metabolism_spec,
+        dream_motif_spatial_spec=dream_motif_spatial_spec,
         seed_base=1000,
     )
 
@@ -8892,6 +9947,8 @@ def build_application() -> tuple[QApplication, MainWindow]:
         block_size=2_048,
     )
 
+    log_stage("build_application: constructing MainWindow")
+    window_started = time.perf_counter()
     window = MainWindow(
         engine=engine,
         mode_state=mode_state,
@@ -8908,13 +9965,43 @@ def build_application() -> tuple[QApplication, MainWindow]:
         loaded_settings=loaded,
     )
 
+    log_stage(
+        f"build_application: MainWindow constructed; "
+        f"elapsed={time.perf_counter() - window_started:.3f}s"
+    )
+    log_stage(
+        f"build_application: complete; "
+        f"elapsed={time.perf_counter() - application_started:.3f}s"
+    )
     return app, window
 
 
 def main() -> int:
-    app, window = build_application()
-    window.show()
-    return app.exec()
+    install_exception_logging()
+    log_stage("=" * 72)
+    log_stage("Dream Instigator startup")
+    log_stage(f"Python executable: {sys.executable}")
+    log_stage(f"Working directory: {Path.cwd()}")
+    log_stage(f"Script path: {Path(__file__).resolve()}")
+    log_stage(f"Startup log: {STARTUP_LOG_PATH}")
+    log_stage(f"Sound-effects directory: {SOUND_EFFECTS_DIRECTORY}")
+
+    try:
+        app, window = build_application()
+        log_stage("main: calling window.show()")
+        window.show()
+        log_stage("main: window.show() returned")
+        QApplication.processEvents()
+        log_stage(
+            f"main: window visible={window.isVisible()}; "
+            f"entering Qt event loop"
+        )
+        exit_code = app.exec()
+        log_stage(f"main: Qt event loop exited; code={exit_code}")
+        return exit_code
+    except Exception:
+        LOGGER.critical("Fatal startup exception", exc_info=True)
+        raise
 
 
 if __name__ == "__main__":
