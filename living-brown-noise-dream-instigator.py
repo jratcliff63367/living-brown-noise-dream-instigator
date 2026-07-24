@@ -4089,6 +4089,138 @@ class MetabolismEngine:
         )
 
 
+
+class HeartbeatProminenceLimiter:
+    """
+    Allows brief heartbeat prominence excursions without letting the loud edge
+    become a sustained condition.
+
+    Requested levels at or below threshold pass through untouched. Above the
+    threshold, a smooth fade-in / short hold / fade-out envelope controls only
+    the excess level. During recovery, a small fraction of that excess remains,
+    so the heartbeat never abruptly vanishes into the background.
+    """
+
+    STATE_IDLE = "background"
+    STATE_FADE_IN = "fading in"
+    STATE_HOLD = "prominent"
+    STATE_FADE_OUT = "fading out"
+    STATE_COOLDOWN = "background recovery"
+
+    def __init__(
+        self,
+        threshold_db: float = 8.0,
+        fade_in_seconds: float = 18.0,
+        hold_seconds: float = 24.0,
+        fade_out_seconds: float = 32.0,
+        cooldown_seconds: float = 150.0,
+        background_excess_fraction: float = 0.15,
+    ) -> None:
+        self.threshold_db = float(threshold_db)
+        self.fade_in_seconds = max(0.1, float(fade_in_seconds))
+        self.hold_seconds = max(0.1, float(hold_seconds))
+        self.fade_out_seconds = max(0.1, float(fade_out_seconds))
+        self.cooldown_seconds = max(0.1, float(cooldown_seconds))
+        self.background_excess_fraction = float(
+            np.clip(background_excess_fraction, 0.0, 1.0)
+        )
+
+        self.state = self.STATE_IDLE
+        self.state_elapsed = 0.0
+        self.current_excess_fraction = (
+            self.background_excess_fraction
+        )
+        self.current_effective_level_db = self.threshold_db
+
+    @staticmethod
+    def _smoothstep5(value: float) -> float:
+        value = float(np.clip(value, 0.0, 1.0))
+        return value ** 3 * (
+            value * (value * 6.0 - 15.0) + 10.0
+        )
+
+    def _enter(self, state: str) -> None:
+        self.state = state
+        self.state_elapsed = 0.0
+
+    def advance(
+        self,
+        requested_level_db: float,
+        elapsed_seconds: float,
+    ) -> float:
+        requested_level_db = float(requested_level_db)
+        elapsed_seconds = max(0.0, float(elapsed_seconds))
+
+        # Ordinary/background heartbeat levels are not modified.
+        if requested_level_db <= self.threshold_db:
+            self.current_excess_fraction = (
+                self.background_excess_fraction
+            )
+            self.current_effective_level_db = requested_level_db
+
+            # Continue recovery timing so another loud excursion cannot trigger
+            # immediately after a brief dip below the threshold.
+            if self.state == self.STATE_COOLDOWN:
+                self.state_elapsed += elapsed_seconds
+                if self.state_elapsed >= self.cooldown_seconds:
+                    self._enter(self.STATE_IDLE)
+            elif self.state != self.STATE_IDLE:
+                self._enter(self.STATE_COOLDOWN)
+
+            return requested_level_db
+
+        if self.state == self.STATE_IDLE:
+            self._enter(self.STATE_FADE_IN)
+
+        self.state_elapsed += elapsed_seconds
+
+        if self.state == self.STATE_FADE_IN:
+            progress = self.state_elapsed / self.fade_in_seconds
+            blend = self._smoothstep5(progress)
+            self.current_excess_fraction = (
+                self.background_excess_fraction
+                + (1.0 - self.background_excess_fraction) * blend
+            )
+            if progress >= 1.0:
+                self.current_excess_fraction = 1.0
+                self._enter(self.STATE_HOLD)
+
+        elif self.state == self.STATE_HOLD:
+            self.current_excess_fraction = 1.0
+            if self.state_elapsed >= self.hold_seconds:
+                self._enter(self.STATE_FADE_OUT)
+
+        elif self.state == self.STATE_FADE_OUT:
+            progress = self.state_elapsed / self.fade_out_seconds
+            blend = self._smoothstep5(progress)
+            self.current_excess_fraction = (
+                1.0
+                + (
+                    self.background_excess_fraction - 1.0
+                ) * blend
+            )
+            if progress >= 1.0:
+                self.current_excess_fraction = (
+                    self.background_excess_fraction
+                )
+                self._enter(self.STATE_COOLDOWN)
+
+        elif self.state == self.STATE_COOLDOWN:
+            self.current_excess_fraction = (
+                self.background_excess_fraction
+            )
+            if self.state_elapsed >= self.cooldown_seconds:
+                self._enter(self.STATE_IDLE)
+
+        excess_db = requested_level_db - self.threshold_db
+        effective_level_db = (
+            self.threshold_db
+            + excess_db * self.current_excess_fraction
+        )
+        self.current_effective_level_db = effective_level_db
+        return effective_level_db
+
+
 @dataclass(frozen=True, slots=True)
 class MixerSpec:
     correlation_min: float = 0.0
@@ -4169,6 +4301,18 @@ class LivingBrownNoiseMixer:
             position=heartbeat_spatial_spec.position,
             spatial_blend=STEAM_HEARTBEAT_SPATIAL_BLEND,
             distance_attenuation_enabled=True,
+        )
+        self.heartbeat_prominence_limiter = (
+            HeartbeatProminenceLimiter()
+        )
+        self.current_heartbeat_requested_level_db = (
+            heartbeat_spatial_spec.level_db
+        )
+        self.current_heartbeat_effective_level_db = (
+            heartbeat_spatial_spec.level_db
+        )
+        self.current_heartbeat_prominence_state = (
+            HeartbeatProminenceLimiter.STATE_IDLE
         )
         self.soundscape_spatial = self.spatial_renderer.create_source(
             position=STEAM_DEFAULT_SOURCE_POSITION,
@@ -4595,15 +4739,44 @@ class LivingBrownNoiseMixer:
         )
         if metabolism_values is None:
             heartbeat_position_spec = manual_heartbeat_position_spec
+            requested_heartbeat_level_db = (
+                heartbeat_position_spec.level_db
+            )
+            effective_heartbeat_level_db = (
+                requested_heartbeat_level_db
+            )
+            heartbeat_prominence_state = "manual"
         else:
+            requested_heartbeat_level_db = (
+                metabolism_values.heartbeat_level_db
+            )
+            effective_heartbeat_level_db = (
+                self.heartbeat_prominence_limiter.advance(
+                    requested_heartbeat_level_db,
+                    elapsed_seconds,
+                )
+            )
+            heartbeat_prominence_state = (
+                self.heartbeat_prominence_limiter.state
+            )
             heartbeat_position_spec = replace(
                 manual_heartbeat_position_spec,
                 distance=metabolism_values.heartbeat_distance,
-                level_db=metabolism_values.heartbeat_level_db,
+                level_db=effective_heartbeat_level_db,
             ).validated()
 
+        self.current_heartbeat_requested_level_db = (
+            requested_heartbeat_level_db
+        )
+        self.current_heartbeat_effective_level_db = (
+            effective_heartbeat_level_db
+        )
+        self.current_heartbeat_prominence_state = (
+            heartbeat_prominence_state
+        )
+
         heartbeat_level = 10.0 ** (
-            heartbeat_position_spec.level_db / 20.0
+            effective_heartbeat_level_db / 20.0
         )
         active_heartbeat = (
             heartbeat
@@ -8351,7 +8524,12 @@ class MainWindow(QMainWindow):
             f"{self.mixer.heartbeat.current_rate_bpm:.1f} bpm; "
             f"prominence "
             f"{self.mixer.heartbeat.current_prominence:.3f}; "
-            f"envelope {self.mixer.current_heartbeat:.3f}"
+            f"envelope {self.mixer.current_heartbeat:.3f}; "
+            f"level "
+            f"{self.mixer.current_heartbeat_effective_level_db:+.1f} dB "
+            f"(requested "
+            f"{self.mixer.current_heartbeat_requested_level_db:+.1f} dB); "
+            f"{self.mixer.current_heartbeat_prominence_state}"
         )
         _, _, loaded_name, load_error, _ = (
             self.ambient_sample_state.get()
