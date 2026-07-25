@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import math
 import sys
 import threading
 import time
 import wave
-from dataclasses import asdict, dataclass, replace
+from collections import OrderedDict
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import ClassVar
 
@@ -2514,6 +2516,7 @@ class DreamMotifAsset:
     path: Path
     duration_seconds: float
     is_layered_event: bool
+    metadata_known: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -2529,7 +2532,16 @@ class DreamMotif:
 
 
 class DreamMotifCatalog:
-    """Scans immediate subfolders beneath the configured sounds directory."""
+    """
+    Fast filesystem catalogue backed by a persistent JSON metadata manifest.
+
+    Startup only enumerates filenames and reads stat information. Unchanged
+    files reuse their cached duration/classification. New or changed files are
+    left as metadata-unknown and are classified when the background asset
+    manager first decodes them.
+    """
+
+    MANIFEST_FILENAME = '.living_brown_noise_catalog.json'
 
     def __init__(
         self,
@@ -2538,54 +2550,27 @@ class DreamMotifCatalog:
     ) -> None:
         self.root_directory = root_directory
         self.layer_threshold_seconds = float(layer_threshold_seconds)
+        self.manifest_path = self.root_directory / self.MANIFEST_FILENAME
         self.motifs: tuple[DreamMotif, ...] = ()
         self.errors: tuple[str, ...] = ()
 
-    @staticmethod
-    def _probe_duration(path: Path) -> float:
-        container = av.open(str(path))
+    def _load_manifest(self) -> dict:
         try:
-            streams = [s for s in container.streams if s.type == "audio"]
-            if not streams:
-                raise ValueError("no audio stream")
-
-            stream = streams[0]
-            if stream.duration is not None and stream.time_base is not None:
-                duration = float(stream.duration * stream.time_base)
-                if duration > 0.0:
-                    return duration
-
-            if container.duration is not None:
-                duration = float(container.duration) / float(av.time_base)
-                if duration > 0.0:
-                    return duration
-
-            # Metadata can be absent in some MP3/VBR files. Decode only enough
-            # to determine the complete timestamp range as a reliable fallback.
-            end_seconds = 0.0
-            sample_rate = int(
-                stream.codec_context.sample_rate
-                or stream.rate
-                or 44_100
-            )
-            decoded_samples = 0
-            for frame in container.decode(stream):
-                decoded_samples += int(frame.samples)
-                if frame.pts is not None and frame.time_base is not None:
-                    frame_end = float(frame.pts * frame.time_base)
-                    frame_end += frame.samples / sample_rate
-                    end_seconds = max(end_seconds, frame_end)
-
-            if end_seconds > 0.0:
-                return end_seconds
-            if decoded_samples > 0:
-                return decoded_samples / sample_rate
-            raise ValueError("decoded no audio frames")
-        finally:
-            container.close()
+            raw = json.loads(self.manifest_path.read_text(encoding='utf-8'))
+            if isinstance(raw, dict) and isinstance(raw.get('files'), dict):
+                return raw
+        except Exception:
+            pass
+        return {
+            'version': 1,
+            'layer_threshold_seconds': self.layer_threshold_seconds,
+            'files': {},
+        }
 
     def scan(self) -> tuple[DreamMotif, ...]:
         self.root_directory.mkdir(parents=True, exist_ok=True)
+        manifest = self._load_manifest()
+        cached_files = manifest.get('files', {})
         motifs: list[DreamMotif] = []
         errors: list[str] = []
 
@@ -2600,8 +2585,7 @@ class DreamMotifCatalog:
 
             files = sorted(
                 (
-                    p
-                    for p in directory.iterdir()
+                    p for p in directory.iterdir()
                     if p.is_file()
                     and p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
                 ),
@@ -2610,23 +2594,44 @@ class DreamMotifCatalog:
 
             for path in files:
                 try:
-                    duration = self._probe_duration(path)
+                    stat = path.stat()
+                    relative = path.relative_to(self.root_directory).as_posix()
+                    cached = cached_files.get(relative, {})
+                    cache_valid = (
+                        isinstance(cached, dict)
+                        and int(cached.get('size_bytes', -1)) == stat.st_size
+                        and int(cached.get('modified_ns', -1)) == stat.st_mtime_ns
+                        and float(cached.get('duration_seconds', 0.0)) > 0.0
+                    )
+
+                    if cache_valid:
+                        duration = float(cached['duration_seconds'])
+                        is_layered = bool(
+                            cached.get(
+                                'is_layered_event',
+                                duration <= self.layer_threshold_seconds,
+                            )
+                        )
+                        known = True
+                    else:
+                        duration = 0.0
+                        is_layered = False
+                        known = False
+
                     asset = DreamMotifAsset(
                         path=path,
                         duration_seconds=duration,
-                        is_layered_event=(
-                            duration
-                            <= self.layer_threshold_seconds
-                        ),
+                        is_layered_event=is_layered,
+                        metadata_known=known,
                     )
-                    if asset.is_layered_event:
+                    if is_layered:
                         layered.append(asset)
                     else:
+                        # Unknown files live here provisionally. The background
+                        # manager verifies their true type before use.
                         ambient.append(asset)
                 except Exception as exc:
-                    errors.append(
-                        f"{directory.name}/{path.name}: {exc}"
-                    )
+                    errors.append(f'{directory.name}/{path.name}: {exc}')
 
             motifs.append(
                 DreamMotif(
@@ -2646,6 +2651,227 @@ class DreamMotifCatalog:
             if motif.name == name:
                 return motif
         return None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedAudioAsset:
+    path: Path
+    mono: np.ndarray
+    duration_seconds: float
+    is_layered_event: bool
+    byte_size: int
+
+
+class AudioAssetManager:
+    """
+    Single-worker background decoder with a bounded LRU cache.
+
+    The real-time engine may request assets and retrieve already-ready arrays,
+    but it never opens files, decodes, resamples, waits, or performs large
+    allocations. Missing assets simply remain unavailable until prepared.
+    """
+
+    PRIORITY_CRITICAL = 0
+    PRIORITY_HIGH = 10
+    PRIORITY_NORMAL = 20
+    PRIORITY_LOW = 30
+
+    def __init__(
+        self,
+        root_directory: Path,
+        sample_rate: int,
+        layer_threshold_seconds: float,
+        maximum_cache_bytes: int = 512 * 1024 * 1024,
+    ) -> None:
+        self.root_directory = root_directory
+        self.sample_rate = int(sample_rate)
+        self.layer_threshold_seconds = float(layer_threshold_seconds)
+        self.maximum_cache_bytes = int(maximum_cache_bytes)
+        self.manifest_path = (
+            self.root_directory / DreamMotifCatalog.MANIFEST_FILENAME
+        )
+
+        self._lock = threading.Lock()
+        self._cache: OrderedDict[str, PreparedAudioAsset] = OrderedDict()
+        self._cache_bytes = 0
+        self._pending: set[str] = set()
+        self._failed: dict[str, str] = {}
+        self._queue: queue.PriorityQueue = queue.PriorityQueue()
+        self._sequence = 0
+        self._stop_event = threading.Event()
+
+        self._worker = threading.Thread(
+            target=self._worker_loop,
+            name='AudioAssetDecoder',
+            daemon=True,
+        )
+        self._worker.start()
+
+    @staticmethod
+    def _key(path: Path) -> str:
+        return str(path.resolve())
+
+    def request(self, asset: DreamMotifAsset, priority: int) -> None:
+        key = self._key(asset.path)
+        with self._lock:
+            if key in self._cache or key in self._pending or key in self._failed:
+                return
+            self._pending.add(key)
+            self._sequence += 1
+            sequence = self._sequence
+        self._queue.put((int(priority), sequence, asset.path))
+
+    def get_if_ready(
+        self,
+        asset: DreamMotifAsset | None,
+    ) -> PreparedAudioAsset | None:
+        if asset is None:
+            return None
+        key = self._key(asset.path)
+        with self._lock:
+            prepared = self._cache.get(key)
+            if prepared is not None:
+                self._cache.move_to_end(key)
+            return prepared
+
+    def error_for(self, asset: DreamMotifAsset | None) -> str:
+        if asset is None:
+            return ''
+        with self._lock:
+            return self._failed.get(self._key(asset.path), '')
+
+    def status(self) -> tuple[int, int, int, int]:
+        with self._lock:
+            return (
+                len(self._cache),
+                len(self._pending),
+                len(self._failed),
+                self._cache_bytes,
+            )
+
+    def close(self) -> None:
+        self._stop_event.set()
+        self._queue.put((10_000, 0, None))
+        self._worker.join(timeout=2.0)
+
+    def _worker_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                _, _, path = self._queue.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            if path is None:
+                break
+
+            key = self._key(path)
+            try:
+                prepared = self._decode(path)
+                with self._lock:
+                    self._pending.discard(key)
+                    self._failed.pop(key, None)
+                    existing = self._cache.pop(key, None)
+                    if existing is not None:
+                        self._cache_bytes -= existing.byte_size
+                    self._cache[key] = prepared
+                    self._cache_bytes += prepared.byte_size
+                    self._evict_locked()
+                self._update_manifest(prepared)
+            except Exception as exc:
+                LOGGER.exception('Background audio decode failed: %s', path)
+                with self._lock:
+                    self._pending.discard(key)
+                    self._failed[key] = str(exc)
+            finally:
+                self._queue.task_done()
+
+    def _decode(self, path: Path) -> PreparedAudioAsset:
+        data, input_rate = AmbientSampleState._decode_audio_file(path)
+
+        if int(input_rate) != self.sample_rate:
+            divisor = math.gcd(int(input_rate), self.sample_rate)
+            up = self.sample_rate // divisor
+            down = int(input_rate) // divisor
+            data = signal.resample_poly(
+                data,
+                up,
+                down,
+                axis=0,
+            ).astype(np.float32)
+
+        if len(data) < 2:
+            raise ValueError('Audio file contains no usable audio')
+
+        normalized, _, _, _, _ = (
+            AmbientSampleState._normalize_field_recording(
+                data,
+                self.sample_rate,
+            )
+        )
+        mono = np.ascontiguousarray(
+            np.mean(normalized.astype(np.float64), axis=1),
+            dtype=np.float32,
+        )
+        duration = len(mono) / self.sample_rate
+        return PreparedAudioAsset(
+            path=path,
+            mono=mono,
+            duration_seconds=duration,
+            is_layered_event=(
+                duration <= self.layer_threshold_seconds
+            ),
+            byte_size=int(mono.nbytes),
+        )
+
+    def _evict_locked(self) -> None:
+        while (
+            self._cache_bytes > self.maximum_cache_bytes
+            and len(self._cache) > 1
+        ):
+            _, evicted = self._cache.popitem(last=False)
+            self._cache_bytes -= evicted.byte_size
+
+    def _update_manifest(self, prepared: PreparedAudioAsset) -> None:
+        try:
+            stat = prepared.path.stat()
+            relative = prepared.path.relative_to(
+                self.root_directory
+            ).as_posix()
+            try:
+                manifest = json.loads(
+                    self.manifest_path.read_text(encoding='utf-8')
+                )
+                if not isinstance(manifest, dict):
+                    manifest = {}
+            except Exception:
+                manifest = {}
+
+            files = manifest.get('files')
+            if not isinstance(files, dict):
+                files = {}
+
+            files[relative] = {
+                'size_bytes': stat.st_size,
+                'modified_ns': stat.st_mtime_ns,
+                'duration_seconds': prepared.duration_seconds,
+                'is_layered_event': prepared.is_layered_event,
+                'sample_rate': self.sample_rate,
+            }
+            manifest = {
+                'version': 1,
+                'layer_threshold_seconds': self.layer_threshold_seconds,
+                'files': files,
+            }
+            temporary = self.manifest_path.with_suffix('.tmp')
+            temporary.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True),
+                encoding='utf-8',
+            )
+            temporary.replace(self.manifest_path)
+        except Exception:
+            LOGGER.exception(
+                'Could not update audio metadata manifest for %s',
+                prepared.path,
+            )
 
 
 # =============================================================================
@@ -3022,6 +3248,54 @@ class AmbientSampleState:
             container.close()
 
     def load_file(self, path: Path | None) -> None:
+        """Schedule decoding off the GUI/audio threads and return immediately."""
+        if path is None:
+            self._load_file_synchronously(None)
+            return
+
+        with self._lock:
+            self._audio = None
+            self._loaded_filename = ''
+            self._load_error = ''
+            self._audio_generation += 1
+            request_generation = self._audio_generation
+
+        def worker() -> None:
+            temporary = AmbientSampleState(
+                sample_rate=self.sample_rate,
+                spec=self._spec,
+            )
+            temporary._load_file_synchronously(path)
+            (
+                _,
+                audio,
+                loaded_filename,
+                load_error,
+                _,
+            ) = temporary.get()
+            normalization = temporary.normalization_info()
+
+            with self._lock:
+                if request_generation != self._audio_generation:
+                    return
+                self._audio = audio
+                self._loaded_filename = loaded_filename
+                self._load_error = load_error
+                (
+                    self._source_typical_dbfs,
+                    self._normalization_gain_db,
+                    self._normalized_typical_dbfs,
+                    self._normalized_peak_dbfs,
+                ) = normalization
+                self._audio_generation += 1
+
+        threading.Thread(
+            target=worker,
+            name=f'AudioSampleLoader-{path.name}',
+            daemon=True,
+        ).start()
+
+    def _load_file_synchronously(self, path: Path | None) -> None:
         if path is None:
             with self._lock:
                 self._audio = None
@@ -4534,23 +4808,18 @@ class DreamMotifShuffleBag:
 
 
 @dataclass(slots=True)
-class LoadedDreamMotif:
-    motif: DreamMotif
-    ambient_audio: tuple[np.ndarray, ...]
-    layered_audio: tuple[np.ndarray, ...]
-
-
-@dataclass(slots=True)
 class DreamMotifSlot:
-    loaded: LoadedDreamMotif | None
+    motif: DreamMotif | None
     source: object
     direction: np.ndarray
     distance: float
     target_distance: float
     gain_linear: float
     target_gain_linear: float
+    audio: np.ndarray | None = None
+    pending_asset: DreamMotifAsset | None = None
+    rejected_paths: set[Path] = field(default_factory=set)
     read_position: int = 0
-    ambient_index: int = 0
 
 
 @dataclass(slots=True)
@@ -4569,19 +4838,17 @@ class ActiveDreamMotifEvent:
 
 class DreamMotif3DEngine:
     """
-    Two concurrent motif worlds.
+    Two-world motif engine with nonblocking, look-ahead asset preparation.
 
-    One motif slowly approaches awareness while the other remains distant.
-    They cross simultaneously. After the retiring motif is fully distant, it
-    is replaced from a shuffle bag that exhausts every motif before repeating.
-
-    Layered effects begin at their owning motif and then travel on a curved
-    path toward, above, around, and beyond the listener.
+    Construction performs only a fast manifest-backed catalogue scan. Audio is
+    decoded one file at a time by AudioAssetManager. Phase transitions wait for
+    the next ambient asset to be ready; event triggers delay harmlessly rather
+    than ever blocking the real-time callback.
     """
 
-    PHASE_INITIAL_APPROACH = "initial approach"
-    PHASE_DOMINANT = "dominant"
-    PHASE_CROSSFADE = "crossfade"
+    PHASE_INITIAL_APPROACH = 'initial approach'
+    PHASE_DOMINANT = 'dominant'
+    PHASE_CROSSFADE = 'crossfade'
 
     def __init__(
         self,
@@ -4597,52 +4864,34 @@ class DreamMotif3DEngine:
         self.state = state
         self.rng = np.random.default_rng(seed)
 
-        log_stage(
-            f"DreamMotif3DEngine: initialization begin; "
-            f"root={root_directory}"
-        )
+        scan_started = time.perf_counter()
         self.catalog = DreamMotifCatalog(
             root_directory=root_directory,
-            layer_threshold_seconds=(
-                DREAM_MOTIF_LAYER_THRESHOLD_SECONDS
-            ),
+            layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
         )
-        scan_started = time.perf_counter()
-        log_stage("DreamMotif3DEngine: catalogue scan begin")
-        motifs = self.catalog.scan()
+        motifs = tuple(
+            motif for motif in self.catalog.scan()
+            if motif.total_assets > 0
+        )
         log_stage(
-            f"DreamMotif3DEngine: catalogue scan complete; "
-            f"motifs={len(motifs)}; "
-            f"elapsed={time.perf_counter() - scan_started:.3f}s"
+            f'Dream motif filename scan complete; motifs={len(motifs)}; '
+            f'elapsed={time.perf_counter() - scan_started:.3f}s'
         )
 
-        preload_started = time.perf_counter()
-        log_stage("DreamMotif3DEngine: preload begin")
-        self.loaded = self._preload_motifs(motifs)
-        log_stage(
-            f"DreamMotif3DEngine: preload complete; "
-            f"loaded={len(self.loaded)}; "
-            f"elapsed={time.perf_counter() - preload_started:.3f}s"
+        self.asset_manager = AudioAssetManager(
+            root_directory=root_directory,
+            sample_rate=self.sample_rate,
+            layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
         )
-        loaded_motifs = tuple(item.motif for item in self.loaded)
-        self.bag = DreamMotifShuffleBag(
-            loaded_motifs,
-            self.rng,
-        )
-        self.loaded_by_name = {
-            item.motif.name: item for item in self.loaded
-        }
+        self.bag = DreamMotifShuffleBag(motifs, self.rng)
 
         spec = self.state.get()
         self.slots = [
             self._make_slot(spec.far_distance),
             self._make_slot(spec.far_distance),
         ]
-
         first = self.bag.next()
-        second = self.bag.next(
-            {first.name} if first is not None else set()
-        )
+        second = self.bag.next({first.name} if first else set())
         self._assign_slot(0, first, spec.far_distance)
         self._assign_slot(1, second, spec.far_distance)
 
@@ -4652,6 +4901,8 @@ class DreamMotif3DEngine:
         self.phase_duration = max(1.0, spec.fade_in_seconds)
 
         self.next_event_seconds = self._new_event_interval(spec)
+        self.pending_event_asset: DreamMotifAsset | None = None
+        self.pending_event_rejected: set[Path] = set()
         self.event_sources = [
             renderer.create_source(
                 position=STEAM_DEFAULT_SOURCE_POSITION,
@@ -4662,24 +4913,17 @@ class DreamMotif3DEngine:
         ]
         self.events: list[ActiveDreamMotifEvent] = []
 
-        self.current_status = "no motifs"
-        self.current_dominant_name = (
-            self.slots[0].loaded.motif.name
-            if self.slots[0].loaded is not None
-            else ""
-        )
-        self.current_distant_name = (
-            self.slots[1].loaded.motif.name
-            if self.slots[1].loaded is not None
-            else ""
-        )
+        self.current_status = 'catalogued; background assets pending'
+        self.current_dominant_name = first.name if first else ''
+        self.current_distant_name = second.name if second else ''
+
+    def close(self) -> None:
+        self.asset_manager.close()
 
     @staticmethod
     def _smoothstep5(value: float) -> float:
         value = float(np.clip(value, 0.0, 1.0))
-        return value ** 3 * (
-            value * (value * 6.0 - 15.0) + 10.0
-        )
+        return value ** 3 * (value * (value * 6.0 - 15.0) + 10.0)
 
     def _random_direction(self) -> np.ndarray:
         vector = self.rng.normal(0.0, 1.0, size=3)
@@ -4692,22 +4936,17 @@ class DreamMotif3DEngine:
 
     @staticmethod
     def _vector3(vector: np.ndarray) -> Vector3:
-        return Vector3(
-            float(vector[0]),
-            float(vector[1]),
-            float(vector[2]),
-        )
+        return Vector3(float(vector[0]), float(vector[1]), float(vector[2]))
 
     def _make_slot(self, distance: float) -> DreamMotifSlot:
         direction = self._random_direction()
-        position = direction * distance
         source = self.renderer.create_source(
-            position=self._vector3(position),
+            position=self._vector3(direction * distance),
             spatial_blend=1.0,
             distance_attenuation_enabled=True,
         )
         return DreamMotifSlot(
-            loaded=None,
+            motif=None,
             source=source,
             direction=direction,
             distance=float(distance),
@@ -4716,83 +4955,6 @@ class DreamMotif3DEngine:
             target_gain_linear=0.0,
         )
 
-    def _decode_asset(self, asset: DreamMotifAsset) -> np.ndarray | None:
-        started = time.perf_counter()
-        log_stage(
-            f"DreamMotif3DEngine: decode begin; "
-            f"file={asset.path}; "
-            f"duration={asset.duration_seconds:.3f}s"
-        )
-        temporary = AmbientSampleState(
-            sample_rate=self.sample_rate,
-            spec=AmbientSampleSpec(),
-        )
-        temporary.load_file(asset.path)
-        _, audio, _, error, _ = temporary.get()
-        if error or audio is None or len(audio) < 2:
-            log_stage(
-                f"DreamMotif3DEngine: decode failed; "
-                f"file={asset.path}; error={error!r}; "
-                f"elapsed={time.perf_counter() - started:.3f}s"
-            )
-            return None
-
-        mono = np.mean(
-            audio.astype(np.float64),
-            axis=1,
-        ).astype(np.float32)
-        result = np.ascontiguousarray(mono)
-        log_stage(
-            f"DreamMotif3DEngine: decode complete; "
-            f"file={asset.path}; samples={len(result)}; "
-            f"elapsed={time.perf_counter() - started:.3f}s"
-        )
-        return result
-
-    def _preload_motifs(
-        self,
-        motifs: tuple[DreamMotif, ...],
-    ) -> tuple[LoadedDreamMotif, ...]:
-        loaded: list[LoadedDreamMotif] = []
-
-        for motif in motifs:
-            motif_started = time.perf_counter()
-            log_stage(
-                f"DreamMotif3DEngine: motif preload begin; "
-                f"name={motif.name}; "
-                f"ambient={len(motif.ambient_assets)}; "
-                f"layered={len(motif.layered_assets)}"
-            )
-            ambient_audio = tuple(
-                audio
-                for asset in motif.ambient_assets
-                if (audio := self._decode_asset(asset)) is not None
-            )
-            layered_audio = tuple(
-                audio
-                for asset in motif.layered_assets
-                if (audio := self._decode_asset(asset)) is not None
-            )
-
-            if ambient_audio or layered_audio:
-                loaded.append(
-                    LoadedDreamMotif(
-                        motif=motif,
-                        ambient_audio=ambient_audio,
-                        layered_audio=layered_audio,
-                    )
-                )
-
-            log_stage(
-                f"DreamMotif3DEngine: motif preload complete; "
-                f"name={motif.name}; "
-                f"decoded_ambient={len(ambient_audio)}; "
-                f"decoded_layered={len(layered_audio)}; "
-                f"elapsed={time.perf_counter() - motif_started:.3f}s"
-            )
-
-        return tuple(loaded)
-
     def _assign_slot(
         self,
         index: int,
@@ -4800,141 +4962,191 @@ class DreamMotif3DEngine:
         distance: float,
     ) -> None:
         slot = self.slots[index]
-        slot.loaded = (
-            self.loaded_by_name.get(motif.name)
-            if motif is not None
-            else None
-        )
+        slot.motif = motif
+        slot.audio = None
+        slot.pending_asset = None
+        slot.rejected_paths.clear()
         slot.direction = self._random_direction()
         slot.distance = float(distance)
         slot.target_distance = float(distance)
         slot.gain_linear = 0.0
         slot.target_gain_linear = 0.0
         slot.read_position = 0
-        slot.ambient_index = 0
-
-        position = slot.direction * slot.distance
         slot.source.set_position_vector(
-            self._vector3(position)
+            self._vector3(slot.direction * slot.distance)
+        )
+        self._ensure_slot_audio(
+            slot,
+            AudioAssetManager.PRIORITY_HIGH,
         )
 
-    def _new_event_interval(
-        self,
-        spec: DreamMotifSpatialSpec,
-    ) -> float:
-        return float(
-            self.rng.uniform(
-                spec.event_interval_min_seconds,
-                spec.event_interval_max_seconds,
-            )
-        )
+    def _ambient_candidates(self, slot: DreamMotifSlot) -> list[DreamMotifAsset]:
+        if slot.motif is None:
+            return []
+        return [
+            asset for asset in slot.motif.ambient_assets
+            if asset.path not in slot.rejected_paths
+        ]
 
-    def _new_dominant_duration(
-        self,
-        spec: DreamMotifSpatialSpec,
-    ) -> float:
-        return float(
-            self.rng.uniform(
-                spec.dominant_min_seconds,
-                spec.dominant_max_seconds,
-            )
-        )
+    def _ensure_slot_audio(self, slot: DreamMotifSlot, priority: int) -> bool:
+        if slot.audio is not None:
+            return True
+        if slot.motif is None:
+            return False
+
+        if slot.pending_asset is not None:
+            prepared = self.asset_manager.get_if_ready(slot.pending_asset)
+            if prepared is not None:
+                if prepared.is_layered_event:
+                    slot.rejected_paths.add(slot.pending_asset.path)
+                    slot.pending_asset = None
+                else:
+                    slot.audio = prepared.mono
+                    slot.read_position = 0
+                    slot.pending_asset = None
+                    return True
+            elif self.asset_manager.error_for(slot.pending_asset):
+                slot.rejected_paths.add(slot.pending_asset.path)
+                slot.pending_asset = None
+
+        if slot.pending_asset is None:
+            candidates = self._ambient_candidates(slot)
+            if candidates:
+                slot.pending_asset = candidates[
+                    int(self.rng.integers(0, len(candidates)))
+                ]
+                self.asset_manager.request(slot.pending_asset, priority)
+
+        return slot.audio is not None
+
+    def _new_event_interval(self, spec: DreamMotifSpatialSpec) -> float:
+        return float(self.rng.uniform(
+            spec.event_interval_min_seconds,
+            spec.event_interval_max_seconds,
+        ))
+
+    def _new_dominant_duration(self, spec: DreamMotifSpatialSpec) -> float:
+        return float(self.rng.uniform(
+            spec.dominant_min_seconds,
+            spec.dominant_max_seconds,
+        ))
 
     @staticmethod
     def _db_gain(db: float) -> float:
         return 10.0 ** (float(db) / 20.0)
 
-    def _render_loop(
-        self,
-        slot: DreamMotifSlot,
-        frame_count: int,
-    ) -> np.ndarray:
-        if (
-            slot.loaded is None
-            or not slot.loaded.ambient_audio
-        ):
+    def _render_loop(self, slot: DreamMotifSlot, frame_count: int) -> np.ndarray:
+        if slot.audio is None:
             return np.zeros(frame_count, dtype=np.float32)
-
-        audio = slot.loaded.ambient_audio[
-            slot.ambient_index % len(slot.loaded.ambient_audio)
-        ]
         indices = (
-            np.arange(frame_count, dtype=np.int64)
-            + slot.read_position
-        ) % len(audio)
-        slot.read_position = int(
-            (slot.read_position + frame_count) % len(audio)
-        )
-        return audio[indices]
+            np.arange(frame_count, dtype=np.int64) + slot.read_position
+        ) % len(slot.audio)
+        slot.read_position = int((slot.read_position + frame_count) % len(slot.audio))
+        return slot.audio[indices]
 
-    def _spawn_event(
+    def _event_candidates(self, slot: DreamMotifSlot) -> list[DreamMotifAsset]:
+        if slot.motif is None:
+            return []
+        # Unknown assets may prove to be short effects after decode.
+        candidates = list(slot.motif.layered_assets)
+        candidates.extend(
+            asset for asset in slot.motif.ambient_assets
+            if not asset.metadata_known
+        )
+        return [
+            asset for asset in candidates
+            if asset.path not in self.pending_event_rejected
+        ]
+
+    def _prepare_event(self, slot: DreamMotifSlot) -> None:
+        if self.pending_event_asset is not None:
+            return
+        candidates = self._event_candidates(slot)
+        if not candidates:
+            return
+        self.pending_event_asset = candidates[
+            int(self.rng.integers(0, len(candidates)))
+        ]
+        self.asset_manager.request(
+            self.pending_event_asset,
+            AudioAssetManager.PRIORITY_NORMAL,
+        )
+
+    def _spawn_prepared_event(
         self,
         slot_index: int,
         spec: DreamMotifSpatialSpec,
-    ) -> None:
+    ) -> bool:
         slot = self.slots[slot_index]
-        if (
-            slot.loaded is None
-            or not slot.loaded.layered_audio
-        ):
-            return
+        self._prepare_event(slot)
+        prepared = self.asset_manager.get_if_ready(self.pending_event_asset)
+        if prepared is None:
+            if self.asset_manager.error_for(self.pending_event_asset):
+                if self.pending_event_asset is not None:
+                    self.pending_event_rejected.add(self.pending_event_asset.path)
+                self.pending_event_asset = None
+            return False
+        if not prepared.is_layered_event:
+            if self.pending_event_asset is not None:
+                self.pending_event_rejected.add(self.pending_event_asset.path)
+            self.pending_event_asset = None
+            return False
 
-        free_source = None
-        for source in self.event_sources:
-            if all(event.source is not source for event in self.events):
-                free_source = source
-                break
-        if free_source is None:
-            return
-
-        audio = slot.loaded.layered_audio[
-            int(self.rng.integers(
-                0,
-                len(slot.loaded.layered_audio),
-            ))
-        ]
-
-        start = slot.direction * slot.distance
-
-        # Travel through an asymmetric overhead/side control point and end
-        # beyond the listener. This produces passes that can cross an ear,
-        # arc above the head, or sweep diagonally through the listening space.
-        side = self.rng.uniform(-2.5, 2.5)
-        above = self.rng.uniform(0.4, 2.8)
-        forward = self.rng.uniform(-0.7, 0.7)
-        control = np.array(
-            [side, above, forward],
-            dtype=np.float64,
+        free_source = next(
+            (
+                source for source in self.event_sources
+                if all(event.source is not source for event in self.events)
+            ),
+            None,
         )
+        if free_source is None:
+            return False
+
+        audio = prepared.mono
+        start = slot.direction * slot.distance
+        control = np.array([
+            self.rng.uniform(-2.5, 2.5),
+            self.rng.uniform(0.4, 2.8),
+            self.rng.uniform(-0.7, 0.7),
+        ], dtype=np.float64)
         end_direction = self._random_direction()
         end_direction[2] = abs(end_direction[2])
         end = end_direction * self.rng.uniform(1.5, 4.5)
+        free_source.set_position_vector(self._vector3(start))
+        self.events.append(ActiveDreamMotifEvent(
+            audio=audio,
+            source=free_source,
+            read_position=0,
+            elapsed_seconds=0.0,
+            travel_seconds=max(
+                spec.event_travel_seconds,
+                len(audio) / self.sample_rate,
+            ),
+            start=start,
+            control=control,
+            end=end,
+            gain_linear=self._db_gain(spec.event_gain_db),
+        ))
+        self.pending_event_asset = None
+        self.pending_event_rejected.clear()
+        return True
 
-        free_source.set_position_vector(
-            self._vector3(start)
+    def _advance_phase(self, elapsed_seconds: float, spec: DreamMotifSpatialSpec) -> None:
+        dominant_ready = self._ensure_slot_audio(
+            self.slots[self.dominant_index],
+            AudioAssetManager.PRIORITY_CRITICAL,
         )
-        self.events.append(
-            ActiveDreamMotifEvent(
-                audio=audio,
-                source=free_source,
-                read_position=0,
-                elapsed_seconds=0.0,
-                travel_seconds=max(
-                    spec.event_travel_seconds,
-                    len(audio) / self.sample_rate,
-                ),
-                start=start,
-                control=control,
-                end=end,
-                gain_linear=self._db_gain(spec.event_gain_db),
-            )
+        other_ready = self._ensure_slot_audio(
+            self.slots[1 - self.dominant_index],
+            AudioAssetManager.PRIORITY_HIGH,
         )
 
-    def _advance_phase(
-        self,
-        elapsed_seconds: float,
-        spec: DreamMotifSpatialSpec,
-    ) -> None:
+        if self.phase == self.PHASE_INITIAL_APPROACH and not dominant_ready:
+            return
+        if self.phase == self.PHASE_DOMINANT and not other_ready:
+            # Extend the current world until its successor is ready.
+            return
+
         self.phase_elapsed += elapsed_seconds
 
         if self.phase == self.PHASE_INITIAL_APPROACH:
@@ -4942,70 +5154,39 @@ class DreamMotif3DEngine:
                 self.phase = self.PHASE_DOMINANT
                 self.phase_elapsed = 0.0
                 self.phase_duration = self._new_dominant_duration(spec)
-
         elif self.phase == self.PHASE_DOMINANT:
             if self.phase_elapsed >= self.phase_duration:
                 self.phase = self.PHASE_CROSSFADE
                 self.phase_elapsed = 0.0
-                self.phase_duration = max(
-                    spec.fade_in_seconds,
-                    spec.fade_out_seconds,
-                )
-
+                self.phase_duration = max(spec.fade_in_seconds, spec.fade_out_seconds)
         elif self.phase == self.PHASE_CROSSFADE:
             if self.phase_elapsed >= self.phase_duration:
                 retired_index = self.dominant_index
                 self.dominant_index = 1 - self.dominant_index
-
-                retained_name = (
-                    self.slots[self.dominant_index].loaded.motif.name
-                    if self.slots[self.dominant_index].loaded is not None
-                    else ""
-                )
-                replacement = self.bag.next(
-                    {retained_name} if retained_name else set()
-                )
-                self._assign_slot(
-                    retired_index,
-                    replacement,
-                    spec.far_distance,
-                )
-
+                retained = self.slots[self.dominant_index].motif
+                replacement = self.bag.next({retained.name} if retained else set())
+                self._assign_slot(retired_index, replacement, spec.far_distance)
                 self.phase = self.PHASE_DOMINANT
                 self.phase_elapsed = 0.0
                 self.phase_duration = self._new_dominant_duration(spec)
 
-    def _slot_targets(
-        self,
-        spec: DreamMotifSpatialSpec,
-    ) -> tuple[tuple[float, float], tuple[float, float]]:
+    def _slot_targets(self, spec: DreamMotifSpatialSpec):
         far_gain = self._db_gain(spec.distant_gain_db)
         near_gain = self._db_gain(spec.dominant_gain_db)
-
         dominant = self.dominant_index
         other = 1 - dominant
-
-        targets = [
-            (spec.far_distance, far_gain),
-            (spec.far_distance, far_gain),
-        ]
+        targets = [(spec.far_distance, far_gain), (spec.far_distance, far_gain)]
 
         if self.phase == self.PHASE_INITIAL_APPROACH:
             progress = self._smoothstep5(
                 self.phase_elapsed / max(1e-9, spec.fade_in_seconds)
             )
             targets[dominant] = (
-                spec.far_distance
-                + (spec.near_distance - spec.far_distance) * progress,
+                spec.far_distance + (spec.near_distance - spec.far_distance) * progress,
                 far_gain + (near_gain - far_gain) * progress,
             )
-
         elif self.phase == self.PHASE_DOMINANT:
-            targets[dominant] = (
-                spec.near_distance,
-                near_gain,
-            )
-
+            targets[dominant] = (spec.near_distance, near_gain)
         else:
             out_progress = self._smoothstep5(
                 self.phase_elapsed / max(1e-9, spec.fade_out_seconds)
@@ -5014,127 +5195,97 @@ class DreamMotif3DEngine:
                 self.phase_elapsed / max(1e-9, spec.fade_in_seconds)
             )
             targets[dominant] = (
-                spec.near_distance
-                + (spec.far_distance - spec.near_distance) * out_progress,
+                spec.near_distance + (spec.far_distance - spec.near_distance) * out_progress,
                 near_gain + (far_gain - near_gain) * out_progress,
             )
             targets[other] = (
-                spec.far_distance
-                + (spec.near_distance - spec.far_distance) * in_progress,
+                spec.far_distance + (spec.near_distance - spec.far_distance) * in_progress,
                 far_gain + (near_gain - far_gain) * in_progress,
             )
-
         return targets[0], targets[1]
 
-    def _render_events(
-        self,
-        frame_count: int,
-        elapsed_seconds: float,
-    ) -> np.ndarray:
+    def _render_events(self, frame_count: int, elapsed_seconds: float) -> np.ndarray:
         stereo = np.zeros((frame_count, 2), dtype=np.float32)
         retained: list[ActiveDreamMotifEvent] = []
-
         for event in self.events:
             start = event.read_position
             end = min(len(event.audio), start + frame_count)
             mono = np.zeros(frame_count, dtype=np.float32)
             if end > start:
-                mono[: end - start] = event.audio[start:end]
+                mono[:end - start] = event.audio[start:end]
             event.read_position = end
             event.elapsed_seconds += elapsed_seconds
-
-            t = float(
-                np.clip(
-                    event.elapsed_seconds / max(1e-9, event.travel_seconds),
-                    0.0,
-                    1.0,
-                )
-            )
+            t = float(np.clip(
+                event.elapsed_seconds / max(1e-9, event.travel_seconds),
+                0.0,
+                1.0,
+            ))
             one_minus = 1.0 - t
             position = (
                 one_minus * one_minus * event.start
                 + 2.0 * one_minus * t * event.control
                 + t * t * event.end
             )
-            event.source.set_position_vector(
-                self._vector3(position)
-            )
-
-            # Soft ends protect against arbitrary source-file edges.
+            event.source.set_position_vector(self._vector3(position))
             fade = min(1.0, event.elapsed_seconds / 0.8)
-            remaining = max(
-                0.0,
-                (len(event.audio) - event.read_position)
-                / self.sample_rate,
-            )
+            remaining = max(0.0, (len(event.audio) - event.read_position) / self.sample_rate)
             fade *= min(1.0, remaining / 0.8)
-
-            stereo += event.source.process_mono(
-                mono * event.gain_linear * fade
-            )
-
+            stereo += event.source.process_mono(mono * event.gain_linear * fade)
             if event.read_position < len(event.audio):
                 retained.append(event)
-
         self.events = retained
         return stereo
 
-    def generate(
-        self,
-        frame_count: int,
-        enabled: bool,
-    ) -> np.ndarray:
+    def generate(self, frame_count: int, enabled: bool) -> np.ndarray:
         spec = self.state.get()
         elapsed_seconds = frame_count / self.sample_rate
-
-        if not spec.enabled or not enabled or not self.loaded:
+        if not spec.enabled or not enabled or not self.bag.motifs:
             return np.zeros((frame_count, 2), dtype=np.float32)
 
         self._advance_phase(elapsed_seconds, spec)
         targets = self._slot_targets(spec)
-
         stereo = np.zeros((frame_count, 2), dtype=np.float32)
 
         for index, slot in enumerate(self.slots):
+            self._ensure_slot_audio(
+                slot,
+                AudioAssetManager.PRIORITY_CRITICAL
+                if index == self.dominant_index
+                else AudioAssetManager.PRIORITY_HIGH,
+            )
             slot.distance, slot.gain_linear = targets[index]
-            position = slot.direction * slot.distance
             slot.source.set_position_vector(
-                self._vector3(position)
+                self._vector3(slot.direction * slot.distance)
             )
             mono = self._render_loop(slot, frame_count)
-            stereo += slot.source.process_mono(
-                mono * slot.gain_linear
-            )
+            stereo += slot.source.process_mono(mono * slot.gain_linear)
+
+        # Begin loading the event well before its target trigger.
+        if self.next_event_seconds <= 20.0:
+            self._prepare_event(self.slots[self.dominant_index])
 
         self.next_event_seconds -= elapsed_seconds
         if self.next_event_seconds <= 0.0:
-            self._spawn_event(self.dominant_index, spec)
-            self.next_event_seconds = self._new_event_interval(spec)
+            if self._spawn_prepared_event(self.dominant_index, spec):
+                self.next_event_seconds = self._new_event_interval(spec)
+            else:
+                # Asset not ready: delay naturally without blocking.
+                self.next_event_seconds = 1.0
 
-        stereo += self._render_events(
-            frame_count,
-            elapsed_seconds,
-        )
+        stereo += self._render_events(frame_count, elapsed_seconds)
 
         dominant = self.slots[self.dominant_index]
         distant = self.slots[1 - self.dominant_index]
-        self.current_dominant_name = (
-            dominant.loaded.motif.name
-            if dominant.loaded is not None
-            else ""
-        )
-        self.current_distant_name = (
-            distant.loaded.motif.name
-            if distant.loaded is not None
-            else ""
-        )
+        self.current_dominant_name = dominant.motif.name if dominant.motif else ''
+        self.current_distant_name = distant.motif.name if distant.motif else ''
+        cached, pending, failed, cache_bytes = self.asset_manager.status()
         self.current_status = (
-            f"{self.phase}; dominant {self.current_dominant_name or 'none'} "
-            f"@ {dominant.distance:.2f} m; distant "
-            f"{self.current_distant_name or 'none'} "
-            f"@ {distant.distance:.2f} m; events {len(self.events)}"
+            f'{self.phase}; dominant {self.current_dominant_name or "none"} '
+            f'@ {dominant.distance:.2f} m; distant '
+            f'{self.current_distant_name or "none"} @ {distant.distance:.2f} m; '
+            f'events {len(self.events)}; assets {cached} ready, {pending} loading, '
+            f'{failed} failed, {cache_bytes / (1024 * 1024):.0f} MB cached'
         )
-
         return stereo
 
 
@@ -5341,6 +5492,7 @@ class LivingBrownNoiseMixer:
         self.heartbeat_spatial.set_position_vector(spec.position)
 
     def close(self) -> None:
+        self.dream_motif_3d.close()
         self.spatial_renderer.close()
 
     def _approach_target(
@@ -8649,7 +8801,6 @@ class MainWindow(QMainWindow):
             self.soundscape_status_label.setText(
                 f"Loading {filename}…"
             )
-            QApplication.processEvents()
 
         path = (
             SOUND_EFFECTS_DIRECTORY / filename
@@ -8657,37 +8808,10 @@ class MainWindow(QMainWindow):
             else None
         )
         self.ambient_sample_state.load_file(path)
-
-        _, audio, loaded_name, error, _ = (
-            self.ambient_sample_state.get()
-        )
-
-        if error:
-            self.soundscape_status_label.setText(
-                f"Could not load audio: {error}"
-            )
-        elif audio is None:
+        if not filename:
             self.soundscape_status_label.setText(
                 "No audio file selected"
             )
-        else:
-            duration = len(audio) / 44_100
-            (
-                source_db,
-                normalization_db,
-                normalized_db,
-                normalized_peak_db,
-            ) = self.ambient_sample_state.normalization_info()
-
-            self.soundscape_status_label.setText(
-                f"Loaded {loaded_name}; "
-                f"{duration:.1f} s; "
-                f"source typical {source_db:.1f} dBFS; "
-                f"normalization {normalization_db:+.1f} dB; "
-                f"normalized typical {normalized_db:.1f} dBFS; "
-                f"peak {normalized_peak_db:.1f} dBFS"
-            )
-
         self._schedule_settings_save()
 
     def _update_soundscape(self, **changes) -> None:
