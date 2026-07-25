@@ -4176,45 +4176,63 @@ class MetabolismEngine:
 
 class HeartbeatProminenceLimiter:
     """
-    Allows brief heartbeat prominence excursions without letting the loud edge
-    become a sustained condition.
+    Limits the duration of a subjectively prominent heartbeat.
 
-    Requested levels at or below threshold pass through untouched. Above the
-    threshold, a smooth fade-in / short hold / fade-out envelope controls only
-    the excess level. During recovery, a small fraction of that excess remains,
-    so the heartbeat never abruptly vanishes into the background.
+    Prominence can come from either high gain or close 3D placement. A loud or
+    close heartbeat is allowed to emerge naturally for a short period, then
+    both level and distance are moved toward a safe background condition.
+
+    The limiter remains in recovery until the raw metabolism request has left
+    the prominent region for a sustained period. This prevents one long
+    metabolism phase from repeatedly re-triggering the same loud heartbeat.
     """
 
     STATE_IDLE = "background"
-    STATE_FADE_IN = "fading in"
-    STATE_HOLD = "prominent"
+    STATE_PROMINENT = "prominent"
     STATE_FADE_OUT = "fading out"
     STATE_COOLDOWN = "background recovery"
 
     def __init__(
         self,
-        threshold_db: float = 8.0,
-        fade_in_seconds: float = 18.0,
-        hold_seconds: float = 24.0,
-        fade_out_seconds: float = 32.0,
-        cooldown_seconds: float = 150.0,
-        background_excess_fraction: float = 0.15,
+        trigger_level_db: float = 8.0,
+        trigger_distance_meters: float = 1.50,
+        prominent_seconds: float = 12.0,
+        fade_out_seconds: float = 14.0,
+        safe_level_db: float = 4.0,
+        safe_distance_meters: float = 3.20,
+        rearm_seconds: float = 20.0,
     ) -> None:
-        self.threshold_db = float(threshold_db)
-        self.fade_in_seconds = max(0.1, float(fade_in_seconds))
-        self.hold_seconds = max(0.1, float(hold_seconds))
-        self.fade_out_seconds = max(0.1, float(fade_out_seconds))
-        self.cooldown_seconds = max(0.1, float(cooldown_seconds))
-        self.background_excess_fraction = float(
-            np.clip(background_excess_fraction, 0.0, 1.0)
+        self.trigger_level_db = float(trigger_level_db)
+        self.trigger_distance_meters = float(
+            trigger_distance_meters
+        )
+        self.prominent_seconds = max(
+            0.1,
+            float(prominent_seconds),
+        )
+        self.fade_out_seconds = max(
+            0.1,
+            float(fade_out_seconds),
+        )
+        self.safe_level_db = float(safe_level_db)
+        self.safe_distance_meters = float(
+            safe_distance_meters
+        )
+        self.rearm_seconds = max(
+            0.1,
+            float(rearm_seconds),
         )
 
         self.state = self.STATE_IDLE
         self.state_elapsed = 0.0
-        self.current_excess_fraction = (
-            self.background_excess_fraction
+        self.safe_request_elapsed = 0.0
+
+        self.current_effective_level_db = (
+            self.safe_level_db
         )
-        self.current_effective_level_db = self.threshold_db
+        self.current_effective_distance = (
+            self.safe_distance_meters
+        )
 
     @staticmethod
     def _smoothstep5(value: float) -> float:
@@ -4227,82 +4245,111 @@ class HeartbeatProminenceLimiter:
         self.state = state
         self.state_elapsed = 0.0
 
+    def _is_prominent_request(
+        self,
+        requested_level_db: float,
+        requested_distance: float,
+    ) -> bool:
+        return (
+            requested_level_db >= self.trigger_level_db
+            or requested_distance <= self.trigger_distance_meters
+        )
+
     def advance(
         self,
         requested_level_db: float,
+        requested_distance: float,
         elapsed_seconds: float,
-    ) -> float:
+    ) -> tuple[float, float]:
         requested_level_db = float(requested_level_db)
+        requested_distance = float(requested_distance)
         elapsed_seconds = max(0.0, float(elapsed_seconds))
 
-        # Ordinary/background heartbeat levels are not modified.
-        if requested_level_db <= self.threshold_db:
-            self.current_excess_fraction = (
-                self.background_excess_fraction
-            )
-            self.current_effective_level_db = requested_level_db
-
-            # Continue recovery timing so another loud excursion cannot trigger
-            # immediately after a brief dip below the threshold.
-            if self.state == self.STATE_COOLDOWN:
-                self.state_elapsed += elapsed_seconds
-                if self.state_elapsed >= self.cooldown_seconds:
-                    self._enter(self.STATE_IDLE)
-            elif self.state != self.STATE_IDLE:
-                self._enter(self.STATE_COOLDOWN)
-
-            return requested_level_db
+        prominent_request = self._is_prominent_request(
+            requested_level_db,
+            requested_distance,
+        )
 
         if self.state == self.STATE_IDLE:
-            self._enter(self.STATE_FADE_IN)
+            if prominent_request:
+                self._enter(self.STATE_PROMINENT)
 
-        self.state_elapsed += elapsed_seconds
+            effective_level_db = requested_level_db
+            effective_distance = requested_distance
 
-        if self.state == self.STATE_FADE_IN:
-            progress = self.state_elapsed / self.fade_in_seconds
-            blend = self._smoothstep5(progress)
-            self.current_excess_fraction = (
-                self.background_excess_fraction
-                + (1.0 - self.background_excess_fraction) * blend
-            )
-            if progress >= 1.0:
-                self.current_excess_fraction = 1.0
-                self._enter(self.STATE_HOLD)
+        elif self.state == self.STATE_PROMINENT:
+            self.state_elapsed += elapsed_seconds
 
-        elif self.state == self.STATE_HOLD:
-            self.current_excess_fraction = 1.0
-            if self.state_elapsed >= self.hold_seconds:
+            effective_level_db = requested_level_db
+            effective_distance = requested_distance
+
+            if not prominent_request:
+                self._enter(self.STATE_COOLDOWN)
+            elif self.state_elapsed >= self.prominent_seconds:
                 self._enter(self.STATE_FADE_OUT)
 
         elif self.state == self.STATE_FADE_OUT:
-            progress = self.state_elapsed / self.fade_out_seconds
-            blend = self._smoothstep5(progress)
-            self.current_excess_fraction = (
-                1.0
-                + (
-                    self.background_excess_fraction - 1.0
-                ) * blend
+            self.state_elapsed += elapsed_seconds
+
+            progress = self._smoothstep5(
+                self.state_elapsed / self.fade_out_seconds
             )
-            if progress >= 1.0:
-                self.current_excess_fraction = (
-                    self.background_excess_fraction
-                )
+
+            target_level_db = min(
+                requested_level_db,
+                self.safe_level_db,
+            )
+            target_distance = max(
+                requested_distance,
+                self.safe_distance_meters,
+            )
+
+            effective_level_db = (
+                requested_level_db
+                + (target_level_db - requested_level_db)
+                * progress
+            )
+            effective_distance = (
+                requested_distance
+                + (target_distance - requested_distance)
+                * progress
+            )
+
+            if self.state_elapsed >= self.fade_out_seconds:
                 self._enter(self.STATE_COOLDOWN)
+                self.safe_request_elapsed = 0.0
+                effective_level_db = target_level_db
+                effective_distance = target_distance
 
-        elif self.state == self.STATE_COOLDOWN:
-            self.current_excess_fraction = (
-                self.background_excess_fraction
+        else:
+            effective_level_db = min(
+                requested_level_db,
+                self.safe_level_db,
             )
-            if self.state_elapsed >= self.cooldown_seconds:
-                self._enter(self.STATE_IDLE)
+            effective_distance = max(
+                requested_distance,
+                self.safe_distance_meters,
+            )
 
-        excess_db = requested_level_db - self.threshold_db
-        effective_level_db = (
-            self.threshold_db
-            + excess_db * self.current_excess_fraction
+            if prominent_request:
+                self.safe_request_elapsed = 0.0
+            else:
+                self.safe_request_elapsed += elapsed_seconds
+                if self.safe_request_elapsed >= self.rearm_seconds:
+                    self.safe_request_elapsed = 0.0
+                    self._enter(self.STATE_IDLE)
+
+        self.current_effective_level_db = float(
+            effective_level_db
         )
-        self.current_effective_level_db = effective_level_db
-        return effective_level_db
+        self.current_effective_distance = float(
+            effective_distance
+        )
+
+        return (
+            self.current_effective_level_db,
+            self.current_effective_distance,
+        )
 
 
 
@@ -5631,18 +5678,20 @@ class LivingBrownNoiseMixer:
             requested_heartbeat_level_db = (
                 metabolism_values.heartbeat_level_db
             )
-            effective_heartbeat_level_db = (
-                self.heartbeat_prominence_limiter.advance(
-                    requested_heartbeat_level_db,
-                    elapsed_seconds,
-                )
+            (
+                effective_heartbeat_level_db,
+                effective_heartbeat_distance,
+            ) = self.heartbeat_prominence_limiter.advance(
+                requested_heartbeat_level_db,
+                metabolism_values.heartbeat_distance,
+                elapsed_seconds,
             )
             heartbeat_prominence_state = (
                 self.heartbeat_prominence_limiter.state
             )
             heartbeat_position_spec = replace(
                 manual_heartbeat_position_spec,
-                distance=metabolism_values.heartbeat_distance,
+                distance=effective_heartbeat_distance,
                 level_db=effective_heartbeat_level_db,
             ).validated()
 
