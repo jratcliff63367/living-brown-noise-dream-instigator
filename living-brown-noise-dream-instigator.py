@@ -982,8 +982,8 @@ class BrownNoiseSpec:
     BODY_CURVE_POWER: ClassVar[float] = 0.72
 
     def validated(self, sample_rate: float) -> BrownNoiseSpec:
-        if not 0.0 <= self.body <= 1.0:
-            raise ValueError("body must be between 0 and 1")
+        if not 0.15 <= self.body <= 1.0:
+            raise ValueError("body must be between 0.15 and 1")
         if not 0.75 <= self.slope_strength <= 1.0:
             raise ValueError(
                 "slope_strength must be between 0.75 and 1.0"
@@ -1009,7 +1009,7 @@ class BrownNoiseSpec:
         range. A power below 1.0 moves low slider values upward, so evolution
         spends less time close to the minimum spectral shift.
         """
-        body = float(np.clip(body, 0.0, 1.0))
+        body = float(np.clip(body, 0.15, 1.0))
         return body ** BrownNoiseSpec.BODY_CURVE_POWER
 
     @property
@@ -1519,7 +1519,7 @@ class BrownNoiseInstance:
         high_log = math.log(spec.BODY_MAX_SHIFT)
 
         shaped_body = np.power(
-            np.clip(body, 0.0, 1.0),
+            np.clip(body, 0.15, 1.0),
             spec.BODY_CURVE_POWER,
         )
 
@@ -1910,7 +1910,7 @@ class BrownNoiseEvolution:
         weight_n = self.weight.advance(elapsed_seconds, time_scale)
         texture_n = self.texture.advance(elapsed_seconds, time_scale)
 
-        self.current_body = body_n
+        self.current_body = 0.15 + 0.85 * body_n
         self.current_slope = 0.75 + 0.25 * slope_n
         self.current_weight = 8.0 * weight_n
         self.current_texture = texture_n
@@ -3835,7 +3835,7 @@ class MetabolismSpec:
     # drive linear; 100 strongly favors rest while preserving rare excursions.
     resting_tendency_percent: float = 75.0
 
-    brown_body_min: float = 0.0
+    brown_body_min: float = 0.15
     brown_body_max: float = 1.0
     brown_slope_min: float = 0.75
     brown_slope_max: float = 1.0
@@ -3877,7 +3877,7 @@ class MetabolismSpec:
 
         pairs = (
             ("phase_min_minutes", "phase_max_minutes", 0.25, 240.0),
-            ("brown_body_min", "brown_body_max", 0.0, 1.0),
+            ("brown_body_min", "brown_body_max", 0.15, 1.0),
             ("brown_slope_min", "brown_slope_max", 0.75, 1.0),
             ("brown_low_end_min_db", "brown_low_end_max_db", 0.0, 8.0),
             ("brown_texture_min", "brown_texture_max", 0.0, 1.0),
@@ -6716,7 +6716,7 @@ class MainWindow(QMainWindow):
         noise_spec, _ = self.noise_state.get()
 
         self.noise_body_control = FloatControl(
-            minimum=0.0,
+            minimum=0.15,
             maximum=1.0,
             value=noise_spec.body,
             step=0.01,
@@ -7126,7 +7126,7 @@ class MainWindow(QMainWindow):
             metabolism_brown_form,
             "Body minimum:",
             "brown_body_min",
-            0.0,
+            0.15,
             1.0,
             0.01,
             2,
@@ -7135,7 +7135,7 @@ class MainWindow(QMainWindow):
             metabolism_brown_form,
             "Body maximum:",
             "brown_body_max",
-            0.0,
+            0.15,
             1.0,
             0.01,
             2,
@@ -9677,7 +9677,12 @@ def build_application() -> tuple[QApplication, MainWindow]:
         modes = default_modes
 
     default_noise = BrownNoiseSpec()
-    noise_data = loaded.get("brown_noise", {})
+    noise_data = dict(loaded.get("brown_noise", {}))
+    if "body" in noise_data:
+        try:
+            noise_data["body"] = max(0.15, float(noise_data["body"]))
+        except (TypeError, ValueError):
+            pass
     try:
         noise_spec = BrownNoiseSpec(
             **{
@@ -9842,6 +9847,15 @@ def build_application() -> tuple[QApplication, MainWindow]:
 
     default_metabolism = MetabolismSpec()
     metabolism_data = dict(loaded.get("metabolism", {}))
+    for field_name in ("brown_body_min", "brown_body_max"):
+        if field_name in metabolism_data:
+            try:
+                metabolism_data[field_name] = max(
+                    0.15,
+                    float(metabolism_data[field_name]),
+                )
+            except (TypeError, ValueError):
+                pass
 
     # Migrate the previous 0..1 quiet-state bias setting to the clearer
     # percentage-based resting-tendency setting.
