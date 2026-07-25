@@ -4335,6 +4335,185 @@ class DreamMotif3DEngine:
         self.current_dominant_name = first.name if first else ''
         self.current_distant_name = second.name if second else ''
 
+        # Manual spatial laboratory. GUI writes are protected by a short lock;
+        # the audio callback only copies scalar/reference values and never waits
+        # for decoding or disk I/O.
+        self._manual_lock = threading.Lock()
+        self.manual_enabled = False
+        self.manual_source_kind = "dominant"
+        self.manual_position = np.array(
+            [0.0, 0.0, -2.0],
+            dtype=np.float64,
+        )
+        self.manual_gain_db = -18.0
+        self.manual_solo = False
+        self.manual_test_motif_name = first.name if first else ""
+        self.manual_test_asset: DreamMotifAsset | None = None
+        self.manual_test_audio: np.ndarray | None = None
+        self.manual_test_read_position = 0
+        self.manual_test_rejected: set[Path] = set()
+        self.manual_test_source = renderer.create_source(
+            position=STEAM_DEFAULT_SOURCE_POSITION,
+            spatial_blend=1.0,
+            distance_attenuation_enabled=True,
+        )
+
+    def set_manual_spatial(
+        self,
+        *,
+        enabled: bool | None = None,
+        source_kind: str | None = None,
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+        gain_db: float | None = None,
+        solo: bool | None = None,
+        motif_name: str | None = None,
+    ) -> None:
+        with self._manual_lock:
+            if enabled is not None:
+                self.manual_enabled = bool(enabled)
+            if source_kind is not None:
+                allowed = {"dominant", "distant", "layered event"}
+                if source_kind not in allowed:
+                    raise ValueError(
+                        f"Unknown manual source kind: {source_kind}"
+                    )
+                self.manual_source_kind = source_kind
+            if any(value is not None for value in (x, y, z)):
+                position = self.manual_position.copy()
+                if x is not None:
+                    position[0] = float(x)
+                if y is not None:
+                    position[1] = float(y)
+                if z is not None:
+                    position[2] = float(z)
+                self.manual_position = position
+            if gain_db is not None:
+                self.manual_gain_db = float(
+                    np.clip(gain_db, -80.0, 12.0)
+                )
+            if solo is not None:
+                self.manual_solo = bool(solo)
+            if motif_name is not None:
+                motif_name = str(motif_name).strip()
+                if motif_name != self.manual_test_motif_name:
+                    self.manual_test_motif_name = motif_name
+                    self.manual_test_asset = None
+                    self.manual_test_audio = None
+                    self.manual_test_read_position = 0
+                    self.manual_test_rejected.clear()
+
+    def manual_snapshot(
+        self,
+    ) -> tuple[bool, str, np.ndarray, float, bool, str]:
+        with self._manual_lock:
+            return (
+                self.manual_enabled,
+                self.manual_source_kind,
+                self.manual_position.copy(),
+                self.manual_gain_db,
+                self.manual_solo,
+                self.manual_test_motif_name,
+            )
+
+    def _manual_event_candidates(
+        self,
+        motif_name: str,
+    ) -> list[DreamMotifAsset]:
+        motif = next(
+            (
+                item for item in self.bag.motifs
+                if item.name == motif_name
+            ),
+            None,
+        )
+        if motif is None:
+            return []
+        candidates = list(motif.layered_assets)
+        candidates.extend(
+            asset for asset in motif.ambient_assets
+            if not asset.metadata_known
+        )
+        return [
+            asset for asset in candidates
+            if asset.path not in self.manual_test_rejected
+        ]
+
+    def _ensure_manual_event_audio(
+        self,
+        motif_name: str,
+    ) -> bool:
+        if self.manual_test_audio is not None:
+            return True
+
+        if self.manual_test_asset is not None:
+            prepared = self.asset_manager.get_if_ready(
+                self.manual_test_asset
+            )
+            if prepared is not None:
+                if prepared.is_layered_event:
+                    self.manual_test_audio = prepared.mono
+                    self.manual_test_read_position = 0
+                    return True
+                self.manual_test_rejected.add(
+                    self.manual_test_asset.path
+                )
+                self.manual_test_asset = None
+            elif self.asset_manager.error_for(
+                self.manual_test_asset
+            ):
+                self.manual_test_rejected.add(
+                    self.manual_test_asset.path
+                )
+                self.manual_test_asset = None
+
+        if self.manual_test_asset is None:
+            candidates = self._manual_event_candidates(
+                motif_name
+            )
+            if candidates:
+                self.manual_test_asset = candidates[0]
+                self.asset_manager.request(
+                    self.manual_test_asset,
+                    AudioAssetManager.PRIORITY_CRITICAL,
+                )
+
+        return self.manual_test_audio is not None
+
+    def _render_manual_event(
+        self,
+        frame_count: int,
+        position: np.ndarray,
+        gain_db: float,
+        motif_name: str,
+    ) -> np.ndarray:
+        if not self._ensure_manual_event_audio(motif_name):
+            return np.zeros(
+                (frame_count, 2),
+                dtype=np.float32,
+            )
+
+        audio = self.manual_test_audio
+        assert audio is not None
+        indices = (
+            np.arange(frame_count, dtype=np.int64)
+            + self.manual_test_read_position
+        ) % len(audio)
+        self.manual_test_read_position = int(
+            (
+                self.manual_test_read_position
+                + frame_count
+            ) % len(audio)
+        )
+        mono = audio[indices]
+        self.manual_test_source.set_position_vector(
+            self._vector3(position)
+        )
+        return self.manual_test_source.process_mono(
+            mono * self._db_gain(gain_db)
+        )
+
     def close(self) -> None:
         self.asset_manager.close()
 
@@ -4660,7 +4839,21 @@ class DreamMotif3DEngine:
         if not spec.enabled or not enabled or not self.bag.motifs:
             return np.zeros((frame_count, 2), dtype=np.float32)
 
-        self._advance_phase(elapsed_seconds, spec)
+        (
+            manual_enabled,
+            manual_source_kind,
+            manual_position,
+            manual_gain_db,
+            manual_solo,
+            manual_motif_name,
+        ) = self.manual_snapshot()
+
+        # Manual mode freezes phase and event automation. Existing event tails
+        # are not advanced; disabling manual mode resumes the generative engine
+        # from the exact phase position where it was paused.
+        if not manual_enabled:
+            self._advance_phase(elapsed_seconds, spec)
+
         targets = self._slot_targets(spec)
         stereo = np.zeros((frame_count, 2), dtype=np.float32)
 
@@ -4671,34 +4864,92 @@ class DreamMotif3DEngine:
                 if index == self.dominant_index
                 else AudioAssetManager.PRIORITY_HIGH,
             )
-            slot.distance, slot.gain_linear = targets[index]
-            slot.source.set_position_vector(
-                self._vector3(slot.direction * slot.distance)
+
+            role = (
+                "dominant"
+                if index == self.dominant_index
+                else "distant"
             )
-            mono = self._render_loop(slot, frame_count)
-            stereo += slot.source.process_mono(mono * slot.gain_linear)
+            selected = (
+                manual_enabled
+                and manual_source_kind == role
+            )
 
-        # Begin loading the event well before its target trigger.
-        if self.next_event_seconds <= 20.0:
-            self._prepare_event(self.slots[self.dominant_index])
+            if manual_enabled and manual_solo and not selected:
+                continue
+            if (
+                manual_enabled
+                and manual_source_kind == "layered event"
+                and manual_solo
+            ):
+                continue
 
-        self.next_event_seconds -= elapsed_seconds
-        if self.next_event_seconds <= 0.0:
-            if self._spawn_prepared_event(self.dominant_index, spec):
-                self.next_event_seconds = self._new_event_interval(spec)
+            if selected:
+                slot.source.set_position_vector(
+                    self._vector3(manual_position)
+                )
+                gain = self._db_gain(manual_gain_db)
             else:
-                # Asset not ready: delay naturally without blocking.
-                self.next_event_seconds = 1.0
+                slot.distance, slot.gain_linear = targets[index]
+                slot.source.set_position_vector(
+                    self._vector3(
+                        slot.direction * slot.distance
+                    )
+                )
+                gain = slot.gain_linear
 
-        stereo += self._render_events(frame_count, elapsed_seconds)
+            mono = self._render_loop(slot, frame_count)
+            stereo += slot.source.process_mono(mono * gain)
+
+        if manual_enabled:
+            if manual_source_kind == "layered event":
+                stereo += self._render_manual_event(
+                    frame_count,
+                    manual_position,
+                    manual_gain_db,
+                    manual_motif_name,
+                )
+        else:
+            # Begin loading the event well before its target trigger.
+            if self.next_event_seconds <= 20.0:
+                self._prepare_event(
+                    self.slots[self.dominant_index]
+                )
+
+            self.next_event_seconds -= elapsed_seconds
+            if self.next_event_seconds <= 0.0:
+                if self._spawn_prepared_event(
+                    self.dominant_index,
+                    spec,
+                ):
+                    self.next_event_seconds = (
+                        self._new_event_interval(spec)
+                    )
+                else:
+                    # Asset not ready: delay naturally without blocking.
+                    self.next_event_seconds = 1.0
+
+            stereo += self._render_events(
+                frame_count,
+                elapsed_seconds,
+            )
 
         dominant = self.slots[self.dominant_index]
         distant = self.slots[1 - self.dominant_index]
         self.current_dominant_name = dominant.motif.name if dominant.motif else ''
         self.current_distant_name = distant.motif.name if distant.motif else ''
         cached, pending, failed, cache_bytes = self.asset_manager.status()
+        manual_status = (
+            f'manual {manual_source_kind} at '
+            f'({manual_position[0]:.2f}, '
+            f'{manual_position[1]:.2f}, '
+            f'{manual_position[2]:.2f}) m; '
+            if manual_enabled
+            else ''
+        )
         self.current_status = (
-            f'{self.phase}; dominant {self.current_dominant_name or "none"} '
+            f'{manual_status}{self.phase}; dominant '
+            f'{self.current_dominant_name or "none"} '
             f'@ {dominant.distance:.2f} m; distant '
             f'{self.current_distant_name or "none"} @ {distant.distance:.2f} m; '
             f'events {len(self.events)}; assets {cached} ready, {pending} loading, '
@@ -5921,6 +6172,100 @@ class MainWindow(QMainWindow):
             motif_spatial_spec.enabled
         )
         motif_form.addRow("", self.motif_3d_enabled_checkbox)
+
+        self.motif_manual_checkbox = QCheckBox(
+            "Manual spatial tuning — pause automatic motif movement"
+        )
+        self.motif_manual_checkbox.setChecked(False)
+        motif_form.addRow("", self.motif_manual_checkbox)
+
+        self.motif_manual_source_combo = QComboBox()
+        self.motif_manual_source_combo.addItems(
+            ["dominant", "distant", "layered event"]
+        )
+        motif_form.addRow(
+            "Manual source:",
+            self.motif_manual_source_combo,
+        )
+
+        self.motif_manual_solo_checkbox = QCheckBox(
+            "Solo selected manual source"
+        )
+        self.motif_manual_solo_checkbox.setChecked(True)
+        motif_form.addRow("", self.motif_manual_solo_checkbox)
+
+        self.motif_manual_x_control = FloatControl(
+            minimum=-10.0,
+            maximum=10.0,
+            value=0.0,
+            step=0.05,
+            decimals=2,
+            suffix=" m",
+            on_change=lambda value: (
+                self._update_manual_motif_spatial(x=value)
+            ),
+        )
+        motif_form.addRow(
+            "Left (-) / right (+):",
+            self.motif_manual_x_control,
+        )
+
+        self.motif_manual_y_control = FloatControl(
+            minimum=-5.0,
+            maximum=5.0,
+            value=0.0,
+            step=0.05,
+            decimals=2,
+            suffix=" m",
+            on_change=lambda value: (
+                self._update_manual_motif_spatial(y=value)
+            ),
+        )
+        motif_form.addRow(
+            "Down (-) / up (+):",
+            self.motif_manual_y_control,
+        )
+
+        self.motif_manual_z_control = FloatControl(
+            minimum=-20.0,
+            maximum=5.0,
+            value=-2.0,
+            step=0.05,
+            decimals=2,
+            suffix=" m",
+            on_change=lambda value: (
+                self._update_manual_motif_spatial(z=value)
+            ),
+        )
+        motif_form.addRow(
+            "Front (-) / behind (+):",
+            self.motif_manual_z_control,
+        )
+
+        self.motif_manual_gain_control = FloatControl(
+            minimum=-60.0,
+            maximum=6.0,
+            value=-18.0,
+            step=0.5,
+            decimals=1,
+            suffix=" dB",
+            on_change=lambda value: (
+                self._update_manual_motif_spatial(
+                    gain_db=value
+                )
+            ),
+        )
+        motif_form.addRow(
+            "Manual source gain:",
+            self.motif_manual_gain_control,
+        )
+
+        self.motif_manual_position_label = QLabel("")
+        self.motif_manual_position_label.setWordWrap(True)
+        motif_form.addRow(
+            "Resolved position:",
+            self.motif_manual_position_label,
+        )
 
         def add_motif_spatial_control(
             label,
@@ -7530,6 +7875,17 @@ class MainWindow(QMainWindow):
         self.motif_combo.currentTextChanged.connect(
             self._on_motif_changed
         )
+        self.motif_manual_checkbox.toggled.connect(
+            self._on_manual_motif_toggled
+        )
+        self.motif_manual_source_combo.currentTextChanged.connect(
+            self._on_manual_motif_source_changed
+        )
+        self.motif_manual_solo_checkbox.toggled.connect(
+            lambda checked: self._update_manual_motif_spatial(
+                solo=checked
+            )
+        )
         self.stereo_checkbox.toggled.connect(self._on_modes_changed)
         self.correlation_checkbox.toggled.connect(
             self._on_modes_changed
@@ -7683,7 +8039,71 @@ class MainWindow(QMainWindow):
             bool(saved_dream_motifs_checked)
         )
 
+        self._update_manual_motif_spatial(
+            enabled=False,
+            source_kind="dominant",
+            x=0.0,
+            y=0.0,
+            z=-2.0,
+            gain_db=-18.0,
+            solo=True,
+        )
         self._on_modes_changed()
+
+    def _update_manual_motif_spatial(
+        self,
+        **changes,
+    ) -> None:
+        self.mixer.dream_motif_3d.set_manual_spatial(
+            motif_name=self.motif_combo.currentText(),
+            **changes,
+        )
+
+        (
+            _,
+            source_kind,
+            position,
+            gain_db,
+            solo,
+            _,
+        ) = self.mixer.dream_motif_3d.manual_snapshot()
+
+        distance = float(np.linalg.norm(position))
+        horizontal = math.degrees(
+            math.atan2(position[0], -position[2])
+        )
+        planar = math.hypot(
+            position[0],
+            position[2],
+        )
+        elevation = math.degrees(
+            math.atan2(position[1], planar)
+        )
+        self.motif_manual_position_label.setText(
+            f"{source_kind}; distance {distance:.2f} m; "
+            f"azimuth {horizontal:+.1f}°; "
+            f"elevation {elevation:+.1f}°; "
+            f"gain {gain_db:.1f} dB; "
+            f"{'solo' if solo else 'in full mix'}"
+        )
+
+    def _on_manual_motif_toggled(
+        self,
+        checked: bool,
+    ) -> None:
+        self._update_manual_motif_spatial(
+            enabled=checked
+        )
+        self._schedule_settings_save()
+
+    def _on_manual_motif_source_changed(
+        self,
+        source_kind: str,
+    ) -> None:
+        self._update_manual_motif_spatial(
+            source_kind=source_kind
+        )
+        self._schedule_settings_save()
 
     def _update_dream_motif_spatial(self, **changes) -> None:
         self.mixer.dream_motif_spatial_state.update(**changes)
@@ -7772,8 +8192,11 @@ class MainWindow(QMainWindow):
             f"[{layered_names}]."
         )
 
-        # Selection here is catalogue inspection only. Automatic playback is
-        # owned by the two-world 3D motif engine.
+        # Selection here is catalogue inspection for automatic playback and
+        # chooses the source folder used by the manual layered-event test.
+        self.mixer.dream_motif_3d.set_manual_spatial(
+            motif_name=motif.name
+        )
         self._schedule_settings_save()
 
     def _update_body_movement(self, **changes) -> None:
