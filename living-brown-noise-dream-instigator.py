@@ -4054,8 +4054,6 @@ class DreamMotifSpatialSpec:
     fade_in_seconds: float = 90.0
     fade_out_seconds: float = 90.0
 
-    dominant_min_seconds: float = 180.0
-    dominant_max_seconds: float = 420.0
 
     distant_gain_db: float = -42.0
     dominant_gain_db: float = -22.0
@@ -4075,6 +4073,11 @@ class DreamMotifSpatialSpec:
     coherence: float = 0.70
     novelty: float = 0.80
 
+    # Multiplies only periods when the dreamscape mixer is silent.
+    # Active motif exposure, fades, sample playback, movement, and spatial
+    # gestures remain in real time.
+    orchestrator_time_scale: float = 1.0
+
     # Stable calibrated levels. Automatic choreography never animates gain;
     # apparent prominence is controlled by source position and attenuation.
     motif_calibrated_gain_db: float = -22.0
@@ -4093,13 +4096,6 @@ class DreamMotifSpatialSpec:
         if not 1.0 <= self.fade_out_seconds <= 3600.0:
             raise ValueError("invalid motif fade-out time")
 
-        if not (
-            5.0
-            <= self.dominant_min_seconds
-            <= self.dominant_max_seconds
-            <= 86_400.0
-        ):
-            raise ValueError("invalid motif dominant duration")
 
         if not -80.0 <= self.distant_gain_db <= 0.0:
             raise ValueError("invalid distant motif gain")
@@ -4125,6 +4121,8 @@ class DreamMotifSpatialSpec:
         ):
             if not 0.0 <= getattr(self, field_name) <= 1.0:
                 raise ValueError(f"invalid conductor {field_name}")
+        if not 1.0 <= self.orchestrator_time_scale <= 20.0:
+            raise ValueError("invalid orchestrator time scale")
         if not -80.0 <= self.motif_calibrated_gain_db <= 6.0:
             raise ValueError("invalid calibrated motif gain")
         if not -80.0 <= self.event_calibrated_gain_db <= 12.0:
@@ -4162,18 +4160,6 @@ class DreamMotifSpatialState:
                         float(values["far_distance"]) - 0.1,
                     )
 
-            if (
-                values["dominant_min_seconds"]
-                > values["dominant_max_seconds"]
-            ):
-                if "dominant_min_seconds" in changes:
-                    values["dominant_max_seconds"] = values[
-                        "dominant_min_seconds"
-                    ]
-                else:
-                    values["dominant_min_seconds"] = values[
-                        "dominant_max_seconds"
-                    ]
 
             if (
                 values["event_interval_min_seconds"]
@@ -4273,10 +4259,13 @@ class DreamMotifSlot:
     )
     move_elapsed: float = 0.0
     move_duration: float = 30.0
+    exposure: float = 0.0
+    target_exposure: float = 0.0
 
 
 @dataclass(slots=True)
 class ActiveDreamMotifEvent:
+    asset_name: str
     audio: np.ndarray
     source: object
     read_position: int
@@ -4290,6 +4279,8 @@ class ActiveDreamMotifEvent:
 
 
 class DreamMotif3DEngine:
+    MIN_PLAYING_EXPOSURE = 0.02
+
     """Two-world scene conductor with nonblocking asset preparation.
 
     Two persistent motif worlds continuously occupy the scene. One is dominant,
@@ -4342,11 +4333,12 @@ class DreamMotif3DEngine:
         self._assign_slot(1, second, spec.far_distance)
         self.dominant_index = 0
 
-        self.scene = self.SCENE_ESTABLISH
+        self.scene = self.SCENE_REST
         self.scene_elapsed = 0.0
-        self.scene_duration = 75.0
+        self.scene_duration = 240.0
+        self.conductor_elapsed = 0.0
         self.creepy_window = 0.0
-        self.next_event_seconds = 45.0
+        self.next_event_seconds = 300.0
         self.pending_event_asset: DreamMotifAsset | None = None
         self.pending_event_rejected: set[Path] = set()
         self.recent_event_paths: list[Path] = []
@@ -4361,6 +4353,8 @@ class DreamMotif3DEngine:
         self.current_status = "catalogued; background assets pending"
         self.current_dominant_name = first.name if first else ""
         self.current_distant_name = second.name if second else ""
+        self.current_clock_mode = "SILENT WAIT"
+        self.current_effective_time_scale = 1.0
 
         self._manual_lock = threading.Lock()
         self.manual_enabled = False
@@ -4519,15 +4513,29 @@ class DreamMotif3DEngine:
         return self.manual_test_source.process_mono(audio[idx] * self._db_gain(gain_db))
 
     def _scene_duration(self, spec, scene):
+
+        # These are real sleep-time durations. Development testing is done by
+        # accelerating the conductor clock, not by making the composition dense.
         base = {
-            self.SCENE_ESTABLISH: 70, self.SCENE_DEVELOP: 150,
-            self.SCENE_FOCUS: 35, self.SCENE_REVEAL: 30,
-            self.SCENE_AFTERIMAGE: 55, self.SCENE_EXCHANGE: 100,
-            self.SCENE_REST: 100,
+            self.SCENE_ESTABLISH: 180.0,
+            self.SCENE_DEVELOP: 360.0,
+            self.SCENE_FOCUS: 100.0,
+            self.SCENE_REVEAL: 80.0,
+            self.SCENE_AFTERIMAGE: 180.0,
+            self.SCENE_EXCHANGE: 240.0,
+            self.SCENE_REST: 360.0,
         }[scene]
-        activity_scale = 1.45 - 0.75 * spec.activity
-        drama_scale = 1.15 - 0.35 * spec.drama
-        return float(base * activity_scale * drama_scale * self.rng.uniform(0.8, 1.25))
+        # Low Activity substantially lengthens scenes and especially rest.
+        activity_scale = 1.75 - 1.05 * spec.activity
+        if scene == self.SCENE_REST:
+            activity_scale *= 1.30 + 1.20 * (1.0 - spec.activity)
+        drama_scale = 1.20 - 0.35 * spec.drama
+        return float(
+            base
+            * activity_scale
+            * drama_scale
+            * self.rng.uniform(0.80, 1.25)
+        )
 
     def _next_scene(self, spec, quiet):
         if self.scene == self.SCENE_ESTABLISH: return self.SCENE_DEVELOP
@@ -4550,6 +4558,82 @@ class DreamMotif3DEngine:
             self.scene = self._next_scene(spec, quiet)
             self.scene_elapsed = 0.0
             self.scene_duration = self._scene_duration(spec, self.scene)
+
+    def _exposure_targets(self, spec, quiet):
+        """Return dominant/recessive audibility allowed by the current scene."""
+        # Presence means willingness to become clear, not continuous loudness.
+        window = quiet ** 1.35
+        presence = spec.presence * window
+        floor = 0.002
+
+        targets = {
+            self.SCENE_REST: (floor, floor),
+            self.SCENE_ESTABLISH: (
+                0.08 + 0.30 * presence,
+                floor + 0.018 * presence,
+            ),
+            self.SCENE_DEVELOP: (
+                0.14 + 0.42 * presence,
+                0.008 + 0.09 * presence,
+            ),
+            self.SCENE_FOCUS: (
+                0.06 + 0.18 * presence,
+                floor,
+            ),
+            self.SCENE_REVEAL: (
+                0.22 + 0.62 * presence,
+                0.006 + 0.05 * presence,
+            ),
+            self.SCENE_AFTERIMAGE: (
+                0.06 + 0.25 * presence,
+                0.012 + 0.08 * presence,
+            ),
+            self.SCENE_EXCHANGE: (0.0, 0.0),
+        }
+
+        dominant_target, recessive_target = targets[self.scene]
+        if self.scene == self.SCENE_EXCHANGE:
+            progress = self._smoothstep5(
+                self.scene_elapsed / max(self.scene_duration, 1e-9)
+            )
+            # The old world dissolves as the recessive world gradually enters.
+            dominant_target = (
+                (0.16 + 0.42 * presence) * (1.0 - progress)
+                + (0.012 + 0.08 * presence) * progress
+            )
+            recessive_target = (
+                (0.012 + 0.08 * presence) * (1.0 - progress)
+                + (0.16 + 0.42 * presence) * progress
+            )
+
+        # Busy brown noise closes the creepy window rather than forcing the
+        # conductor to compete with it.
+        busy_gate = 0.10 + 0.90 * window
+        return (
+            float(np.clip(dominant_target * busy_gate, 0.0, 1.0)),
+            float(np.clip(recessive_target * busy_gate, 0.0, 1.0)),
+        )
+
+    def _update_exposure(self, slot, target, conductor_dt, spec):
+        slot.target_exposure = float(np.clip(target, 0.0, 1.0))
+        duration = (
+            spec.fade_in_seconds
+            if slot.target_exposure > slot.exposure
+            else spec.fade_out_seconds
+        )
+        # Linear movement gives predictable true fade duration at 1x and the
+        # same composition compressed at higher development time scales.
+        maximum_step = conductor_dt / max(duration, 1e-9)
+        delta = float(
+            np.clip(
+                slot.target_exposure - slot.exposure,
+                -maximum_step,
+                maximum_step,
+            )
+        )
+        slot.exposure = float(
+            np.clip(slot.exposure + delta, 0.0, 1.0)
+        )
 
     def _role_distance(self, spec, dominant, quiet):
         # Quiet brown noise opens the window: dominant comes closer, recessive
@@ -4659,8 +4743,16 @@ class DreamMotif3DEngine:
         gesture=self._gesture(spec,quiet); start,control,end=self._gesture_points(gesture,spec,quiet)
         free.set_position_vector(self._vector3(start))
         self.events.append(ActiveDreamMotifEvent(
+            asset_name=prepared.path.name,
             audio=prepared.mono, source=free, read_position=0, elapsed_seconds=0.0,
-            travel_seconds=max(spec.event_travel_seconds*(0.7+0.9*(1-spec.activity)), len(prepared.mono)/self.sample_rate),
+            travel_seconds=max(
+                12.0,
+                min(
+                    len(prepared.mono) / self.sample_rate,
+                    spec.event_travel_seconds
+                    * (1.6 + 1.8 * (1.0 - spec.activity)),
+                ),
+            ),
             start=start, control=control, end=end,
             gain_linear=self._db_gain(spec.event_calibrated_gain_db),
         ))
@@ -4670,85 +4762,387 @@ class DreamMotif3DEngine:
         self.pending_event_asset=None; self.pending_event_rejected.clear(); return True
 
     def _new_event_interval(self, spec, quiet):
-        # Quiet windows invite events; high metabolism spaces them much farther.
-        base = 35.0 + (1.0-spec.activity)*115.0
-        busy_penalty = (1.0-quiet)*220.0
-        intimacy_bonus = quiet*spec.intimacy*25.0
-        return float(self.rng.uniform(.75,1.35)*max(12.0,base+busy_penalty-intimacy_bonus))
 
-    def _render_events(self, frame_count, dt):
-        stereo=np.zeros((frame_count,2),dtype=np.float32); keep=[]
-        for e in self.events:
-            start=e.read_position; end=min(len(e.audio),start+frame_count)
-            mono=np.zeros(frame_count,dtype=np.float32)
-            if end>start: mono[:end-start]=e.audio[start:end]
-            e.read_position=end; e.elapsed_seconds+=dt
-            t=float(np.clip(e.elapsed_seconds/max(e.travel_seconds,1e-9),0,1)); u=1-t
-            p=u*u*e.start+2*u*t*e.control+t*t*e.end
-            e.source.set_position_vector(self._vector3(p))
-            fade=min(1,e.elapsed_seconds/.8); remain=max(0,(len(e.audio)-e.read_position)/self.sample_rate); fade*=min(1,remain/.8)
-            stereo += e.source.process_mono(mono*e.gain_linear*fade)
-            if e.read_position<len(e.audio): keep.append(e)
-        self.events=keep; return stereo
+        # Real sleep-time spacing. At typical settings this is measured in
+        # minutes; Time Scale compresses it for iterative listening.
+        base = 180.0 + (1.0 - spec.activity) * 540.0
+        busy_penalty = (1.0 - quiet) * 600.0
+        presence_reduction = quiet * spec.presence * 90.0
+        return float(
+            self.rng.uniform(0.75, 1.35)
+            * max(120.0, base + busy_penalty - presence_reduction)
+        )
+
+    def _render_events(self, frame_count, real_dt, conductor_dt):
+        stereo = np.zeros((frame_count, 2), dtype=np.float32)
+        keep = []
+        for event in self.events:
+            start = event.read_position
+            end = min(len(event.audio), start + frame_count)
+            mono = np.zeros(frame_count, dtype=np.float32)
+            if end > start:
+                mono[:end - start] = event.audio[start:end]
+            event.read_position = end
+            event.elapsed_seconds += conductor_dt
+
+            progress = float(
+                np.clip(
+                    event.elapsed_seconds
+                    / max(event.travel_seconds, 1e-9),
+                    0.0,
+                    1.0,
+                )
+            )
+            inverse = 1.0 - progress
+            position = (
+                inverse * inverse * event.start
+                + 2.0 * inverse * progress * event.control
+                + progress * progress * event.end
+            )
+            event.source.set_position_vector(
+                self._vector3(position)
+            )
+
+            # The event spends real dramatic time entering and leaving. This
+            # is orchestration, not click protection.
+            edge_fraction = 0.24
+            ingress = self._smoothstep5(
+                progress / edge_fraction
+            )
+            egress = self._smoothstep5(
+                (1.0 - progress) / edge_fraction
+            )
+            envelope = min(ingress, egress)
+
+            stereo += event.source.process_mono(
+                mono * event.gain_linear * envelope
+            )
+            if (
+                event.read_position < len(event.audio)
+                and progress < 1.0
+            ):
+                keep.append(event)
+
+        self.events = keep
+        return stereo
 
     def close(self): self.asset_manager.close()
 
-    def generate(self, frame_count: int, enabled: bool,
-                 metabolism_activity: float = 0.0) -> np.ndarray:
-        spec=self.state.get(); dt=frame_count/self.sample_rate
-        if not spec.enabled or not enabled or not self.bag.motifs:
-            return np.zeros((frame_count,2),dtype=np.float32)
-        manual_enabled,manual_kind,manual_pos,manual_gain,manual_solo,manual_motif=self.manual_snapshot()
-        quiet=float(np.clip(1.0-metabolism_activity,0.0,1.0))
-        # Smooth attention-space estimate to prevent twitching at phase edges.
-        self.creepy_window += (quiet-self.creepy_window)*min(1.0,dt/18.0)
-        quiet=self.creepy_window
-        if not manual_enabled: self._advance_scene(dt,spec,quiet)
+    def generate(
+        self,
+        frame_count: int,
+        enabled: bool,
+        metabolism_activity: float = 0.0,
+    ) -> np.ndarray:
+        spec = self.state.get()
+        real_dt = frame_count / self.sample_rate
+        waiting_dt = real_dt * spec.orchestrator_time_scale
+        performance_dt = real_dt
 
-        stereo=np.zeros((frame_count,2),dtype=np.float32)
-        for i,slot in enumerate(self.slots):
-            self._ensure_slot_audio(slot, AudioAssetManager.PRIORITY_CRITICAL if i==self.dominant_index else AudioAssetManager.PRIORITY_HIGH)
-            role="dominant" if i==self.dominant_index else "distant"
-            selected=manual_enabled and manual_kind==role
-            if manual_enabled and manual_solo and not selected: continue
-            if manual_enabled and manual_kind=="layered event" and manual_solo: continue
-            if selected:
-                slot.source.set_position_vector(self._vector3(manual_pos)); gain=self._db_gain(manual_gain)
-            else:
-                distance=self._role_distance(spec,i==self.dominant_index,quiet)
-                self._update_wander(slot,dt,distance,spec,i==self.dominant_index,quiet)
-                gain=self._db_gain(spec.motif_calibrated_gain_db)
-            stereo += slot.source.process_mono(self._render_loop(slot,frame_count)*gain)
+        if not spec.enabled or not enabled or not self.bag.motifs:
+            return np.zeros((frame_count, 2), dtype=np.float32)
+
+        (
+            manual_enabled,
+            manual_kind,
+            manual_pos,
+            manual_gain,
+            manual_solo,
+            manual_motif,
+        ) = self.manual_snapshot()
+
+        quiet = float(
+            np.clip(1.0 - metabolism_activity, 0.0, 1.0)
+        )
+        # This smoothing remains in real listening time so an accelerated
+        # conductor cannot twitch in response to metabolism boundaries.
+        self.creepy_window += (
+            quiet - self.creepy_window
+        ) * min(1.0, real_dt / 18.0)
+        quiet = self.creepy_window
+
+        if not manual_enabled:
+            # Drive acceleration from actual dreamscape activity rather than
+            # from a scene label. Brown noise is intentionally excluded.
+            dreamscape_playing = bool(self.events) or any(
+                slot.exposure >= self.MIN_PLAYING_EXPOSURE
+                for slot in self.slots
+            )
+            conductor_dt = (
+                performance_dt
+                if dreamscape_playing
+                else waiting_dt
+            )
+            self.current_clock_mode = (
+                "ACTIVE AUDIO" if dreamscape_playing else "SILENT WAIT"
+            )
+            self.current_effective_time_scale = (
+                1.0 if dreamscape_playing else spec.orchestrator_time_scale
+            )
+            self.conductor_elapsed += conductor_dt
+            self._advance_scene(conductor_dt, spec, quiet)
 
         if manual_enabled:
-            if manual_kind=="layered event": stereo += self._render_manual_event(frame_count,manual_pos,manual_gain,manual_motif)
-        else:
-            # Focus clears the field. Reveal strongly favors one deliberate event.
-            event_allowed = self.scene in {self.SCENE_DEVELOP,self.SCENE_REVEAL,self.SCENE_AFTERIMAGE}
-            if self.next_event_seconds <= 20: self._prepare_event(self.slots[self.dominant_index],spec)
-            self.next_event_seconds -= dt
-            if event_allowed and self.next_event_seconds <= 0:
-                event_slot = (
-                    self.dominant_index
-                    if self.rng.random() < 0.55 + 0.40 * spec.coherence
-                    else 1 - self.dominant_index
-                )
-                if self._spawn_prepared_event(event_slot,spec,quiet):
-                    self.next_event_seconds=self._new_event_interval(spec,quiet)
-                else: self.next_event_seconds=1.0
-            stereo += self._render_events(frame_count,dt)
+            self.current_clock_mode = "MANUAL AUDIO"
+            self.current_effective_time_scale = 1.0
 
-        dom=self.slots[self.dominant_index]; rec=self.slots[1-self.dominant_index]
-        self.current_dominant_name=dom.motif.name if dom.motif else ""
-        self.current_distant_name=rec.motif.name if rec.motif else ""
-        cached,pending,failed,cache_bytes=self.asset_manager.status()
-        prefix=(f"manual {manual_kind} at ({manual_pos[0]:.2f}, {manual_pos[1]:.2f}, {manual_pos[2]:.2f}) m; " if manual_enabled else "")
-        self.current_status=(
-            f"{prefix}{self.scene}; creepy window {quiet:.2f}; dominant "
-            f"{self.current_dominant_name or 'none'} @ {dom.distance:.2f} m; recessive "
-            f"{self.current_distant_name or 'none'} @ {rec.distance:.2f} m; events {len(self.events)}; "
-            f"assets {cached} ready, {pending} loading, {failed} failed, "
-            f"{cache_bytes/(1024*1024):.0f} MB cached"
+        dominant_exposure, recessive_exposure = (
+            self._exposure_targets(spec, quiet)
+        )
+
+        stereo = np.zeros((frame_count, 2), dtype=np.float32)
+        for index, slot in enumerate(self.slots):
+            self._ensure_slot_audio(
+                slot,
+                AudioAssetManager.PRIORITY_CRITICAL
+                if index == self.dominant_index
+                else AudioAssetManager.PRIORITY_HIGH,
+            )
+            role = (
+                "dominant"
+                if index == self.dominant_index
+                else "distant"
+            )
+            selected = manual_enabled and manual_kind == role
+
+            if manual_enabled and manual_solo and not selected:
+                continue
+            if (
+                manual_enabled
+                and manual_kind == "layered event"
+                and manual_solo
+            ):
+                continue
+
+            if selected:
+                slot.source.set_position_vector(
+                    self._vector3(manual_pos)
+                )
+                gain = self._db_gain(manual_gain)
+            else:
+                target_exposure = (
+                    dominant_exposure
+                    if index == self.dominant_index
+                    else recessive_exposure
+                )
+                self._update_exposure(
+                    slot,
+                    target_exposure,
+                    performance_dt,
+                    spec,
+                )
+                distance = self._role_distance(
+                    spec,
+                    index == self.dominant_index,
+                    quiet,
+                )
+                self._update_wander(
+                    slot,
+                    performance_dt,
+                    distance,
+                    spec,
+                    index == self.dominant_index,
+                    quiet,
+                )
+                gain = (
+                    self._db_gain(
+                        spec.motif_calibrated_gain_db
+                    )
+                    * slot.exposure
+                )
+
+            stereo += slot.source.process_mono(
+                self._render_loop(slot, frame_count) * gain
+            )
+
+        if manual_enabled:
+            if manual_kind == "layered event":
+                stereo += self._render_manual_event(
+                    frame_count,
+                    manual_pos,
+                    manual_gain,
+                    manual_motif,
+                )
+        else:
+            # Only one featured event at a time. Quiet windows and scene
+            # structure determine whether a scheduled event may enter.
+            event_allowed = (
+                not self.events
+                and quiet >= 0.48
+                and self.scene in {
+                    self.SCENE_DEVELOP,
+                    self.SCENE_REVEAL,
+                    self.SCENE_AFTERIMAGE,
+                }
+            )
+
+            if (
+                event_allowed
+                and self.next_event_seconds <= 30.0
+            ):
+                self._prepare_event(
+                    self.slots[self.dominant_index],
+                    spec,
+                )
+
+            # Apply the same silence rule to the event countdown. Once
+            # either long motif begins an exposure, countdown timing returns
+            # to real time even before a one-shot starts.
+            countdown_dt = (
+                performance_dt
+                if (
+                    self.events
+                    or any(
+                        slot.exposure >= self.MIN_PLAYING_EXPOSURE
+                        for slot in self.slots
+                    )
+                )
+                else waiting_dt
+            )
+            if not self.events:
+                self.next_event_seconds -= countdown_dt
+            if event_allowed and self.next_event_seconds <= 0.0:
+                # Presence governs whether this eligible opening actually
+                # becomes a foreground gesture.
+                reveal_probability = (
+                    0.12
+                    + 0.68 * spec.presence
+                    * quiet
+                )
+                if self.rng.random() <= reveal_probability:
+                    event_slot = (
+                        self.dominant_index
+                        if self.rng.random()
+                        < 0.55 + 0.40 * spec.coherence
+                        else 1 - self.dominant_index
+                    )
+                    if self._spawn_prepared_event(
+                        event_slot,
+                        spec,
+                        quiet,
+                    ):
+                        self.next_event_seconds = (
+                            self._new_event_interval(spec, quiet)
+                        )
+                    else:
+                        self.next_event_seconds = 5.0
+                else:
+                    # A missed opportunity becomes another meaningful gap.
+                    self.next_event_seconds = (
+                        self._new_event_interval(spec, quiet)
+                    )
+
+            stereo += self._render_events(
+                frame_count,
+                real_dt,
+                performance_dt,
+            )
+
+        dominant = self.slots[self.dominant_index]
+        recessive = self.slots[1 - self.dominant_index]
+        self.current_dominant_name = (
+            dominant.motif.name if dominant.motif else ""
+        )
+        self.current_distant_name = (
+            recessive.motif.name if recessive.motif else ""
+        )
+        cached, pending, failed, cache_bytes = (
+            self.asset_manager.status()
+        )
+        prefix = (
+            f"manual {manual_kind} at "
+            f"({manual_pos[0]:.2f}, {manual_pos[1]:.2f}, "
+            f"{manual_pos[2]:.2f}) m; "
+            if manual_enabled
+            else ""
+        )
+        scene_remaining = max(
+            0.0,
+            self.scene_duration - self.scene_elapsed,
+        )
+        dominant_phase = (
+            "fading in"
+            if (
+                dominant.target_exposure > dominant.exposure + 1.0e-4
+                and dominant.exposure >= self.MIN_PLAYING_EXPOSURE
+            )
+            else "fading out"
+            if (
+                dominant.target_exposure < dominant.exposure - 1.0e-4
+                and dominant.exposure >= self.MIN_PLAYING_EXPOSURE
+            )
+            else "playing"
+            if dominant.exposure >= self.MIN_PLAYING_EXPOSURE
+            else "sub-threshold"
+            if dominant.exposure > 0.0
+            else "silent"
+        )
+        recessive_phase = (
+            "fading in"
+            if (
+                recessive.target_exposure > recessive.exposure + 1.0e-4
+                and recessive.exposure >= self.MIN_PLAYING_EXPOSURE
+            )
+            else "fading out"
+            if (
+                recessive.target_exposure < recessive.exposure - 1.0e-4
+                and recessive.exposure >= self.MIN_PLAYING_EXPOSURE
+            )
+            else "playing"
+            if recessive.exposure >= self.MIN_PLAYING_EXPOSURE
+            else "sub-threshold"
+            if recessive.exposure > 0.0
+            else "silent"
+        )
+
+        active_event_lines = []
+        for event in self.events:
+            sample_progress = (
+                event.read_position / max(len(event.audio), 1)
+            )
+            gesture_progress = (
+                event.elapsed_seconds
+                / max(event.travel_seconds, 1.0e-9)
+            )
+            active_event_lines.append(
+                f"{event.asset_name}: sample "
+                f"{100.0 * sample_progress:.0f}%, gesture "
+                f"{100.0 * min(gesture_progress, 1.0):.0f}%"
+            )
+        active_events_text = (
+            "; ".join(active_event_lines)
+            if active_event_lines
+            else "none"
+        )
+        pending_event_text = (
+            self.pending_event_asset.path.name
+            if self.pending_event_asset is not None
+            else "none"
+        )
+
+        self.current_status = (
+            f"CLOCK: {self.current_clock_mode} "
+            f"×{self.current_effective_time_scale:.1f} "
+            f"(slider ×{spec.orchestrator_time_scale:.1f}; "
+            f"playing threshold {self.MIN_PLAYING_EXPOSURE:.3f})\n"
+            f"STATE: {prefix}{self.scene}; "
+            f"scene remaining {scene_remaining:.1f} s; "
+            f"conductor {self.conductor_elapsed / 60.0:.2f} min; "
+            f"creepy window {quiet:.2f}\n"
+            f"DOMINANT: {self.current_dominant_name or 'none'}; "
+            f"{dominant_phase}; exposure "
+            f"{dominant.exposure:.3f} → {dominant.target_exposure:.3f}; "
+            f"distance {dominant.distance:.2f} m\n"
+            f"RECESSIVE: {self.current_distant_name or 'none'}; "
+            f"{recessive_phase}; exposure "
+            f"{recessive.exposure:.3f} → {recessive.target_exposure:.3f}; "
+            f"distance {recessive.distance:.2f} m\n"
+            f"EVENT WAIT: {max(0.0, self.next_event_seconds):.1f} s; "
+            f"prepared {pending_event_text}\n"
+            f"ACTIVE EVENTS: {active_events_text}\n"
+            f"ASSETS: {cached} ready, {pending} loading, "
+            f"{failed} failed, "
+            f"{cache_bytes / (1024 * 1024):.0f} MB cached"
         )
         return stereo
 
@@ -5621,7 +6015,7 @@ class ExportWorker(QThread):
             )
 
             seed_base = int(time.time_ns() & 0x7FFFFFFF)
-            mixer, _, _, _, _, _, _, _, _, _ = build_mixer(
+            mixer, _, _, _, _, _, _, _, _ = build_mixer(
                 sample_rate=self.sample_rate,
                 modes=self.modes,
                 noise_spec=self.noise_spec,
@@ -5928,38 +6322,91 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.motif_expand_button)
 
         self.motif_panel = QWidget()
-        motif_form = QFormLayout(self.motif_panel)
-        motif_form.setContentsMargins(24, 4, 0, 8)
+        motif_layout = QVBoxLayout(self.motif_panel)
+        motif_layout.setContentsMargins(24, 4, 0, 8)
+        motif_layout.setSpacing(4)
+
+        def make_motif_subgroup(
+            title: str,
+            setting_key: str,
+            default_expanded: bool,
+        ):
+            button = QToolButton()
+            button.setText(title)
+            button.setCheckable(True)
+            button.setChecked(
+                bool(
+                    self.loaded_settings.get(
+                        setting_key,
+                        default_expanded,
+                    )
+                )
+            )
+            button.setToolButtonStyle(
+                Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+            )
+            button.setArrowType(
+                Qt.ArrowType.DownArrow
+                if button.isChecked()
+                else Qt.ArrowType.RightArrow
+            )
+            panel = QWidget()
+            form = QFormLayout(panel)
+            form.setContentsMargins(24, 4, 0, 8)
+            panel.setVisible(button.isChecked())
+            motif_layout.addWidget(button)
+            motif_layout.addWidget(panel)
+            return button, panel, form
+
+        (
+            self.motif_catalogue_button,
+            self.motif_catalogue_panel,
+            motif_catalogue_form,
+        ) = make_motif_subgroup(
+            "Catalogue and live status",
+            "motif_catalogue_group_expanded",
+            True,
+        )
 
         self.motif_directory_label = QLabel(
             str(SOUND_EFFECTS_DIRECTORY)
         )
         self.motif_directory_label.setWordWrap(True)
-        motif_form.addRow("Motif root:", self.motif_directory_label)
+        motif_catalogue_form.addRow("Motif root:", self.motif_directory_label)
 
         self.motif_combo = QComboBox()
-        motif_form.addRow("Detected motif:", self.motif_combo)
+        motif_catalogue_form.addRow("Detected motif:", self.motif_combo)
 
         self.motif_reload_button = QPushButton(
             "Rescan dream motifs"
         )
-        motif_form.addRow("", self.motif_reload_button)
+        motif_catalogue_form.addRow("", self.motif_reload_button)
 
         self.motif_summary_label = QLabel(
             "Dream motifs have not been scanned yet."
         )
         self.motif_summary_label.setWordWrap(True)
-        motif_form.addRow("Catalogue status:", self.motif_summary_label)
+        motif_catalogue_form.addRow("Catalogue status:", self.motif_summary_label)
 
         self.motif_detail_label = QLabel("")
         self.motif_detail_label.setWordWrap(True)
-        motif_form.addRow("Selected motif:", self.motif_detail_label)
+        motif_catalogue_form.addRow("Selected motif:", self.motif_detail_label)
 
         self.motif_playing_label = QLabel("No motif audio active")
         self.motif_playing_label.setWordWrap(True)
-        motif_form.addRow("Motif playback:", self.motif_playing_label)
+        motif_catalogue_form.addRow("Motif playback:", self.motif_playing_label)
 
         motif_spatial_spec = self.mixer.dream_motif_spatial_state.get()
+
+        (
+            self.motif_conductor_button,
+            self.motif_conductor_panel,
+            motif_conductor_form,
+        ) = make_motif_subgroup(
+            "Automatic conductor",
+            "motif_conductor_group_expanded",
+            True,
+        )
 
         self.motif_3d_enabled_checkbox = QCheckBox(
             "Enable two-world 3D dream-motif engine"
@@ -5967,19 +6414,107 @@ class MainWindow(QMainWindow):
         self.motif_3d_enabled_checkbox.setChecked(
             motif_spatial_spec.enabled
         )
-        motif_form.addRow("", self.motif_3d_enabled_checkbox)
+        motif_conductor_form.addRow("", self.motif_3d_enabled_checkbox)
+
+        self.motif_spatial_setup_button = QToolButton()
+        self.motif_spatial_setup_button.setText(
+            "Spatial setup and transitions"
+        )
+        self.motif_spatial_setup_button.setCheckable(True)
+        self.motif_spatial_setup_button.setChecked(
+            bool(
+                self.loaded_settings.get(
+                    "motif_spatial_setup_group_expanded",
+                    True,
+                )
+            )
+        )
+        self.motif_spatial_setup_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.motif_spatial_setup_button.setArrowType(
+            Qt.ArrowType.DownArrow
+            if self.motif_spatial_setup_button.isChecked()
+            else Qt.ArrowType.RightArrow
+        )
+        motif_conductor_form.addRow(
+            "",
+            self.motif_spatial_setup_button,
+        )
+
+        self.motif_spatial_setup_panel = QWidget()
+        motif_spatial_setup_form = QFormLayout(
+            self.motif_spatial_setup_panel
+        )
+        motif_spatial_setup_form.setContentsMargins(24, 4, 0, 8)
+        self.motif_spatial_setup_panel.setVisible(
+            self.motif_spatial_setup_button.isChecked()
+        )
+        motif_conductor_form.addRow(
+            "",
+            self.motif_spatial_setup_panel,
+        )
+
+        self.motif_guidance_button = QToolButton()
+        self.motif_guidance_button.setText(
+            "Orchestrator guidance"
+        )
+        self.motif_guidance_button.setCheckable(True)
+        self.motif_guidance_button.setChecked(
+            bool(
+                self.loaded_settings.get(
+                    "motif_guidance_group_expanded",
+                    True,
+                )
+            )
+        )
+        self.motif_guidance_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.motif_guidance_button.setArrowType(
+            Qt.ArrowType.DownArrow
+            if self.motif_guidance_button.isChecked()
+            else Qt.ArrowType.RightArrow
+        )
+        motif_conductor_form.addRow(
+            "",
+            self.motif_guidance_button,
+        )
+
+        self.motif_guidance_panel = QWidget()
+        motif_guidance_form = QFormLayout(
+            self.motif_guidance_panel
+        )
+        motif_guidance_form.setContentsMargins(24, 4, 0, 8)
+        self.motif_guidance_panel.setVisible(
+            self.motif_guidance_button.isChecked()
+        )
+        motif_conductor_form.addRow(
+            "",
+            self.motif_guidance_panel,
+        )
+
+        (
+            self.motif_manual_button,
+            self.motif_manual_panel,
+            motif_manual_form,
+        ) = make_motif_subgroup(
+            "Manual spatial laboratory",
+            "motif_manual_group_expanded",
+            False,
+        )
 
         self.motif_manual_checkbox = QCheckBox(
             "Manual spatial tuning — pause automatic motif movement"
         )
         self.motif_manual_checkbox.setChecked(False)
-        motif_form.addRow("", self.motif_manual_checkbox)
+        motif_manual_form.addRow("", self.motif_manual_checkbox)
 
         self.motif_manual_source_combo = QComboBox()
         self.motif_manual_source_combo.addItems(
             ["dominant", "distant", "layered event"]
         )
-        motif_form.addRow(
+        motif_manual_form.addRow(
             "Manual source:",
             self.motif_manual_source_combo,
         )
@@ -5988,7 +6523,7 @@ class MainWindow(QMainWindow):
             "Solo selected manual source"
         )
         self.motif_manual_solo_checkbox.setChecked(True)
-        motif_form.addRow("", self.motif_manual_solo_checkbox)
+        motif_manual_form.addRow("", self.motif_manual_solo_checkbox)
 
         self.motif_manual_x_control = FloatControl(
             minimum=-10.0,
@@ -6001,7 +6536,7 @@ class MainWindow(QMainWindow):
                 self._update_manual_motif_spatial(x=value)
             ),
         )
-        motif_form.addRow(
+        motif_manual_form.addRow(
             "Left (-) / right (+):",
             self.motif_manual_x_control,
         )
@@ -6017,7 +6552,7 @@ class MainWindow(QMainWindow):
                 self._update_manual_motif_spatial(y=value)
             ),
         )
-        motif_form.addRow(
+        motif_manual_form.addRow(
             "Down (-) / up (+):",
             self.motif_manual_y_control,
         )
@@ -6033,7 +6568,7 @@ class MainWindow(QMainWindow):
                 self._update_manual_motif_spatial(z=value)
             ),
         )
-        motif_form.addRow(
+        motif_manual_form.addRow(
             "Front (-) / behind (+):",
             self.motif_manual_z_control,
         )
@@ -6051,19 +6586,20 @@ class MainWindow(QMainWindow):
                 )
             ),
         )
-        motif_form.addRow(
+        motif_manual_form.addRow(
             "Manual source gain:",
             self.motif_manual_gain_control,
         )
 
         self.motif_manual_position_label = QLabel("")
         self.motif_manual_position_label.setWordWrap(True)
-        motif_form.addRow(
+        motif_manual_form.addRow(
             "Resolved position:",
             self.motif_manual_position_label,
         )
 
         def add_motif_spatial_control(
+            form,
             label,
             field_name,
             minimum,
@@ -6085,10 +6621,11 @@ class MainWindow(QMainWindow):
                     )
                 ),
             )
-            motif_form.addRow(label, control)
+            form.addRow(label, control)
             return control
 
         self.motif_far_distance_control = add_motif_spatial_control(
+            motif_spatial_setup_form,
             "Far distance:",
             "far_distance",
             1.0,
@@ -6098,6 +6635,7 @@ class MainWindow(QMainWindow):
             " m",
         )
         self.motif_near_distance_control = add_motif_spatial_control(
+            motif_spatial_setup_form,
             "Near distance:",
             "near_distance",
             0.15,
@@ -6107,6 +6645,7 @@ class MainWindow(QMainWindow):
             " m",
         )
         self.motif_fade_in_control = add_motif_spatial_control(
+            motif_spatial_setup_form,
             "Move/fade in:",
             "fade_in_seconds",
             1.0,
@@ -6116,6 +6655,7 @@ class MainWindow(QMainWindow):
             " s",
         )
         self.motif_fade_out_control = add_motif_spatial_control(
+            motif_spatial_setup_form,
             "Move/fade out:",
             "fade_out_seconds",
             1.0,
@@ -6124,51 +6664,63 @@ class MainWindow(QMainWindow):
             0,
             " s",
         )
-        self.motif_dominant_min_control = add_motif_spatial_control(
-            "Dominant minimum:",
-            "dominant_min_seconds",
-            5.0,
-            3600.0,
-            5.0,
-            0,
-            " s",
-        )
-        self.motif_dominant_max_control = add_motif_spatial_control(
-            "Dominant maximum:",
-            "dominant_max_seconds",
-            5.0,
-            7200.0,
-            5.0,
-            0,
-            " s",
-        )
-        motif_form.addRow(QLabel("Conductor guidance"))
 
+
+        self.motif_time_scale_control = add_motif_spatial_control(
+            motif_guidance_form,
+            "Silent-period speed:",
+            "orchestrator_time_scale",
+            1.0,
+            20.0,
+            0.5,
+            1,
+            "x",
+        )
         self.motif_activity_control = add_motif_spatial_control(
+            motif_guidance_form,
             "Activity:", "activity", 0.0, 1.0, 0.01, 2
         )
         self.motif_presence_control = add_motif_spatial_control(
+            motif_guidance_form,
             "Presence:", "presence", 0.0, 1.0, 0.01, 2
         )
         self.motif_motion_control = add_motif_spatial_control(
+            motif_guidance_form,
             "Motion:", "motion", 0.0, 1.0, 0.01, 2
         )
         self.motif_intimacy_control = add_motif_spatial_control(
-            "Intimacy / ASMR:", "intimacy", 0.0, 1.0, 0.01, 2
+            motif_guidance_form,
+            "Intimacy / ASMR:",
+            "intimacy",
+            0.0,
+            1.0,
+            0.01,
+            2,
         )
         self.motif_drama_control = add_motif_spatial_control(
+            motif_guidance_form,
             "Drama:", "drama", 0.0, 1.0, 0.01, 2
         )
         self.motif_coherence_control = add_motif_spatial_control(
+            motif_guidance_form,
             "Coherence:", "coherence", 0.0, 1.0, 0.01, 2
         )
         self.motif_novelty_control = add_motif_spatial_control(
-            "Novelty / anti-repeat:", "novelty", 0.0, 1.0, 0.01, 2
+            motif_guidance_form,
+            "Novelty / anti-repeat:",
+            "novelty",
+            0.0,
+            1.0,
+            0.01,
+            2,
         )
 
         self.motif_3d_status_label = QLabel("")
         self.motif_3d_status_label.setWordWrap(True)
-        motif_form.addRow("3D motif state:", self.motif_3d_status_label)
+        motif_guidance_form.addRow(
+            "Conductor state:",
+            self.motif_3d_status_label,
+        )
 
         controls_layout.addWidget(self.motif_panel)
 
@@ -7684,6 +8236,41 @@ class MainWindow(QMainWindow):
         self.motif_expand_button.toggled.connect(
             self._toggle_motif_panel
         )
+        self.motif_catalogue_button.toggled.connect(
+            lambda expanded: self._toggle_motif_subgroup(
+                self.motif_catalogue_button,
+                self.motif_catalogue_panel,
+                expanded,
+            )
+        )
+        self.motif_conductor_button.toggled.connect(
+            lambda expanded: self._toggle_motif_subgroup(
+                self.motif_conductor_button,
+                self.motif_conductor_panel,
+                expanded,
+            )
+        )
+        self.motif_spatial_setup_button.toggled.connect(
+            lambda expanded: self._toggle_motif_subgroup(
+                self.motif_spatial_setup_button,
+                self.motif_spatial_setup_panel,
+                expanded,
+            )
+        )
+        self.motif_guidance_button.toggled.connect(
+            lambda expanded: self._toggle_motif_subgroup(
+                self.motif_guidance_button,
+                self.motif_guidance_panel,
+                expanded,
+            )
+        )
+        self.motif_manual_button.toggled.connect(
+            lambda expanded: self._toggle_motif_subgroup(
+                self.motif_manual_button,
+                self.motif_manual_panel,
+                expanded,
+            )
+        )
         self.motif_reload_button.clicked.connect(
             self._reload_dream_motifs
         )
@@ -7789,6 +8376,31 @@ class MainWindow(QMainWindow):
 
         self._toggle_motif_panel(
             self.motif_expand_button.isChecked()
+        )
+        self._toggle_motif_subgroup(
+            self.motif_catalogue_button,
+            self.motif_catalogue_panel,
+            self.motif_catalogue_button.isChecked(),
+        )
+        self._toggle_motif_subgroup(
+            self.motif_conductor_button,
+            self.motif_conductor_panel,
+            self.motif_conductor_button.isChecked(),
+        )
+        self._toggle_motif_subgroup(
+            self.motif_spatial_setup_button,
+            self.motif_spatial_setup_panel,
+            self.motif_spatial_setup_button.isChecked(),
+        )
+        self._toggle_motif_subgroup(
+            self.motif_guidance_button,
+            self.motif_guidance_panel,
+            self.motif_guidance_button.isChecked(),
+        )
+        self._toggle_motif_subgroup(
+            self.motif_manual_button,
+            self.motif_manual_panel,
+            self.motif_manual_button.isChecked(),
         )
         self._reload_dream_motifs()
         self._toggle_noise_panel(
@@ -7936,6 +8548,20 @@ class MainWindow(QMainWindow):
             if expanded
             else Qt.ArrowType.RightArrow
         )
+
+    def _toggle_motif_subgroup(
+        self,
+        button: QToolButton,
+        panel: QWidget,
+        expanded: bool,
+    ) -> None:
+        panel.setVisible(expanded)
+        button.setArrowType(
+            Qt.ArrowType.DownArrow
+            if expanded
+            else Qt.ArrowType.RightArrow
+        )
+        self._schedule_settings_save()
 
     def _reload_dream_motifs(self) -> None:
         self.motif_summary_label.setText(
@@ -8586,6 +9212,21 @@ class MainWindow(QMainWindow):
             "dream_motifs_checkbox_checked": (
                 self.dream_motif_checkbox.isChecked()
             ),
+            "motif_catalogue_group_expanded": (
+                self.motif_catalogue_button.isChecked()
+            ),
+            "motif_conductor_group_expanded": (
+                self.motif_conductor_button.isChecked()
+            ),
+            "motif_spatial_setup_group_expanded": (
+                self.motif_spatial_setup_button.isChecked()
+            ),
+            "motif_guidance_group_expanded": (
+                self.motif_guidance_button.isChecked()
+            ),
+            "motif_manual_group_expanded": (
+                self.motif_manual_button.isChecked()
+            ),
             "brown_noise": asdict(noise_spec),
             "brown_noise_evolution": asdict(noise_evolution_spec),
             "body_movement": asdict(body_movement_spec),
@@ -8853,13 +9494,7 @@ class MainWindow(QMainWindow):
             f"(requested "
             f"{self.mixer.current_heartbeat_requested_level_db:+.1f} dB); "
             f"{self.mixer.current_heartbeat_prominence_state}"
-
-                f"{loaded_name}; "
-                f"evolved volume "
-                f"source normalization "
-                f"{normalization_db:+.1f} dB "
-                f"to {normalized_db:.1f} dBFS typical"
-            )
+        )
         evolution = self.noise_evolution_state.get()
         if evolution.enabled:
             self.noise_evolution_status.setText(
