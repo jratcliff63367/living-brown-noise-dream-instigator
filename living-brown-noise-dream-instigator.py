@@ -40,13 +40,12 @@ from PySide6.QtWidgets import (
 )
 
 
-# Requires phonon.dll and steam_audio_renderer.py beside this script.
-#
-# Edit this path to point at the folder containing the WAV files you want
-# available in the Soundscape Sample Test dropdown.
-SOUND_EFFECTS_DIRECTORY = Path(
-    r"D:\github\living-brown-noise-dream-instigator\sounds"
-)
+# Runtime assets are resolved relative to this script so the complete folder
+# can be moved without editing hard-coded paths. phonon.dll,
+# steam_audio_renderer.py, and the sounds directory belong beside the script.
+SCRIPT_DIRECTORY = Path(__file__).resolve().parent
+SOUND_EFFECTS_DIRECTORY = SCRIPT_DIRECTORY / "sounds"
+EXPORT_DIRECTORY = SCRIPT_DIRECTORY / "exports"
 
 LOG_DIRECTORY = Path.home() / ".living_brown_noise"
 STARTUP_LOG_PATH = LOG_DIRECTORY / "startup.log"
@@ -4066,6 +4065,21 @@ class DreamMotifSpatialSpec:
     event_gain_db: float = -16.0
     event_travel_seconds: float = 14.0
 
+    # High-level conductor guidance, 0..1. These shape scene timing, spatial
+    # ambition, creepy-window use, intimacy, and repetition pressure.
+    activity: float = 0.45
+    presence: float = 0.55
+    motion: float = 0.55
+    intimacy: float = 0.35
+    drama: float = 0.55
+    coherence: float = 0.70
+    novelty: float = 0.80
+
+    # Stable calibrated levels. Automatic choreography never animates gain;
+    # apparent prominence is controlled by source position and attenuation.
+    motif_calibrated_gain_db: float = -22.0
+    event_calibrated_gain_db: float = -16.0
+
     def validated(self) -> "DreamMotifSpatialSpec":
         if not 1.0 <= self.far_distance <= 100.0:
             raise ValueError("invalid motif far distance")
@@ -4105,6 +4119,16 @@ class DreamMotifSpatialSpec:
             raise ValueError("invalid motif event gain")
         if not 1.0 <= self.event_travel_seconds <= 300.0:
             raise ValueError("invalid motif event travel time")
+        for field_name in (
+            "activity", "presence", "motion", "intimacy",
+            "drama", "coherence", "novelty",
+        ):
+            if not 0.0 <= getattr(self, field_name) <= 1.0:
+                raise ValueError(f"invalid conductor {field_name}")
+        if not -80.0 <= self.motif_calibrated_gain_db <= 6.0:
+            raise ValueError("invalid calibrated motif gain")
+        if not -80.0 <= self.event_calibrated_gain_db <= 12.0:
+            raise ValueError("invalid calibrated event gain")
 
         return self
 
@@ -4238,6 +4262,17 @@ class DreamMotifSlot:
     pending_asset: DreamMotifAsset | None = None
     rejected_paths: set[Path] = field(default_factory=set)
     read_position: int = 0
+    position: np.ndarray = field(
+        default_factory=lambda: np.array([0.0, 0.0, -12.0], dtype=np.float64)
+    )
+    move_start: np.ndarray = field(
+        default_factory=lambda: np.array([0.0, 0.0, -12.0], dtype=np.float64)
+    )
+    move_target: np.ndarray = field(
+        default_factory=lambda: np.array([0.0, 0.0, -12.0], dtype=np.float64)
+    )
+    move_elapsed: float = 0.0
+    move_duration: float = 30.0
 
 
 @dataclass(slots=True)
@@ -4255,27 +4290,27 @@ class ActiveDreamMotifEvent:
 
 
 class DreamMotif3DEngine:
+    """Two-world scene conductor with nonblocking asset preparation.
+
+    Two persistent motif worlds continuously occupy the scene. One is dominant,
+    one recessive. A scene conductor stages establishment, development, focus,
+    reveal, afterimage, and exchange. Quiet metabolism opens a "creepy window"
+    in which motifs may approach and one-shot ASMR gestures become more likely.
+    All automatic source gains remain fixed; distance attenuation provides the
+    audible rise and fall.
     """
-    Two-world motif engine with nonblocking, look-ahead asset preparation.
 
-    Construction performs only a fast manifest-backed catalogue scan. Audio is
-    decoded one file at a time by AudioAssetManager. Phase transitions wait for
-    the next ambient asset to be ready; event triggers delay harmlessly rather
-    than ever blocking the real-time callback.
-    """
+    SCENE_ESTABLISH = "establish"
+    SCENE_DEVELOP = "develop"
+    SCENE_FOCUS = "focus"
+    SCENE_REVEAL = "reveal"
+    SCENE_AFTERIMAGE = "afterimage"
+    SCENE_EXCHANGE = "exchange"
+    SCENE_REST = "rest"
 
-    PHASE_INITIAL_APPROACH = 'initial approach'
-    PHASE_DOMINANT = 'dominant'
-    PHASE_CROSSFADE = 'crossfade'
-
-    def __init__(
-        self,
-        sample_rate: int,
-        renderer: SteamAudioRenderer,
-        root_directory: Path,
-        state: DreamMotifSpatialState,
-        seed: int = 7712301,
-    ) -> None:
+    def __init__(self, sample_rate: int, renderer: SteamAudioRenderer,
+                 root_directory: Path, state: DreamMotifSpatialState,
+                 seed: int = 7712301) -> None:
         self.sample_rate = int(sample_rate)
         self.renderer = renderer
         self.root_directory = root_directory
@@ -4287,64 +4322,50 @@ class DreamMotif3DEngine:
             root_directory=root_directory,
             layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
         )
-        motifs = tuple(
-            motif for motif in self.catalog.scan()
-            if motif.total_assets > 0
-        )
+        motifs = tuple(m for m in self.catalog.scan() if m.total_assets > 0)
         log_stage(
-            f'Dream motif filename scan complete; motifs={len(motifs)}; '
-            f'elapsed={time.perf_counter() - scan_started:.3f}s'
+            f"Dream motif filename scan complete; motifs={len(motifs)}; "
+            f"elapsed={time.perf_counter() - scan_started:.3f}s"
         )
-
         self.asset_manager = AudioAssetManager(
             root_directory=root_directory,
             sample_rate=self.sample_rate,
             layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
         )
         self.bag = DreamMotifShuffleBag(motifs, self.rng)
-
         spec = self.state.get()
-        self.slots = [
-            self._make_slot(spec.far_distance),
-            self._make_slot(spec.far_distance),
-        ]
+        self.slots = [self._make_slot(spec.far_distance),
+                      self._make_slot(spec.far_distance)]
         first = self.bag.next()
         second = self.bag.next({first.name} if first else set())
         self._assign_slot(0, first, spec.far_distance)
         self._assign_slot(1, second, spec.far_distance)
-
         self.dominant_index = 0
-        self.phase = self.PHASE_INITIAL_APPROACH
-        self.phase_elapsed = 0.0
-        self.phase_duration = max(1.0, spec.fade_in_seconds)
 
-        self.next_event_seconds = self._new_event_interval(spec)
+        self.scene = self.SCENE_ESTABLISH
+        self.scene_elapsed = 0.0
+        self.scene_duration = 75.0
+        self.creepy_window = 0.0
+        self.next_event_seconds = 45.0
         self.pending_event_asset: DreamMotifAsset | None = None
         self.pending_event_rejected: set[Path] = set()
-        self.event_sources = [
-            renderer.create_source(
-                position=STEAM_DEFAULT_SOURCE_POSITION,
-                spatial_blend=1.0,
-                distance_attenuation_enabled=True,
-            )
-            for _ in range(6)
-        ]
+        self.recent_event_paths: list[Path] = []
+        self.recent_gestures: list[str] = []
+        self.event_sources = [renderer.create_source(
+            position=STEAM_DEFAULT_SOURCE_POSITION,
+            spatial_blend=1.0,
+            distance_attenuation_enabled=True,
+        ) for _ in range(6)]
         self.events: list[ActiveDreamMotifEvent] = []
 
-        self.current_status = 'catalogued; background assets pending'
-        self.current_dominant_name = first.name if first else ''
-        self.current_distant_name = second.name if second else ''
+        self.current_status = "catalogued; background assets pending"
+        self.current_dominant_name = first.name if first else ""
+        self.current_distant_name = second.name if second else ""
 
-        # Manual spatial laboratory. GUI writes are protected by a short lock;
-        # the audio callback only copies scalar/reference values and never waits
-        # for decoding or disk I/O.
         self._manual_lock = threading.Lock()
         self.manual_enabled = False
         self.manual_source_kind = "dominant"
-        self.manual_position = np.array(
-            [0.0, 0.0, -2.0],
-            dtype=np.float64,
-        )
+        self.manual_position = np.array([0.0, 0.0, -2.0], dtype=np.float64)
         self.manual_gain_db = -18.0
         self.manual_solo = False
         self.manual_test_motif_name = first.name if first else ""
@@ -4358,602 +4379,376 @@ class DreamMotif3DEngine:
             distance_attenuation_enabled=True,
         )
 
-    def set_manual_spatial(
-        self,
-        *,
-        enabled: bool | None = None,
-        source_kind: str | None = None,
-        x: float | None = None,
-        y: float | None = None,
-        z: float | None = None,
-        gain_db: float | None = None,
-        solo: bool | None = None,
-        motif_name: str | None = None,
-    ) -> None:
-        with self._manual_lock:
-            if enabled is not None:
-                self.manual_enabled = bool(enabled)
-            if source_kind is not None:
-                allowed = {"dominant", "distant", "layered event"}
-                if source_kind not in allowed:
-                    raise ValueError(
-                        f"Unknown manual source kind: {source_kind}"
-                    )
-                self.manual_source_kind = source_kind
-            if any(value is not None for value in (x, y, z)):
-                position = self.manual_position.copy()
-                if x is not None:
-                    position[0] = float(x)
-                if y is not None:
-                    position[1] = float(y)
-                if z is not None:
-                    position[2] = float(z)
-                self.manual_position = position
-            if gain_db is not None:
-                self.manual_gain_db = float(
-                    np.clip(gain_db, -80.0, 12.0)
-                )
-            if solo is not None:
-                self.manual_solo = bool(solo)
-            if motif_name is not None:
-                motif_name = str(motif_name).strip()
-                if motif_name != self.manual_test_motif_name:
-                    self.manual_test_motif_name = motif_name
-                    self.manual_test_asset = None
-                    self.manual_test_audio = None
-                    self.manual_test_read_position = 0
-                    self.manual_test_rejected.clear()
-
-    def manual_snapshot(
-        self,
-    ) -> tuple[bool, str, np.ndarray, float, bool, str]:
-        with self._manual_lock:
-            return (
-                self.manual_enabled,
-                self.manual_source_kind,
-                self.manual_position.copy(),
-                self.manual_gain_db,
-                self.manual_solo,
-                self.manual_test_motif_name,
-            )
-
-    def _manual_event_candidates(
-        self,
-        motif_name: str,
-    ) -> list[DreamMotifAsset]:
-        motif = next(
-            (
-                item for item in self.bag.motifs
-                if item.name == motif_name
-            ),
-            None,
-        )
-        if motif is None:
-            return []
-        candidates = list(motif.layered_assets)
-        candidates.extend(
-            asset for asset in motif.ambient_assets
-            if not asset.metadata_known
-        )
-        return [
-            asset for asset in candidates
-            if asset.path not in self.manual_test_rejected
-        ]
-
-    def _ensure_manual_event_audio(
-        self,
-        motif_name: str,
-    ) -> bool:
-        if self.manual_test_audio is not None:
-            return True
-
-        if self.manual_test_asset is not None:
-            prepared = self.asset_manager.get_if_ready(
-                self.manual_test_asset
-            )
-            if prepared is not None:
-                if prepared.is_layered_event:
-                    self.manual_test_audio = prepared.mono
-                    self.manual_test_read_position = 0
-                    return True
-                self.manual_test_rejected.add(
-                    self.manual_test_asset.path
-                )
-                self.manual_test_asset = None
-            elif self.asset_manager.error_for(
-                self.manual_test_asset
-            ):
-                self.manual_test_rejected.add(
-                    self.manual_test_asset.path
-                )
-                self.manual_test_asset = None
-
-        if self.manual_test_asset is None:
-            candidates = self._manual_event_candidates(
-                motif_name
-            )
-            if candidates:
-                self.manual_test_asset = candidates[0]
-                self.asset_manager.request(
-                    self.manual_test_asset,
-                    AudioAssetManager.PRIORITY_CRITICAL,
-                )
-
-        return self.manual_test_audio is not None
-
-    def _render_manual_event(
-        self,
-        frame_count: int,
-        position: np.ndarray,
-        gain_db: float,
-        motif_name: str,
-    ) -> np.ndarray:
-        if not self._ensure_manual_event_audio(motif_name):
-            return np.zeros(
-                (frame_count, 2),
-                dtype=np.float32,
-            )
-
-        audio = self.manual_test_audio
-        assert audio is not None
-        indices = (
-            np.arange(frame_count, dtype=np.int64)
-            + self.manual_test_read_position
-        ) % len(audio)
-        self.manual_test_read_position = int(
-            (
-                self.manual_test_read_position
-                + frame_count
-            ) % len(audio)
-        )
-        mono = audio[indices]
-        self.manual_test_source.set_position_vector(
-            self._vector3(position)
-        )
-        return self.manual_test_source.process_mono(
-            mono * self._db_gain(gain_db)
-        )
-
-    def close(self) -> None:
-        self.asset_manager.close()
-
     @staticmethod
-    def _smoothstep5(value: float) -> float:
-        value = float(np.clip(value, 0.0, 1.0))
-        return value ** 3 * (value * (value * 6.0 - 15.0) + 10.0)
-
-    def _random_direction(self) -> np.ndarray:
-        vector = self.rng.normal(0.0, 1.0, size=3)
-        length = float(np.linalg.norm(vector))
-        if length < 1e-9:
-            vector = np.array([0.0, 0.0, -1.0])
-        else:
-            vector /= length
-        return vector.astype(np.float64)
-
-    @staticmethod
-    def _vector3(vector: np.ndarray) -> Vector3:
-        return Vector3(float(vector[0]), float(vector[1]), float(vector[2]))
-
-    def _make_slot(self, distance: float) -> DreamMotifSlot:
-        direction = self._random_direction()
-        source = self.renderer.create_source(
-            position=self._vector3(direction * distance),
-            spatial_blend=1.0,
-            distance_attenuation_enabled=True,
-        )
-        return DreamMotifSlot(
-            motif=None,
-            source=source,
-            direction=direction,
-            distance=float(distance),
-            target_distance=float(distance),
-            gain_linear=0.0,
-            target_gain_linear=0.0,
-        )
-
-    def _assign_slot(
-        self,
-        index: int,
-        motif: DreamMotif | None,
-        distance: float,
-    ) -> None:
-        slot = self.slots[index]
-        slot.motif = motif
-        slot.audio = None
-        slot.pending_asset = None
-        slot.rejected_paths.clear()
-        slot.direction = self._random_direction()
-        slot.distance = float(distance)
-        slot.target_distance = float(distance)
-        slot.gain_linear = 0.0
-        slot.target_gain_linear = 0.0
-        slot.read_position = 0
-        slot.source.set_position_vector(
-            self._vector3(slot.direction * slot.distance)
-        )
-        self._ensure_slot_audio(
-            slot,
-            AudioAssetManager.PRIORITY_HIGH,
-        )
-
-    def _ambient_candidates(self, slot: DreamMotifSlot) -> list[DreamMotifAsset]:
-        if slot.motif is None:
-            return []
-        return [
-            asset for asset in slot.motif.ambient_assets
-            if asset.path not in slot.rejected_paths
-        ]
-
-    def _ensure_slot_audio(self, slot: DreamMotifSlot, priority: int) -> bool:
-        if slot.audio is not None:
-            return True
-        if slot.motif is None:
-            return False
-
-        if slot.pending_asset is not None:
-            prepared = self.asset_manager.get_if_ready(slot.pending_asset)
-            if prepared is not None:
-                if prepared.is_layered_event:
-                    slot.rejected_paths.add(slot.pending_asset.path)
-                    slot.pending_asset = None
-                else:
-                    slot.audio = prepared.mono
-                    slot.read_position = 0
-                    slot.pending_asset = None
-                    return True
-            elif self.asset_manager.error_for(slot.pending_asset):
-                slot.rejected_paths.add(slot.pending_asset.path)
-                slot.pending_asset = None
-
-        if slot.pending_asset is None:
-            candidates = self._ambient_candidates(slot)
-            if candidates:
-                slot.pending_asset = candidates[
-                    int(self.rng.integers(0, len(candidates)))
-                ]
-                self.asset_manager.request(slot.pending_asset, priority)
-
-        return slot.audio is not None
-
-    def _new_event_interval(self, spec: DreamMotifSpatialSpec) -> float:
-        return float(self.rng.uniform(
-            spec.event_interval_min_seconds,
-            spec.event_interval_max_seconds,
-        ))
-
-    def _new_dominant_duration(self, spec: DreamMotifSpatialSpec) -> float:
-        return float(self.rng.uniform(
-            spec.dominant_min_seconds,
-            spec.dominant_max_seconds,
-        ))
+    def _smoothstep5(v: float) -> float:
+        v = float(np.clip(v, 0.0, 1.0))
+        return v ** 3 * (v * (v * 6.0 - 15.0) + 10.0)
 
     @staticmethod
     def _db_gain(db: float) -> float:
         return 10.0 ** (float(db) / 20.0)
 
-    def _render_loop(self, slot: DreamMotifSlot, frame_count: int) -> np.ndarray:
-        if slot.audio is None:
-            return np.zeros(frame_count, dtype=np.float32)
-        indices = (
-            np.arange(frame_count, dtype=np.int64) + slot.read_position
-        ) % len(slot.audio)
+    @staticmethod
+    def _vector3(v: np.ndarray) -> Vector3:
+        return Vector3(float(v[0]), float(v[1]), float(v[2]))
+
+    def _random_direction(self) -> np.ndarray:
+        az = self.rng.uniform(-math.pi, math.pi)
+        elevation = self.rng.uniform(-0.25, 0.35)
+        return np.array([
+            math.sin(az) * math.cos(elevation),
+            math.sin(elevation),
+            -math.cos(az) * math.cos(elevation),
+        ], dtype=np.float64)
+
+    def _make_slot(self, distance: float) -> DreamMotifSlot:
+        position = self._random_direction() * distance
+        source = self.renderer.create_source(
+            position=self._vector3(position), spatial_blend=1.0,
+            distance_attenuation_enabled=True,
+        )
+        return DreamMotifSlot(
+            motif=None, source=source, direction=position / max(distance, 1e-9),
+            distance=float(distance), target_distance=float(distance),
+            gain_linear=0.0, target_gain_linear=0.0,
+            position=position.copy(), move_start=position.copy(),
+            move_target=position.copy(), move_elapsed=0.0, move_duration=30.0,
+        )
+
+    def _assign_slot(self, index: int, motif: DreamMotif | None,
+                     distance: float) -> None:
+        slot = self.slots[index]
+        p = self._random_direction() * distance
+        slot.motif = motif; slot.audio = None; slot.pending_asset = None
+        slot.rejected_paths.clear(); slot.read_position = 0
+        slot.position = p.copy(); slot.move_start = p.copy(); slot.move_target = p.copy()
+        slot.move_elapsed = 0.0; slot.move_duration = 30.0
+        slot.distance = float(np.linalg.norm(p)); slot.direction = p / max(slot.distance, 1e-9)
+        slot.source.set_position_vector(self._vector3(p))
+        self._ensure_slot_audio(slot, AudioAssetManager.PRIORITY_HIGH)
+
+    def set_manual_spatial(self, *, enabled=None, source_kind=None, x=None,
+                           y=None, z=None, gain_db=None, solo=None,
+                           motif_name=None) -> None:
+        with self._manual_lock:
+            if enabled is not None: self.manual_enabled = bool(enabled)
+            if source_kind is not None:
+                if source_kind not in {"dominant", "distant", "layered event"}:
+                    raise ValueError(f"Unknown manual source kind: {source_kind}")
+                self.manual_source_kind = source_kind
+            if any(v is not None for v in (x, y, z)):
+                p = self.manual_position.copy()
+                if x is not None: p[0] = float(x)
+                if y is not None: p[1] = float(y)
+                if z is not None: p[2] = float(z)
+                self.manual_position = p
+            if gain_db is not None: self.manual_gain_db = float(np.clip(gain_db, -80.0, 12.0))
+            if solo is not None: self.manual_solo = bool(solo)
+            if motif_name is not None and str(motif_name).strip() != self.manual_test_motif_name:
+                self.manual_test_motif_name = str(motif_name).strip()
+                self.manual_test_asset = None; self.manual_test_audio = None
+                self.manual_test_read_position = 0; self.manual_test_rejected.clear()
+
+    def manual_snapshot(self):
+        with self._manual_lock:
+            return (self.manual_enabled, self.manual_source_kind,
+                    self.manual_position.copy(), self.manual_gain_db,
+                    self.manual_solo, self.manual_test_motif_name)
+
+    def _ambient_candidates(self, slot):
+        if slot.motif is None: return []
+        return [a for a in slot.motif.ambient_assets if a.path not in slot.rejected_paths]
+
+    def _ensure_slot_audio(self, slot, priority):
+        if slot.audio is not None: return True
+        if slot.motif is None: return False
+        if slot.pending_asset is not None:
+            prepared = self.asset_manager.get_if_ready(slot.pending_asset)
+            if prepared is not None:
+                if prepared.is_layered_event:
+                    slot.rejected_paths.add(slot.pending_asset.path); slot.pending_asset = None
+                else:
+                    slot.audio = prepared.mono; slot.read_position = 0; slot.pending_asset = None
+                    return True
+            elif self.asset_manager.error_for(slot.pending_asset):
+                slot.rejected_paths.add(slot.pending_asset.path); slot.pending_asset = None
+        if slot.pending_asset is None:
+            candidates = self._ambient_candidates(slot)
+            if candidates:
+                slot.pending_asset = candidates[int(self.rng.integers(0, len(candidates)))]
+                self.asset_manager.request(slot.pending_asset, priority)
+        return slot.audio is not None
+
+    def _render_loop(self, slot, frame_count):
+        if slot.audio is None: return np.zeros(frame_count, dtype=np.float32)
+        idx = (np.arange(frame_count, dtype=np.int64) + slot.read_position) % len(slot.audio)
         slot.read_position = int((slot.read_position + frame_count) % len(slot.audio))
-        return slot.audio[indices]
+        return slot.audio[idx]
 
-    def _event_candidates(self, slot: DreamMotifSlot) -> list[DreamMotifAsset]:
-        if slot.motif is None:
-            return []
-        # Unknown assets may prove to be short effects after decode.
-        candidates = list(slot.motif.layered_assets)
-        candidates.extend(
-            asset for asset in slot.motif.ambient_assets
-            if not asset.metadata_known
-        )
-        return [
-            asset for asset in candidates
-            if asset.path not in self.pending_event_rejected
-        ]
+    def _manual_event_candidates(self, motif_name):
+        motif = next((m for m in self.bag.motifs if m.name == motif_name), None)
+        if motif is None: return []
+        candidates = list(motif.layered_assets)
+        candidates.extend(a for a in motif.ambient_assets if not a.metadata_known)
+        return [a for a in candidates if a.path not in self.manual_test_rejected]
 
-    def _prepare_event(self, slot: DreamMotifSlot) -> None:
-        if self.pending_event_asset is not None:
-            return
-        candidates = self._event_candidates(slot)
-        if not candidates:
-            return
-        self.pending_event_asset = candidates[
-            int(self.rng.integers(0, len(candidates)))
-        ]
-        self.asset_manager.request(
-            self.pending_event_asset,
-            AudioAssetManager.PRIORITY_NORMAL,
-        )
+    def _ensure_manual_event_audio(self, motif_name):
+        if self.manual_test_audio is not None: return True
+        if self.manual_test_asset is not None:
+            p = self.asset_manager.get_if_ready(self.manual_test_asset)
+            if p is not None:
+                if p.is_layered_event:
+                    self.manual_test_audio = p.mono; self.manual_test_read_position = 0; return True
+                self.manual_test_rejected.add(self.manual_test_asset.path); self.manual_test_asset = None
+            elif self.asset_manager.error_for(self.manual_test_asset):
+                self.manual_test_rejected.add(self.manual_test_asset.path); self.manual_test_asset = None
+        if self.manual_test_asset is None:
+            c = self._manual_event_candidates(motif_name)
+            if c:
+                self.manual_test_asset = c[0]
+                self.asset_manager.request(self.manual_test_asset, AudioAssetManager.PRIORITY_CRITICAL)
+        return self.manual_test_audio is not None
 
-    def _spawn_prepared_event(
-        self,
-        slot_index: int,
-        spec: DreamMotifSpatialSpec,
-    ) -> bool:
-        slot = self.slots[slot_index]
-        self._prepare_event(slot)
-        prepared = self.asset_manager.get_if_ready(self.pending_event_asset)
+    def _render_manual_event(self, frame_count, position, gain_db, motif_name):
+        if not self._ensure_manual_event_audio(motif_name):
+            return np.zeros((frame_count, 2), dtype=np.float32)
+        audio = self.manual_test_audio
+        idx = (np.arange(frame_count, dtype=np.int64) + self.manual_test_read_position) % len(audio)
+        self.manual_test_read_position = int((self.manual_test_read_position + frame_count) % len(audio))
+        self.manual_test_source.set_position_vector(self._vector3(position))
+        return self.manual_test_source.process_mono(audio[idx] * self._db_gain(gain_db))
+
+    def _scene_duration(self, spec, scene):
+        base = {
+            self.SCENE_ESTABLISH: 70, self.SCENE_DEVELOP: 150,
+            self.SCENE_FOCUS: 35, self.SCENE_REVEAL: 30,
+            self.SCENE_AFTERIMAGE: 55, self.SCENE_EXCHANGE: 100,
+            self.SCENE_REST: 100,
+        }[scene]
+        activity_scale = 1.45 - 0.75 * spec.activity
+        drama_scale = 1.15 - 0.35 * spec.drama
+        return float(base * activity_scale * drama_scale * self.rng.uniform(0.8, 1.25))
+
+    def _next_scene(self, spec, quiet):
+        if self.scene == self.SCENE_ESTABLISH: return self.SCENE_DEVELOP
+        if self.scene == self.SCENE_DEVELOP:
+            if quiet > 0.55 and self.rng.random() < 0.35 + 0.45 * spec.drama:
+                return self.SCENE_FOCUS
+            return self.SCENE_EXCHANGE if self.rng.random() < 0.25 + 0.35 * spec.activity else self.SCENE_REST
+        if self.scene == self.SCENE_FOCUS: return self.SCENE_REVEAL
+        if self.scene == self.SCENE_REVEAL: return self.SCENE_AFTERIMAGE
+        if self.scene == self.SCENE_AFTERIMAGE:
+            return self.SCENE_EXCHANGE if self.rng.random() < 0.45 + 0.35 * spec.drama else self.SCENE_REST
+        if self.scene == self.SCENE_EXCHANGE:
+            self.dominant_index = 1 - self.dominant_index
+            return self.SCENE_ESTABLISH
+        return self.SCENE_ESTABLISH
+
+    def _advance_scene(self, dt, spec, quiet):
+        self.scene_elapsed += dt
+        if self.scene_elapsed >= self.scene_duration:
+            self.scene = self._next_scene(spec, quiet)
+            self.scene_elapsed = 0.0
+            self.scene_duration = self._scene_duration(spec, self.scene)
+
+    def _role_distance(self, spec, dominant, quiet):
+        # Quiet brown noise opens the window: dominant comes closer, recessive
+        # becomes legible. Busy brown noise pushes both worlds outward.
+        presence = spec.presence * (0.30 + 0.70 * quiet)
+        near = spec.near_distance + (1.0 - presence) * 4.0
+        far = spec.far_distance + (1.0 - quiet) * 8.0
+        if self.scene == self.SCENE_FOCUS:
+            return far + 2.0 if not dominant else near + 1.5
+        if self.scene == self.SCENE_REVEAL:
+            return near * (0.65 + 0.25 * (1.0 - spec.intimacy)) if dominant else far
+        if self.scene == self.SCENE_AFTERIMAGE:
+            return near + 3.0 if dominant else far - 1.5
+        if self.scene == self.SCENE_EXCHANGE:
+            t = self._smoothstep5(self.scene_elapsed / max(self.scene_duration, 1e-9))
+            return (near + (far-near)*t) if dominant else (far + (near-far)*t)
+        if self.scene == self.SCENE_REST:
+            return far + 3.0 if dominant else far + 7.0
+        return near if dominant else far
+
+    def _choose_wander_target(self, slot, role_distance, spec, dominant, quiet):
+        motion = spec.motion * (0.45 + 0.55 * quiet)
+        lateral = (1.0 + 4.0 * motion) * self.rng.uniform(-1.0, 1.0)
+        elevation = (0.25 + 1.8 * motion) * self.rng.uniform(-0.6, 1.0)
+        # Mostly front hemisphere, with drama allowing occasional rear presence.
+        behind_chance = (0.03 + 0.22 * spec.drama) * quiet
+        z_sign = 1.0 if self.rng.random() < behind_chance else -1.0
+        z = z_sign * math.sqrt(max(0.25, role_distance**2 - lateral**2 - elevation**2))
+        target = np.array([lateral, elevation, z], dtype=np.float64)
+        slot.move_start = slot.position.copy(); slot.move_target = target
+        slot.move_elapsed = 0.0
+        slow = 45.0 + (1.0-motion) * 100.0
+        slot.move_duration = float(self.rng.uniform(slow*0.7, slow*1.35))
+
+    def _update_wander(self, slot, dt, role_distance, spec, dominant, quiet):
+        slot.move_elapsed += dt
+        if slot.move_elapsed >= slot.move_duration:
+            self._choose_wander_target(slot, role_distance, spec, dominant, quiet)
+        t = self._smoothstep5(slot.move_elapsed / max(slot.move_duration, 1e-9))
+        p = slot.move_start + (slot.move_target - slot.move_start) * t
+        # Radially ease toward the current scene role without abrupt repositioning.
+        r = float(np.linalg.norm(p))
+        if r > 1e-9:
+            desired = p / r * role_distance
+            p = p + (desired - p) * min(1.0, dt / 25.0)
+        slot.position = p; slot.distance = float(np.linalg.norm(p))
+        slot.direction = p / max(slot.distance, 1e-9)
+        slot.source.set_position_vector(self._vector3(p))
+
+    def _event_candidates(self, slot, spec):
+        if slot.motif is None: return []
+        c = list(slot.motif.layered_assets)
+        c.extend(a for a in slot.motif.ambient_assets if not a.metadata_known)
+        recent_window = max(2, int(round(3 + spec.novelty * 9)))
+        recent = set(self.recent_event_paths[-recent_window:])
+        filtered = [a for a in c if a.path not in self.pending_event_rejected and a.path not in recent]
+        return filtered or [a for a in c if a.path not in self.pending_event_rejected]
+
+    def _prepare_event(self, slot, spec):
+        if self.pending_event_asset is not None: return
+        c = self._event_candidates(slot, spec)
+        if c:
+            self.pending_event_asset = c[int(self.rng.integers(0, len(c)))]
+            self.asset_manager.request(self.pending_event_asset, AudioAssetManager.PRIORITY_NORMAL)
+
+    def _gesture(self, spec, quiet):
+        gestures = ["cross", "approach", "overhead", "apparition", "orbit"]
+        if quiet > 0.6 and spec.intimacy > 0.2: gestures += ["near-ear", "presence"] * 2
+        recent = set(self.recent_gestures[-max(1, int(2 + 4*spec.novelty)):])
+        available = [g for g in gestures if g not in recent] or gestures
+        g = available[int(self.rng.integers(0, len(available)))]
+        self.recent_gestures.append(g); self.recent_gestures = self.recent_gestures[-16:]
+        return g
+
+    def _gesture_points(self, gesture, spec, quiet):
+        intimate = 0.45 + (1.0-spec.intimacy)*1.6
+        far = 7.0 + (1.0-quiet)*8.0
+        side = -1.0 if self.rng.random() < 0.5 else 1.0
+        if gesture == "near-ear":
+            return (np.array([side*far, .2, -far*.6]), np.array([side*intimate, .15, -.35]), np.array([side*3.5, .4, 2.5]))
+        if gesture == "presence":
+            p=np.array([side*intimate, self.rng.uniform(-.2,.5), self.rng.uniform(-.7,.4)])
+            return (p + np.array([0,0,-1.5]), p, p + np.array([0,0,.8]))
+        if gesture == "overhead":
+            return (np.array([side*4,-.5,-far]), np.array([0,3.0,-.3]), np.array([-side*4,.2,far*.7]))
+        if gesture == "orbit":
+            return (np.array([side*4,0,-4]), np.array([-side*1.2,1.0,-.2]), np.array([-side*3,.2,2.5]))
+        if gesture == "approach":
+            return (np.array([side*3,0,-far]), np.array([side*.8,.4,-2]), np.array([side*1.5,0,-.7]))
+        if gesture == "apparition":
+            return (np.array([side*2,.1,3.5]), np.array([side*.8,.2,.7]), np.array([side*4,.4,5]))
+        return (np.array([side*far,0,-5]), np.array([0,1,-.5]), np.array([-side*far,0,4]))
+
+    def _spawn_prepared_event(self, slot_index, spec, quiet):
+        slot=self.slots[slot_index]; self._prepare_event(slot,spec)
+        prepared=self.asset_manager.get_if_ready(self.pending_event_asset)
         if prepared is None:
             if self.asset_manager.error_for(self.pending_event_asset):
-                if self.pending_event_asset is not None:
-                    self.pending_event_rejected.add(self.pending_event_asset.path)
-                self.pending_event_asset = None
+                if self.pending_event_asset: self.pending_event_rejected.add(self.pending_event_asset.path)
+                self.pending_event_asset=None
             return False
         if not prepared.is_layered_event:
-            if self.pending_event_asset is not None:
-                self.pending_event_rejected.add(self.pending_event_asset.path)
-            self.pending_event_asset = None
-            return False
-
-        free_source = next(
-            (
-                source for source in self.event_sources
-                if all(event.source is not source for event in self.events)
-            ),
-            None,
-        )
-        if free_source is None:
-            return False
-
-        audio = prepared.mono
-        start = slot.direction * slot.distance
-        control = np.array([
-            self.rng.uniform(-2.5, 2.5),
-            self.rng.uniform(0.4, 2.8),
-            self.rng.uniform(-0.7, 0.7),
-        ], dtype=np.float64)
-        end_direction = self._random_direction()
-        end_direction[2] = abs(end_direction[2])
-        end = end_direction * self.rng.uniform(1.5, 4.5)
-        free_source.set_position_vector(self._vector3(start))
+            if self.pending_event_asset: self.pending_event_rejected.add(self.pending_event_asset.path)
+            self.pending_event_asset=None; return False
+        free=next((s for s in self.event_sources if all(e.source is not s for e in self.events)),None)
+        if free is None: return False
+        gesture=self._gesture(spec,quiet); start,control,end=self._gesture_points(gesture,spec,quiet)
+        free.set_position_vector(self._vector3(start))
         self.events.append(ActiveDreamMotifEvent(
-            audio=audio,
-            source=free_source,
-            read_position=0,
-            elapsed_seconds=0.0,
-            travel_seconds=max(
-                spec.event_travel_seconds,
-                len(audio) / self.sample_rate,
-            ),
-            start=start,
-            control=control,
-            end=end,
-            gain_linear=self._db_gain(spec.event_gain_db),
+            audio=prepared.mono, source=free, read_position=0, elapsed_seconds=0.0,
+            travel_seconds=max(spec.event_travel_seconds*(0.7+0.9*(1-spec.activity)), len(prepared.mono)/self.sample_rate),
+            start=start, control=control, end=end,
+            gain_linear=self._db_gain(spec.event_calibrated_gain_db),
         ))
-        self.pending_event_asset = None
-        self.pending_event_rejected.clear()
-        return True
+        if self.pending_event_asset:
+            self.recent_event_paths.append(self.pending_event_asset.path)
+            self.recent_event_paths=self.recent_event_paths[-32:]
+        self.pending_event_asset=None; self.pending_event_rejected.clear(); return True
 
-    def _advance_phase(self, elapsed_seconds: float, spec: DreamMotifSpatialSpec) -> None:
-        dominant_ready = self._ensure_slot_audio(
-            self.slots[self.dominant_index],
-            AudioAssetManager.PRIORITY_CRITICAL,
-        )
-        other_ready = self._ensure_slot_audio(
-            self.slots[1 - self.dominant_index],
-            AudioAssetManager.PRIORITY_HIGH,
-        )
+    def _new_event_interval(self, spec, quiet):
+        # Quiet windows invite events; high metabolism spaces them much farther.
+        base = 35.0 + (1.0-spec.activity)*115.0
+        busy_penalty = (1.0-quiet)*220.0
+        intimacy_bonus = quiet*spec.intimacy*25.0
+        return float(self.rng.uniform(.75,1.35)*max(12.0,base+busy_penalty-intimacy_bonus))
 
-        if self.phase == self.PHASE_INITIAL_APPROACH and not dominant_ready:
-            return
-        if self.phase == self.PHASE_DOMINANT and not other_ready:
-            # Extend the current world until its successor is ready.
-            return
+    def _render_events(self, frame_count, dt):
+        stereo=np.zeros((frame_count,2),dtype=np.float32); keep=[]
+        for e in self.events:
+            start=e.read_position; end=min(len(e.audio),start+frame_count)
+            mono=np.zeros(frame_count,dtype=np.float32)
+            if end>start: mono[:end-start]=e.audio[start:end]
+            e.read_position=end; e.elapsed_seconds+=dt
+            t=float(np.clip(e.elapsed_seconds/max(e.travel_seconds,1e-9),0,1)); u=1-t
+            p=u*u*e.start+2*u*t*e.control+t*t*e.end
+            e.source.set_position_vector(self._vector3(p))
+            fade=min(1,e.elapsed_seconds/.8); remain=max(0,(len(e.audio)-e.read_position)/self.sample_rate); fade*=min(1,remain/.8)
+            stereo += e.source.process_mono(mono*e.gain_linear*fade)
+            if e.read_position<len(e.audio): keep.append(e)
+        self.events=keep; return stereo
 
-        self.phase_elapsed += elapsed_seconds
+    def close(self): self.asset_manager.close()
 
-        if self.phase == self.PHASE_INITIAL_APPROACH:
-            if self.phase_elapsed >= self.phase_duration:
-                self.phase = self.PHASE_DOMINANT
-                self.phase_elapsed = 0.0
-                self.phase_duration = self._new_dominant_duration(spec)
-        elif self.phase == self.PHASE_DOMINANT:
-            if self.phase_elapsed >= self.phase_duration:
-                self.phase = self.PHASE_CROSSFADE
-                self.phase_elapsed = 0.0
-                self.phase_duration = max(spec.fade_in_seconds, spec.fade_out_seconds)
-        elif self.phase == self.PHASE_CROSSFADE:
-            if self.phase_elapsed >= self.phase_duration:
-                retired_index = self.dominant_index
-                self.dominant_index = 1 - self.dominant_index
-                retained = self.slots[self.dominant_index].motif
-                replacement = self.bag.next({retained.name} if retained else set())
-                self._assign_slot(retired_index, replacement, spec.far_distance)
-                self.phase = self.PHASE_DOMINANT
-                self.phase_elapsed = 0.0
-                self.phase_duration = self._new_dominant_duration(spec)
-
-    def _slot_targets(self, spec: DreamMotifSpatialSpec):
-        far_gain = self._db_gain(spec.distant_gain_db)
-        near_gain = self._db_gain(spec.dominant_gain_db)
-        dominant = self.dominant_index
-        other = 1 - dominant
-        targets = [(spec.far_distance, far_gain), (spec.far_distance, far_gain)]
-
-        if self.phase == self.PHASE_INITIAL_APPROACH:
-            progress = self._smoothstep5(
-                self.phase_elapsed / max(1e-9, spec.fade_in_seconds)
-            )
-            targets[dominant] = (
-                spec.far_distance + (spec.near_distance - spec.far_distance) * progress,
-                far_gain + (near_gain - far_gain) * progress,
-            )
-        elif self.phase == self.PHASE_DOMINANT:
-            targets[dominant] = (spec.near_distance, near_gain)
-        else:
-            out_progress = self._smoothstep5(
-                self.phase_elapsed / max(1e-9, spec.fade_out_seconds)
-            )
-            in_progress = self._smoothstep5(
-                self.phase_elapsed / max(1e-9, spec.fade_in_seconds)
-            )
-            targets[dominant] = (
-                spec.near_distance + (spec.far_distance - spec.near_distance) * out_progress,
-                near_gain + (far_gain - near_gain) * out_progress,
-            )
-            targets[other] = (
-                spec.far_distance + (spec.near_distance - spec.far_distance) * in_progress,
-                far_gain + (near_gain - far_gain) * in_progress,
-            )
-        return targets[0], targets[1]
-
-    def _render_events(self, frame_count: int, elapsed_seconds: float) -> np.ndarray:
-        stereo = np.zeros((frame_count, 2), dtype=np.float32)
-        retained: list[ActiveDreamMotifEvent] = []
-        for event in self.events:
-            start = event.read_position
-            end = min(len(event.audio), start + frame_count)
-            mono = np.zeros(frame_count, dtype=np.float32)
-            if end > start:
-                mono[:end - start] = event.audio[start:end]
-            event.read_position = end
-            event.elapsed_seconds += elapsed_seconds
-            t = float(np.clip(
-                event.elapsed_seconds / max(1e-9, event.travel_seconds),
-                0.0,
-                1.0,
-            ))
-            one_minus = 1.0 - t
-            position = (
-                one_minus * one_minus * event.start
-                + 2.0 * one_minus * t * event.control
-                + t * t * event.end
-            )
-            event.source.set_position_vector(self._vector3(position))
-            fade = min(1.0, event.elapsed_seconds / 0.8)
-            remaining = max(0.0, (len(event.audio) - event.read_position) / self.sample_rate)
-            fade *= min(1.0, remaining / 0.8)
-            stereo += event.source.process_mono(mono * event.gain_linear * fade)
-            if event.read_position < len(event.audio):
-                retained.append(event)
-        self.events = retained
-        return stereo
-
-    def generate(self, frame_count: int, enabled: bool) -> np.ndarray:
-        spec = self.state.get()
-        elapsed_seconds = frame_count / self.sample_rate
+    def generate(self, frame_count: int, enabled: bool,
+                 metabolism_activity: float = 0.0) -> np.ndarray:
+        spec=self.state.get(); dt=frame_count/self.sample_rate
         if not spec.enabled or not enabled or not self.bag.motifs:
-            return np.zeros((frame_count, 2), dtype=np.float32)
+            return np.zeros((frame_count,2),dtype=np.float32)
+        manual_enabled,manual_kind,manual_pos,manual_gain,manual_solo,manual_motif=self.manual_snapshot()
+        quiet=float(np.clip(1.0-metabolism_activity,0.0,1.0))
+        # Smooth attention-space estimate to prevent twitching at phase edges.
+        self.creepy_window += (quiet-self.creepy_window)*min(1.0,dt/18.0)
+        quiet=self.creepy_window
+        if not manual_enabled: self._advance_scene(dt,spec,quiet)
 
-        (
-            manual_enabled,
-            manual_source_kind,
-            manual_position,
-            manual_gain_db,
-            manual_solo,
-            manual_motif_name,
-        ) = self.manual_snapshot()
-
-        # Manual mode freezes phase and event automation. Existing event tails
-        # are not advanced; disabling manual mode resumes the generative engine
-        # from the exact phase position where it was paused.
-        if not manual_enabled:
-            self._advance_phase(elapsed_seconds, spec)
-
-        targets = self._slot_targets(spec)
-        stereo = np.zeros((frame_count, 2), dtype=np.float32)
-
-        for index, slot in enumerate(self.slots):
-            self._ensure_slot_audio(
-                slot,
-                AudioAssetManager.PRIORITY_CRITICAL
-                if index == self.dominant_index
-                else AudioAssetManager.PRIORITY_HIGH,
-            )
-
-            role = (
-                "dominant"
-                if index == self.dominant_index
-                else "distant"
-            )
-            selected = (
-                manual_enabled
-                and manual_source_kind == role
-            )
-
-            if manual_enabled and manual_solo and not selected:
-                continue
-            if (
-                manual_enabled
-                and manual_source_kind == "layered event"
-                and manual_solo
-            ):
-                continue
-
+        stereo=np.zeros((frame_count,2),dtype=np.float32)
+        for i,slot in enumerate(self.slots):
+            self._ensure_slot_audio(slot, AudioAssetManager.PRIORITY_CRITICAL if i==self.dominant_index else AudioAssetManager.PRIORITY_HIGH)
+            role="dominant" if i==self.dominant_index else "distant"
+            selected=manual_enabled and manual_kind==role
+            if manual_enabled and manual_solo and not selected: continue
+            if manual_enabled and manual_kind=="layered event" and manual_solo: continue
             if selected:
-                slot.source.set_position_vector(
-                    self._vector3(manual_position)
-                )
-                gain = self._db_gain(manual_gain_db)
+                slot.source.set_position_vector(self._vector3(manual_pos)); gain=self._db_gain(manual_gain)
             else:
-                slot.distance, slot.gain_linear = targets[index]
-                slot.source.set_position_vector(
-                    self._vector3(
-                        slot.direction * slot.distance
-                    )
-                )
-                gain = slot.gain_linear
-
-            mono = self._render_loop(slot, frame_count)
-            stereo += slot.source.process_mono(mono * gain)
+                distance=self._role_distance(spec,i==self.dominant_index,quiet)
+                self._update_wander(slot,dt,distance,spec,i==self.dominant_index,quiet)
+                gain=self._db_gain(spec.motif_calibrated_gain_db)
+            stereo += slot.source.process_mono(self._render_loop(slot,frame_count)*gain)
 
         if manual_enabled:
-            if manual_source_kind == "layered event":
-                stereo += self._render_manual_event(
-                    frame_count,
-                    manual_position,
-                    manual_gain_db,
-                    manual_motif_name,
-                )
+            if manual_kind=="layered event": stereo += self._render_manual_event(frame_count,manual_pos,manual_gain,manual_motif)
         else:
-            # Begin loading the event well before its target trigger.
-            if self.next_event_seconds <= 20.0:
-                self._prepare_event(
-                    self.slots[self.dominant_index]
+            # Focus clears the field. Reveal strongly favors one deliberate event.
+            event_allowed = self.scene in {self.SCENE_DEVELOP,self.SCENE_REVEAL,self.SCENE_AFTERIMAGE}
+            if self.next_event_seconds <= 20: self._prepare_event(self.slots[self.dominant_index],spec)
+            self.next_event_seconds -= dt
+            if event_allowed and self.next_event_seconds <= 0:
+                event_slot = (
+                    self.dominant_index
+                    if self.rng.random() < 0.55 + 0.40 * spec.coherence
+                    else 1 - self.dominant_index
                 )
+                if self._spawn_prepared_event(event_slot,spec,quiet):
+                    self.next_event_seconds=self._new_event_interval(spec,quiet)
+                else: self.next_event_seconds=1.0
+            stereo += self._render_events(frame_count,dt)
 
-            self.next_event_seconds -= elapsed_seconds
-            if self.next_event_seconds <= 0.0:
-                if self._spawn_prepared_event(
-                    self.dominant_index,
-                    spec,
-                ):
-                    self.next_event_seconds = (
-                        self._new_event_interval(spec)
-                    )
-                else:
-                    # Asset not ready: delay naturally without blocking.
-                    self.next_event_seconds = 1.0
-
-            stereo += self._render_events(
-                frame_count,
-                elapsed_seconds,
-            )
-
-        dominant = self.slots[self.dominant_index]
-        distant = self.slots[1 - self.dominant_index]
-        self.current_dominant_name = dominant.motif.name if dominant.motif else ''
-        self.current_distant_name = distant.motif.name if distant.motif else ''
-        cached, pending, failed, cache_bytes = self.asset_manager.status()
-        manual_status = (
-            f'manual {manual_source_kind} at '
-            f'({manual_position[0]:.2f}, '
-            f'{manual_position[1]:.2f}, '
-            f'{manual_position[2]:.2f}) m; '
-            if manual_enabled
-            else ''
-        )
-        self.current_status = (
-            f'{manual_status}{self.phase}; dominant '
-            f'{self.current_dominant_name or "none"} '
-            f'@ {dominant.distance:.2f} m; distant '
-            f'{self.current_distant_name or "none"} @ {distant.distance:.2f} m; '
-            f'events {len(self.events)}; assets {cached} ready, {pending} loading, '
-            f'{failed} failed, {cache_bytes / (1024 * 1024):.0f} MB cached'
+        dom=self.slots[self.dominant_index]; rec=self.slots[1-self.dominant_index]
+        self.current_dominant_name=dom.motif.name if dom.motif else ""
+        self.current_distant_name=rec.motif.name if rec.motif else ""
+        cached,pending,failed,cache_bytes=self.asset_manager.status()
+        prefix=(f"manual {manual_kind} at ({manual_pos[0]:.2f}, {manual_pos[1]:.2f}, {manual_pos[2]:.2f}) m; " if manual_enabled else "")
+        self.current_status=(
+            f"{prefix}{self.scene}; creepy window {quiet:.2f}; dominant "
+            f"{self.current_dominant_name or 'none'} @ {dom.distance:.2f} m; recessive "
+            f"{self.current_distant_name or 'none'} @ {rec.distance:.2f} m; events {len(self.events)}; "
+            f"assets {cached} ready, {pending} loading, {failed} failed, "
+            f"{cache_bytes/(1024*1024):.0f} MB cached"
         )
         return stereo
 
@@ -5535,6 +5330,7 @@ class LivingBrownNoiseMixer:
         stereo += self.dream_motif_3d.generate(
             frame_count,
             enabled=modes.dream_motifs_enabled,
+            metabolism_activity=self.current_metabolism_activity,
         )
 
 
@@ -6346,6 +6142,30 @@ class MainWindow(QMainWindow):
             0,
             " s",
         )
+        motif_form.addRow(QLabel("Conductor guidance"))
+
+        self.motif_activity_control = add_motif_spatial_control(
+            "Activity:", "activity", 0.0, 1.0, 0.01, 2
+        )
+        self.motif_presence_control = add_motif_spatial_control(
+            "Presence:", "presence", 0.0, 1.0, 0.01, 2
+        )
+        self.motif_motion_control = add_motif_spatial_control(
+            "Motion:", "motion", 0.0, 1.0, 0.01, 2
+        )
+        self.motif_intimacy_control = add_motif_spatial_control(
+            "Intimacy / ASMR:", "intimacy", 0.0, 1.0, 0.01, 2
+        )
+        self.motif_drama_control = add_motif_spatial_control(
+            "Drama:", "drama", 0.0, 1.0, 0.01, 2
+        )
+        self.motif_coherence_control = add_motif_spatial_control(
+            "Coherence:", "coherence", 0.0, 1.0, 0.01, 2
+        )
+        self.motif_novelty_control = add_motif_spatial_control(
+            "Novelty / anti-repeat:", "novelty", 0.0, 1.0, 0.01, 2
+        )
+
         self.motif_3d_status_label = QLabel("")
         self.motif_3d_status_label.setWordWrap(True)
         motif_form.addRow("3D motif state:", self.motif_3d_status_label)
@@ -8856,7 +8676,7 @@ class MainWindow(QMainWindow):
         output_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export living brown noise",
-            str(Path.home() / suggested_name),
+            str(EXPORT_DIRECTORY / suggested_name),
             "Wave audio (*.wav)",
         )
 
@@ -9436,6 +9256,7 @@ def main() -> int:
     log_stage("Dream Instigator startup")
     log_stage(f"Python executable: {sys.executable}")
     log_stage(f"Working directory: {Path.cwd()}")
+    EXPORT_DIRECTORY.mkdir(parents=True, exist_ok=True)
     log_stage(f"Script path: {Path(__file__).resolve()}")
     log_stage(f"Startup log: {STARTUP_LOG_PATH}")
     log_stage(f"Sound-effects directory: {SOUND_EFFECTS_DIRECTORY}")
