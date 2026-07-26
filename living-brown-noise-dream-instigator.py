@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 import wave
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import ClassVar
@@ -4339,6 +4339,8 @@ class DreamMotif3DEngine:
         self.conductor_elapsed = 0.0
         self.creepy_window = 0.0
         self.next_event_seconds = 300.0
+        self.seconds_since_last_event = 0.0
+        self.soft_max_event_silence_seconds = 3600.0
         self.pending_event_asset: DreamMotifAsset | None = None
         self.pending_event_rejected: set[Path] = set()
         self.recent_event_paths: list[Path] = []
@@ -4355,6 +4357,15 @@ class DreamMotif3DEngine:
         self.current_distant_name = second.name if second else ""
         self.current_clock_mode = "SILENT WAIT"
         self.current_effective_time_scale = 1.0
+
+        self.render_elapsed_seconds = 0.0
+        self._event_journal = deque(maxlen=4096)
+        self._last_logged_clock_mode = self.current_clock_mode
+        self._last_logged_roles = (
+            self.current_dominant_name,
+            self.current_distant_name,
+        )
+        self._last_logged_threshold_state = (False, False)
 
         self._manual_lock = threading.Lock()
         self.manual_enabled = False
@@ -4537,6 +4548,28 @@ class DreamMotif3DEngine:
             * self.rng.uniform(0.80, 1.25)
         )
 
+    @staticmethod
+    def _format_log_time(seconds: float) -> str:
+        total_ms = max(0, int(round(seconds * 1000.0)))
+        hours, remainder = divmod(total_ms, 3_600_000)
+        minutes, remainder = divmod(remainder, 60_000)
+        secs, millis = divmod(remainder, 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
+
+    def _journal(self, category: str, message: str) -> None:
+        self._event_journal.append(
+            (
+                self.render_elapsed_seconds,
+                str(category),
+                str(message),
+            )
+        )
+
+    def drain_event_journal(self) -> list[tuple[float, str, str]]:
+        entries = list(self._event_journal)
+        self._event_journal.clear()
+        return entries
+
     def _next_scene(self, spec, quiet):
         if self.scene == self.SCENE_ESTABLISH: return self.SCENE_DEVELOP
         if self.scene == self.SCENE_DEVELOP:
@@ -4555,9 +4588,24 @@ class DreamMotif3DEngine:
     def _advance_scene(self, dt, spec, quiet):
         self.scene_elapsed += dt
         if self.scene_elapsed >= self.scene_duration:
+            previous_scene = self.scene
+            previous_dominant = self.dominant_index
             self.scene = self._next_scene(spec, quiet)
             self.scene_elapsed = 0.0
             self.scene_duration = self._scene_duration(spec, self.scene)
+            self._journal(
+                "SCENE",
+                f"{previous_scene} -> {self.scene}; "
+                f"duration {self.scene_duration:.1f} s",
+            )
+            if self.dominant_index != previous_dominant:
+                dominant = self.slots[self.dominant_index]
+                recessive = self.slots[1 - self.dominant_index]
+                self._journal(
+                    "ROLE_EXCHANGE",
+                    f"dominant={dominant.motif.name if dominant.motif else 'none'}; "
+                    f"recessive={recessive.motif.name if recessive.motif else 'none'}",
+                )
 
     def _exposure_targets(self, spec, quiet):
         """Return dominant/recessive audibility allowed by the current scene."""
@@ -4692,12 +4740,38 @@ class DreamMotif3DEngine:
         filtered = [a for a in c if a.path not in self.pending_event_rejected and a.path not in recent]
         return filtered or [a for a in c if a.path not in self.pending_event_rejected]
 
+    def _new_event_interval(self, spec, quiet):
+        # Real sleep-time spacing. At typical settings this is measured in
+        # minutes; Silent-period speed compresses only inaudible waiting.
+        base = 180.0 + (1.0 - spec.activity) * 540.0
+        busy_penalty = (1.0 - quiet) * 600.0
+        presence_reduction = quiet * spec.presence * 90.0
+        return float(
+            self.rng.uniform(0.75, 1.35)
+            * max(120.0, base + busy_penalty - presence_reduction)
+        )
+
     def _prepare_event(self, slot, spec):
-        if self.pending_event_asset is not None: return
-        c = self._event_candidates(slot, spec)
-        if c:
-            self.pending_event_asset = c[int(self.rng.integers(0, len(c)))]
-            self.asset_manager.request(self.pending_event_asset, AudioAssetManager.PRIORITY_NORMAL)
+        if self.pending_event_asset is not None:
+            return
+        candidates = self._event_candidates(slot, spec)
+        if candidates:
+            self.pending_event_asset = candidates[
+                int(self.rng.integers(0, len(candidates)))
+            ]
+            self.asset_manager.request(
+                self.pending_event_asset,
+                AudioAssetManager.PRIORITY_NORMAL,
+            )
+            self._journal(
+                "EVENT_PREPARE",
+                self.pending_event_asset.path.name,
+            )
+        else:
+            self._journal(
+                "EVENT_PREPARE_FAILED",
+                "no eligible layered-event candidates",
+            )
 
     def _gesture(self, spec, quiet):
         gestures = ["cross", "approach", "overhead", "apparition", "orbit"]
@@ -4728,50 +4802,107 @@ class DreamMotif3DEngine:
         return (np.array([side*far,0,-5]), np.array([0,1,-.5]), np.array([-side*far,0,4]))
 
     def _spawn_prepared_event(self, slot_index, spec, quiet):
-        slot=self.slots[slot_index]; self._prepare_event(slot,spec)
-        prepared=self.asset_manager.get_if_ready(self.pending_event_asset)
+        slot = self.slots[slot_index]
+        self._prepare_event(slot, spec)
+
+        asset = self.pending_event_asset
+        prepared = self.asset_manager.get_if_ready(asset)
         if prepared is None:
-            if self.asset_manager.error_for(self.pending_event_asset):
-                if self.pending_event_asset: self.pending_event_rejected.add(self.pending_event_asset.path)
-                self.pending_event_asset=None
+            error = self.asset_manager.error_for(asset)
+            if error:
+                asset_name = asset.path.name if asset is not None else "none"
+                self._journal(
+                    "EVENT_ASSET_FAILED",
+                    f"{asset_name}: {error}",
+                )
+                if asset is not None:
+                    self.pending_event_rejected.add(asset.path)
+                self.pending_event_asset = None
+            else:
+                self._journal(
+                    "EVENT_NOT_READY",
+                    asset.path.name if asset is not None else "none",
+                )
             return False
+
         if not prepared.is_layered_event:
-            if self.pending_event_asset: self.pending_event_rejected.add(self.pending_event_asset.path)
-            self.pending_event_asset=None; return False
-        free=next((s for s in self.event_sources if all(e.source is not s for e in self.events)),None)
-        if free is None: return False
-        gesture=self._gesture(spec,quiet); start,control,end=self._gesture_points(gesture,spec,quiet)
-        free.set_position_vector(self._vector3(start))
-        self.events.append(ActiveDreamMotifEvent(
-            asset_name=prepared.path.name,
-            audio=prepared.mono, source=free, read_position=0, elapsed_seconds=0.0,
-            travel_seconds=max(
-                12.0,
-                min(
-                    len(prepared.mono) / self.sample_rate,
-                    spec.event_travel_seconds
-                    * (1.6 + 1.8 * (1.0 - spec.activity)),
-                ),
+            self._journal(
+                "EVENT_REJECTED",
+                f"{prepared.path.name}: not classified as layered event",
+            )
+            if asset is not None:
+                self.pending_event_rejected.add(asset.path)
+            self.pending_event_asset = None
+            return False
+
+        free = next(
+            (
+                source
+                for source in self.event_sources
+                if all(event.source is not source for event in self.events)
             ),
-            start=start, control=control, end=end,
-            gain_linear=self._db_gain(spec.event_calibrated_gain_db),
-        ))
-        if self.pending_event_asset:
-            self.recent_event_paths.append(self.pending_event_asset.path)
-            self.recent_event_paths=self.recent_event_paths[-32:]
-        self.pending_event_asset=None; self.pending_event_rejected.clear(); return True
-
-    def _new_event_interval(self, spec, quiet):
-
-        # Real sleep-time spacing. At typical settings this is measured in
-        # minutes; Time Scale compresses it for iterative listening.
-        base = 180.0 + (1.0 - spec.activity) * 540.0
-        busy_penalty = (1.0 - quiet) * 600.0
-        presence_reduction = quiet * spec.presence * 90.0
-        return float(
-            self.rng.uniform(0.75, 1.35)
-            * max(120.0, base + busy_penalty - presence_reduction)
+            None,
         )
+        if free is None:
+            self._journal(
+                "EVENT_REJECTED",
+                f"{prepared.path.name}: no free spatial source",
+            )
+            return False
+
+        gesture = self._gesture(spec, quiet)
+        start, control, end = self._gesture_points(
+            gesture,
+            spec,
+            quiet,
+        )
+        free.set_position_vector(self._vector3(start))
+        sample_seconds = len(prepared.mono) / self.sample_rate
+        desired_travel_seconds = (
+            spec.event_travel_seconds
+            * (1.6 + 1.8 * (1.0 - spec.activity))
+        )
+        # Complete the full spatial path and its egress before the sample ends.
+        # The 92% cap leaves a short tail after the envelope reaches zero.
+        travel_seconds = max(
+            1.0,
+            min(
+                desired_travel_seconds,
+                sample_seconds * 0.92,
+            ),
+        )
+        self.events.append(
+            ActiveDreamMotifEvent(
+                asset_name=prepared.path.name,
+                audio=prepared.mono,
+                source=free,
+                read_position=0,
+                elapsed_seconds=0.0,
+                travel_seconds=travel_seconds,
+                start=start,
+                control=control,
+                end=end,
+                gain_linear=self._db_gain(
+                    spec.event_calibrated_gain_db
+                ),
+            )
+        )
+        self.seconds_since_last_event = 0.0
+        self._journal(
+            "EVENT_START",
+            f"{prepared.path.name}; role="
+            f"{'dominant' if slot_index == self.dominant_index else 'recessive'}; "
+            f"gesture={gesture}; sample "
+            f"{len(prepared.mono) / self.sample_rate:.2f} s; "
+            f"travel {travel_seconds:.2f} s",
+        )
+
+        if asset is not None:
+            self.recent_event_paths.append(asset.path)
+            self.recent_event_paths = self.recent_event_paths[-32:]
+        self.pending_event_asset = None
+        self.pending_event_rejected.clear()
+        return True
 
     def _render_events(self, frame_count, real_dt, conductor_dt):
         stereo = np.zeros((frame_count, 2), dtype=np.float32)
@@ -4822,6 +4953,18 @@ class DreamMotif3DEngine:
                 and progress < 1.0
             ):
                 keep.append(event)
+            else:
+                reason = (
+                    "sample complete"
+                    if event.read_position >= len(event.audio)
+                    else "gesture complete"
+                )
+                self._journal(
+                    "EVENT_COMPLETE",
+                    f"{event.asset_name}; {reason}; "
+                    f"sample {event.read_position / self.sample_rate:.2f} s; "
+                    f"gesture {event.elapsed_seconds:.2f} s",
+                )
 
         self.events = keep
         return stereo
@@ -4836,6 +4979,8 @@ class DreamMotif3DEngine:
     ) -> np.ndarray:
         spec = self.state.get()
         real_dt = frame_count / self.sample_rate
+        self.render_elapsed_seconds += real_dt
+        self.seconds_since_last_event += real_dt
         waiting_dt = real_dt * spec.orchestrator_time_scale
         performance_dt = real_dt
 
@@ -4879,6 +5024,14 @@ class DreamMotif3DEngine:
             self.current_effective_time_scale = (
                 1.0 if dreamscape_playing else spec.orchestrator_time_scale
             )
+            if self.current_clock_mode != self._last_logged_clock_mode:
+                self._journal(
+                    "CLOCK",
+                    f"{self._last_logged_clock_mode} -> "
+                    f"{self.current_clock_mode}; effective "
+                    f"x{self.current_effective_time_scale:.1f}",
+                )
+                self._last_logged_clock_mode = self.current_clock_mode
             self.conductor_elapsed += conductor_dt
             self._advance_scene(conductor_dt, spec, quiet)
 
@@ -5009,7 +5162,22 @@ class DreamMotif3DEngine:
                     + 0.68 * spec.presence
                     * quiet
                 )
-                if self.rng.random() <= reveal_probability:
+                force_after_soft_max = (
+                    self.seconds_since_last_event
+                    >= self.soft_max_event_silence_seconds
+                )
+                if force_after_soft_max:
+                    reveal_probability = 1.0
+                draw = float(self.rng.random())
+                self._journal(
+                    "EVENT_OPPORTUNITY",
+                    f"scene={self.scene}; probability "
+                    f"{reveal_probability:.3f}; draw {draw:.3f}; "
+                    f"quiet {quiet:.3f}; silence "
+                    f"{self.seconds_since_last_event / 60.0:.1f} min; "
+                    f"forced={force_after_soft_max}",
+                )
+                if draw <= reveal_probability:
                     event_slot = (
                         self.dominant_index
                         if self.rng.random()
@@ -5027,7 +5195,21 @@ class DreamMotif3DEngine:
                     else:
                         self.next_event_seconds = 5.0
                 else:
-                    # A missed opportunity becomes another meaningful gap.
+                    # A rejected opportunity must not carry a prepared asset
+                    # into a later scene or a different dominant motif.
+                    rejected_name = (
+                        self.pending_event_asset.path.name
+                        if self.pending_event_asset is not None
+                        else "none"
+                    )
+                    self._journal(
+                        "EVENT_PROBABILITY_REJECTED",
+                        f"draw {draw:.3f} > probability "
+                        f"{reveal_probability:.3f}; "
+                        f"discarded prepared={rejected_name}",
+                    )
+                    self.pending_event_asset = None
+                    self.pending_event_rejected.clear()
                     self.next_event_seconds = (
                         self._new_event_interval(spec, quiet)
                     )
@@ -5040,6 +5222,28 @@ class DreamMotif3DEngine:
 
         dominant = self.slots[self.dominant_index]
         recessive = self.slots[1 - self.dominant_index]
+
+        threshold_state = (
+            dominant.exposure >= self.MIN_PLAYING_EXPOSURE,
+            recessive.exposure >= self.MIN_PLAYING_EXPOSURE,
+        )
+        if threshold_state != self._last_logged_threshold_state:
+            previous = self._last_logged_threshold_state
+            for role, before, after, slot in (
+                ("dominant", previous[0], threshold_state[0], dominant),
+                ("recessive", previous[1], threshold_state[1], recessive),
+            ):
+                if before != after:
+                    self._journal(
+                        "MOTIF_THRESHOLD",
+                        f"{role} "
+                        f"{slot.motif.name if slot.motif else 'none'} "
+                        f"{'entered' if after else 'left'} playing range; "
+                        f"exposure {slot.exposure:.4f}; threshold "
+                        f"{self.MIN_PLAYING_EXPOSURE:.4f}",
+                    )
+            self._last_logged_threshold_state = threshold_state
+
         self.current_dominant_name = (
             dominant.motif.name if dominant.motif else ""
         )
@@ -5138,7 +5342,10 @@ class DreamMotif3DEngine:
             f"{recessive.exposure:.3f} → {recessive.target_exposure:.3f}; "
             f"distance {recessive.distance:.2f} m\n"
             f"EVENT WAIT: {max(0.0, self.next_event_seconds):.1f} s; "
-            f"prepared {pending_event_text}\n"
+            f"prepared {pending_event_text}; "
+            f"silence {self.seconds_since_last_event / 60.0:.1f} min "
+            f"/ soft max "
+            f"{self.soft_max_event_silence_seconds / 60.0:.0f} min\n"
             f"ACTIVE EVENTS: {active_events_text}\n"
             f"ASSETS: {cached} ready, {pending} loading, "
             f"{failed} failed, "
@@ -6035,10 +6242,33 @@ class ExportWorker(QThread):
 
             output = Path(self.output_path)
             output.parent.mkdir(parents=True, exist_ok=True)
+            log_output = output.with_suffix(".txt")
 
             frames_written = 0
+            motif_engine = mixer.dream_motif_3d
 
-            with wave.open(str(output), "wb") as wav:
+            with (
+                wave.open(str(output), "wb") as wav,
+                log_output.open("w", encoding="utf-8") as export_log,
+            ):
+                export_log.write(
+                    "Living Brown Noise — Dream Instigator export log\n"
+                )
+                export_log.write(f"Audio file: {output.name}\n")
+                export_log.write(
+                    f"Duration: {self.duration_minutes} minutes\n"
+                )
+                export_log.write(
+                    f"Sample rate: {self.sample_rate} Hz\n"
+                )
+                export_log.write(f"Seed: {seed_base}\n")
+                export_log.write(
+                    "Timestamps are rendered-audio positions.\n"
+                )
+                export_log.write(
+                    "Format: HH:MM:SS.mmm  CATEGORY  MESSAGE\n\n"
+                )
+
                 wav.setnchannels(2)
                 wav.setsampwidth(2)  # 16-bit PCM
                 wav.setframerate(self.sample_rate)
@@ -6063,6 +6293,14 @@ class ExportWorker(QThread):
 
                     audio = mixer.generate(frame_count)
 
+                    for timestamp, category, message in (
+                        motif_engine.drain_event_journal()
+                    ):
+                        export_log.write(
+                            f"{motif_engine._format_log_time(timestamp)}  "
+                            f"{category:<26}  {message}\n"
+                        )
+
                     # Convert float [-1, 1] to little-endian signed PCM16.
                     pcm = np.clip(audio, -1.0, 1.0)
                     pcm = np.round(pcm * 32767.0).astype("<i2")
@@ -6075,20 +6313,32 @@ class ExportWorker(QThread):
                     self.progress_changed.emit(percent)
 
                 wav.writeframes(b"")
+                for timestamp, category, message in (
+                    motif_engine.drain_event_journal()
+                ):
+                    export_log.write(
+                        f"{motif_engine._format_log_time(timestamp)}  "
+                        f"{category:<26}  {message}\n"
+                    )
+                export_log.write("\nEND OF EXPORT\n")
 
             self.progress_changed.emit(100)
             self.export_finished.emit(str(output))
 
         except InterruptedError:
             try:
-                Path(self.output_path).unlink(missing_ok=True)
+                output = Path(self.output_path)
+                output.unlink(missing_ok=True)
+                output.with_suffix(".txt").unlink(missing_ok=True)
             except Exception:
                 pass
             self.export_cancelled.emit()
 
         except Exception as exc:
             try:
-                Path(self.output_path).unlink(missing_ok=True)
+                output = Path(self.output_path)
+                output.unlink(missing_ok=True)
+                output.with_suffix(".txt").unlink(missing_ok=True)
             except Exception:
                 pass
             self.export_failed.emit(str(exc))
@@ -9408,15 +9658,17 @@ class MainWindow(QMainWindow):
 
     def _export_finished(self, output_path: str) -> None:
         self.export_progress.setValue(100)
+        log_path = str(Path(output_path).with_suffix(".txt"))
         self.export_status_label.setText(
-            f"Export complete: {output_path}"
+            f"Export complete: {output_path}; log: {log_path}"
         )
         self._finish_export_ui()
 
         QMessageBox.information(
             self,
             "Export complete",
-            f"Audio written to:\n{output_path}",
+            f"Audio written to:\n{output_path}\n\n"
+            f"Event log written to:\n{log_path}",
         )
 
     def _export_failed(self, message: str) -> None:
