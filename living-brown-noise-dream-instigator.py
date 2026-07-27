@@ -4073,10 +4073,13 @@ class DreamMotifSpatialSpec:
     coherence: float = 0.70
     novelty: float = 0.80
 
-    # Multiplies only periods when the dreamscape mixer is silent.
-    # Active motif exposure, fades, sample playback, movement, and spatial
-    # gestures remain in real time.
-    orchestrator_time_scale: float = 1.0
+    # Testing mode removes conductor waiting while preserving real-time
+    # sample playback, fades, motion, envelopes, and spatial gestures.
+    testing: bool = False
+
+    # Disable featured one-shot events while retaining the long ambient
+    # motif layers and their automatic spatial choreography.
+    featured_events_enabled: bool = True
 
     # Stable calibrated levels. Automatic choreography never animates gain;
     # apparent prominence is controlled by source position and attenuation.
@@ -4121,8 +4124,10 @@ class DreamMotifSpatialSpec:
         ):
             if not 0.0 <= getattr(self, field_name) <= 1.0:
                 raise ValueError(f"invalid conductor {field_name}")
-        if not 1.0 <= self.orchestrator_time_scale <= 20.0:
-            raise ValueError("invalid orchestrator time scale")
+        if not isinstance(self.testing, bool):
+            raise ValueError("invalid conductor testing flag")
+        if not isinstance(self.featured_events_enabled, bool):
+            raise ValueError("invalid featured-events flag")
         if not -80.0 <= self.motif_calibrated_gain_db <= 6.0:
             raise ValueError("invalid calibrated motif gain")
         if not -80.0 <= self.event_calibrated_gain_db <= 12.0:
@@ -4355,8 +4360,9 @@ class DreamMotif3DEngine:
         self.current_status = "catalogued; background assets pending"
         self.current_dominant_name = first.name if first else ""
         self.current_distant_name = second.name if second else ""
-        self.current_clock_mode = "SILENT WAIT"
+        self.current_clock_mode = "NORMAL"
         self.current_effective_time_scale = 1.0
+        self._testing_advance_pending = False
 
         self.render_elapsed_seconds = 0.0
         self._event_journal = deque(maxlen=4096)
@@ -4607,6 +4613,45 @@ class DreamMotif3DEngine:
                     f"recessive={recessive.motif.name if recessive.motif else 'none'}",
                 )
 
+    def _testing_advance_to_event_scene(self, spec, quiet) -> None:
+        eligible = {
+            self.SCENE_DEVELOP,
+            self.SCENE_REVEAL,
+            self.SCENE_AFTERIMAGE,
+        }
+        must_advance = (
+            self._testing_advance_pending
+            or self.scene not in eligible
+        )
+        self._testing_advance_pending = False
+
+        for _ in range(12):
+            if not must_advance and self.scene in eligible:
+                break
+
+            previous_scene = self.scene
+            previous_dominant = self.dominant_index
+            self.scene = self._next_scene(spec, quiet)
+            self.scene_elapsed = 0.0
+            self.scene_duration = self._scene_duration(spec, self.scene)
+            self._journal(
+                "TEST_SCENE",
+                f"{previous_scene} -> {self.scene}; waiting skipped",
+            )
+
+            if self.dominant_index != previous_dominant:
+                dominant = self.slots[self.dominant_index]
+                recessive = self.slots[1 - self.dominant_index]
+                self._journal(
+                    "ROLE_EXCHANGE",
+                    f"dominant={dominant.motif.name if dominant.motif else 'none'}; "
+                    f"recessive={recessive.motif.name if recessive.motif else 'none'}",
+                )
+
+            must_advance = self.scene not in eligible
+            if self.scene in eligible:
+                break
+
     def _exposure_targets(self, spec, quiet):
         """Return dominant/recessive audibility allowed by the current scene."""
         # Presence means willingness to become clear, not continuous loudness.
@@ -4742,7 +4787,7 @@ class DreamMotif3DEngine:
 
     def _new_event_interval(self, spec, quiet):
         # Real sleep-time spacing. At typical settings this is measured in
-        # minutes; Silent-period speed compresses only inaudible waiting.
+        # Normal sleep-time spacing; Testing mode bypasses this countdown.
         base = 180.0 + (1.0 - spec.activity) * 540.0
         busy_penalty = (1.0 - quiet) * 600.0
         presence_reduction = quiet * spec.presence * 90.0
@@ -4981,7 +5026,6 @@ class DreamMotif3DEngine:
         real_dt = frame_count / self.sample_rate
         self.render_elapsed_seconds += real_dt
         self.seconds_since_last_event += real_dt
-        waiting_dt = real_dt * spec.orchestrator_time_scale
         performance_dt = real_dt
 
         if not spec.enabled or not enabled or not self.bag.motifs:
@@ -5007,33 +5051,29 @@ class DreamMotif3DEngine:
         quiet = self.creepy_window
 
         if not manual_enabled:
-            # Drive acceleration from actual dreamscape activity rather than
-            # from a scene label. Brown noise is intentionally excluded.
-            dreamscape_playing = bool(self.events) or any(
-                slot.exposure >= self.MIN_PLAYING_EXPOSURE
-                for slot in self.slots
-            )
-            conductor_dt = (
-                performance_dt
-                if dreamscape_playing
-                else waiting_dt
-            )
-            self.current_clock_mode = (
-                "ACTIVE AUDIO" if dreamscape_playing else "SILENT WAIT"
-            )
-            self.current_effective_time_scale = (
-                1.0 if dreamscape_playing else spec.orchestrator_time_scale
-            )
+            if spec.testing:
+                if not spec.featured_events_enabled:
+                    self.current_clock_mode = "TESTING — AMBIENCE ONLY"
+                elif self.events:
+                    self.current_clock_mode = "TESTING — PLAYING EVENT"
+                else:
+                    self.current_clock_mode = "TESTING — NO WAIT"
+                    self._testing_advance_to_event_scene(spec, quiet)
+                self.current_effective_time_scale = 1.0
+                self.conductor_elapsed += real_dt
+            else:
+                self.current_clock_mode = "NORMAL"
+                self.current_effective_time_scale = 1.0
+                self.conductor_elapsed += real_dt
+                self._advance_scene(real_dt, spec, quiet)
+
             if self.current_clock_mode != self._last_logged_clock_mode:
                 self._journal(
                     "CLOCK",
                     f"{self._last_logged_clock_mode} -> "
-                    f"{self.current_clock_mode}; effective "
-                    f"x{self.current_effective_time_scale:.1f}",
+                    f"{self.current_clock_mode}",
                 )
                 self._last_logged_clock_mode = self.current_clock_mode
-            self.conductor_elapsed += conductor_dt
-            self._advance_scene(conductor_dt, spec, quiet)
 
         if manual_enabled:
             self.current_clock_mode = "MANUAL AUDIO"
@@ -5120,8 +5160,9 @@ class DreamMotif3DEngine:
             # Only one featured event at a time. Quiet windows and scene
             # structure determine whether a scheduled event may enter.
             event_allowed = (
-                not self.events
-                and quiet >= 0.48
+                spec.featured_events_enabled
+                and not self.events
+                and (spec.testing or quiet >= 0.48)
                 and self.scene in {
                     self.SCENE_DEVELOP,
                     self.SCENE_REVEAL,
@@ -5138,22 +5179,11 @@ class DreamMotif3DEngine:
                     spec,
                 )
 
-            # Apply the same silence rule to the event countdown. Once
-            # either long motif begins an exposure, countdown timing returns
-            # to real time even before a one-shot starts.
-            countdown_dt = (
-                performance_dt
-                if (
-                    self.events
-                    or any(
-                        slot.exposure >= self.MIN_PLAYING_EXPOSURE
-                        for slot in self.slots
-                    )
-                )
-                else waiting_dt
-            )
-            if not self.events:
-                self.next_event_seconds -= countdown_dt
+            if spec.featured_events_enabled and not self.events:
+                if spec.testing:
+                    self.next_event_seconds = 0.0
+                else:
+                    self.next_event_seconds -= real_dt
             if event_allowed and self.next_event_seconds <= 0.0:
                 # Presence governs whether this eligible opening actually
                 # becomes a foreground gesture.
@@ -5166,7 +5196,7 @@ class DreamMotif3DEngine:
                     self.seconds_since_last_event
                     >= self.soft_max_event_silence_seconds
                 )
-                if force_after_soft_max:
+                if spec.testing or force_after_soft_max:
                     reveal_probability = 1.0
                 draw = float(self.rng.random())
                 self._journal(
@@ -5214,11 +5244,23 @@ class DreamMotif3DEngine:
                         self._new_event_interval(spec, quiet)
                     )
 
-            stereo += self._render_events(
-                frame_count,
-                real_dt,
-                performance_dt,
-            )
+            if spec.featured_events_enabled:
+                had_active_event = bool(self.events)
+                stereo += self._render_events(
+                    frame_count,
+                    real_dt,
+                    performance_dt,
+                )
+                if (
+                    spec.testing
+                    and had_active_event
+                    and not self.events
+                ):
+                    self._testing_advance_pending = True
+            else:
+                self.pending_event_asset = None
+                self.pending_event_rejected.clear()
+                self.events.clear()
 
         dominant = self.slots[self.dominant_index]
         recessive = self.slots[1 - self.dominant_index]
@@ -5325,10 +5367,11 @@ class DreamMotif3DEngine:
         )
 
         self.current_status = (
-            f"CLOCK: {self.current_clock_mode} "
-            f"×{self.current_effective_time_scale:.1f} "
-            f"(slider ×{spec.orchestrator_time_scale:.1f}; "
-            f"playing threshold {self.MIN_PLAYING_EXPOSURE:.3f})\n"
+            f"MODE: {self.current_clock_mode}; "
+            f"testing={'ON' if spec.testing else 'OFF'}; "
+            f"featured effects="
+            f"{'ON' if spec.featured_events_enabled else 'OFF'}; "
+            f"playing threshold {self.MIN_PLAYING_EXPOSURE:.3f}\n"
             f"STATE: {prefix}{self.scene}; "
             f"scene remaining {scene_remaining:.1f} s; "
             f"conductor {self.conductor_elapsed / 60.0:.2f} min; "
@@ -5341,7 +5384,8 @@ class DreamMotif3DEngine:
             f"{recessive_phase}; exposure "
             f"{recessive.exposure:.3f} → {recessive.target_exposure:.3f}; "
             f"distance {recessive.distance:.2f} m\n"
-            f"EVENT WAIT: {max(0.0, self.next_event_seconds):.1f} s; "
+            f"EVENT WAIT: {max(0.0, self.next_event_seconds):.1f} s "
+            f"({'enabled' if spec.featured_events_enabled else 'disabled'}); "
             f"prepared {pending_event_text}; "
             f"silence {self.seconds_since_last_event / 60.0:.1f} min "
             f"/ soft max "
@@ -6916,15 +6960,26 @@ class MainWindow(QMainWindow):
         )
 
 
-        self.motif_time_scale_control = add_motif_spatial_control(
-            motif_guidance_form,
-            "Silent-period speed:",
-            "orchestrator_time_scale",
-            1.0,
-            20.0,
-            0.5,
-            1,
-            "x",
+        self.motif_testing_checkbox = QCheckBox(
+            "Testing — remove all conductor delays"
+        )
+        self.motif_testing_checkbox.setChecked(
+            motif_spatial_spec.testing
+        )
+        motif_guidance_form.addRow(
+            "",
+            self.motif_testing_checkbox,
+        )
+
+        self.motif_featured_events_checkbox = QCheckBox(
+            "Featured one-shot effects"
+        )
+        self.motif_featured_events_checkbox.setChecked(
+            motif_spatial_spec.featured_events_enabled
+        )
+        motif_guidance_form.addRow(
+            "",
+            self.motif_featured_events_checkbox,
         )
         self.motif_activity_control = add_motif_spatial_control(
             motif_guidance_form,
@@ -8529,6 +8584,14 @@ class MainWindow(QMainWindow):
                 enabled=bool(checked)
             )
         )
+        self.motif_testing_checkbox.toggled.connect(
+            lambda checked: self._update_dream_motif_spatial(
+                testing=bool(checked)
+            )
+        )
+        self.motif_featured_events_checkbox.toggled.connect(
+            self._on_featured_events_toggled
+        )
         self.motif_combo.currentTextChanged.connect(
             self._on_motif_changed
         )
@@ -8786,6 +8849,21 @@ class MainWindow(QMainWindow):
             source_kind=source_kind
         )
         self._schedule_settings_save()
+
+    def _on_featured_events_toggled(self, checked: bool) -> None:
+        self._update_dream_motif_spatial(
+            featured_events_enabled=bool(checked)
+        )
+        if not checked:
+            engine = self.mixer.dream_motif_3d
+            engine.pending_event_asset = None
+            engine.pending_event_rejected.clear()
+            engine.events.clear()
+            engine._testing_advance_pending = False
+            engine._journal(
+                "EVENTS_DISABLED",
+                "featured one-shot effects disabled; ambient motifs only",
+            )
 
     def _update_dream_motif_spatial(self, **changes) -> None:
         self.mixer.dream_motif_spatial_state.update(**changes)
