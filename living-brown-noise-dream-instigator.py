@@ -4,6 +4,7 @@ import json
 import logging
 import queue
 import math
+import re
 import sys
 import threading
 import time
@@ -46,6 +47,7 @@ from PySide6.QtWidgets import (
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 SOUND_EFFECTS_DIRECTORY = SCRIPT_DIRECTORY / "sounds"
 EXPORT_DIRECTORY = SCRIPT_DIRECTORY / "exports"
+CONDUCTOR_LOG_PATH = SCRIPT_DIRECTORY / "conductor-log.txt"
 
 LOG_DIRECTORY = Path.home() / ".living_brown_noise"
 STARTUP_LOG_PATH = LOG_DIRECTORY / "startup.log"
@@ -4048,9 +4050,18 @@ class HeartbeatProminenceLimiter:
 class DreamMotifSpatialSpec:
     enabled: bool = True
 
+    # Explicit baseline spatial calibration. These are the primary
+    # listening controls; higher-level style controls may shape them later.
+    far_distance_calibrated: float = 18.0
+    closest_ambient_distance: float = 3.0
+    ambient_approach_seconds: float = 90.0
+    motif_crossfade_seconds: float = 180.0
+    ambient_clip_fade_seconds: float = 8.0
+    scene_duration_scale: float = 1.0
+
+    # Legacy fields retained for settings compatibility and advanced tuning.
     far_distance: float = 14.0
     near_distance: float = 2.0
-
     fade_in_seconds: float = 90.0
     fade_out_seconds: float = 90.0
 
@@ -4087,6 +4098,23 @@ class DreamMotifSpatialSpec:
     event_calibrated_gain_db: float = -16.0
 
     def validated(self) -> "DreamMotifSpatialSpec":
+        if not 0.1 <= self.far_distance_calibrated <= 100.0:
+            raise ValueError("invalid far distance")
+        if not 0.0 <= self.closest_ambient_distance <= 30.0:
+            raise ValueError("invalid closest ambient distance")
+        if self.closest_ambient_distance >= self.far_distance_calibrated:
+            raise ValueError(
+                "closest ambient distance must be less than far distance"
+            )
+        if not 5.0 <= self.ambient_approach_seconds <= 1800.0:
+            raise ValueError("invalid ambient approach duration")
+        if not 5.0 <= self.motif_crossfade_seconds <= 1800.0:
+            raise ValueError("invalid motif crossfade duration")
+        if not 0.5 <= self.ambient_clip_fade_seconds <= 60.0:
+            raise ValueError("invalid ambient clip fade duration")
+        if not 0.10 <= self.scene_duration_scale <= 2.0:
+            raise ValueError("invalid conductor scene-duration scale")
+
         if not 1.0 <= self.far_distance <= 100.0:
             raise ValueError("invalid motif far distance")
         if not 0.15 <= self.near_distance <= 20.0:
@@ -4250,7 +4278,14 @@ class DreamMotifSlot:
     gain_linear: float
     target_gain_linear: float
     audio: np.ndarray | None = None
+    current_asset_path: Path | None = None
     pending_asset: DreamMotifAsset | None = None
+
+    next_audio: np.ndarray | None = None
+    next_asset_path: Path | None = None
+    next_pending_asset: DreamMotifAsset | None = None
+    next_read_position: int = 0
+
     rejected_paths: set[Path] = field(default_factory=set)
     read_position: int = 0
     position: np.ndarray = field(
@@ -4264,6 +4299,12 @@ class DreamMotifSlot:
     )
     move_elapsed: float = 0.0
     move_duration: float = 30.0
+    exchange_start_position: np.ndarray = field(
+        default_factory=lambda: np.array(
+            [0.0, 0.0, -12.0],
+            dtype=np.float64,
+        )
+    )
     exposure: float = 0.0
     target_exposure: float = 0.0
 
@@ -4330,12 +4371,22 @@ class DreamMotif3DEngine:
         )
         self.bag = DreamMotifShuffleBag(motifs, self.rng)
         spec = self.state.get()
-        self.slots = [self._make_slot(spec.far_distance),
-                      self._make_slot(spec.far_distance)]
+        self.slots = [
+            self._make_slot(spec.far_distance_calibrated),
+            self._make_slot(spec.far_distance_calibrated),
+        ]
         first = self.bag.next()
         second = self.bag.next({first.name} if first else set())
-        self._assign_slot(0, first, spec.far_distance)
-        self._assign_slot(1, second, spec.far_distance)
+        self._assign_slot(
+            0,
+            first,
+            spec.far_distance_calibrated,
+        )
+        self._assign_slot(
+            1,
+            second,
+            spec.far_distance_calibrated,
+        )
         self.dominant_index = 0
 
         self.scene = self.SCENE_REST
@@ -4349,6 +4400,7 @@ class DreamMotif3DEngine:
         self.pending_event_asset: DreamMotifAsset | None = None
         self.pending_event_rejected: set[Path] = set()
         self.recent_event_paths: list[Path] = []
+        self.recent_event_families: list[str] = []
         self.recent_gestures: list[str] = []
         self.event_sources = [renderer.create_source(
             position=STEAM_DEFAULT_SOURCE_POSITION,
@@ -4363,6 +4415,13 @@ class DreamMotif3DEngine:
         self.current_clock_mode = "NORMAL"
         self.current_effective_time_scale = 1.0
         self._testing_advance_pending = False
+
+        self._command_lock = threading.Lock()
+        self._force_exchange_requested = False
+
+        # Ambient recordings are non-looping environmental scenes.
+        # Each plays once, fades out, and hands off to a different recording.
+        # Fade duration comes from DreamMotifSpatialSpec so it can be tuned live.
 
         self.render_elapsed_seconds = 0.0
         self._event_journal = deque(maxlen=4096)
@@ -4430,8 +4489,18 @@ class DreamMotif3DEngine:
                      distance: float) -> None:
         slot = self.slots[index]
         p = self._random_direction() * distance
-        slot.motif = motif; slot.audio = None; slot.pending_asset = None
-        slot.rejected_paths.clear(); slot.read_position = 0
+        slot.motif = motif
+        slot.audio = None
+        slot.current_asset_path = None
+        slot.pending_asset = None
+
+        slot.next_audio = None
+        slot.next_asset_path = None
+        slot.next_pending_asset = None
+        slot.next_read_position = 0
+
+        slot.rejected_paths.clear()
+        slot.read_position = 0
         slot.position = p.copy(); slot.move_start = p.copy(); slot.move_target = p.copy()
         slot.move_elapsed = 0.0; slot.move_duration = 30.0
         slot.distance = float(np.linalg.norm(p)); slot.direction = p / max(slot.distance, 1e-9)
@@ -4467,34 +4536,309 @@ class DreamMotif3DEngine:
                     self.manual_solo, self.manual_test_motif_name)
 
     def _ambient_candidates(self, slot):
-        if slot.motif is None: return []
-        return [a for a in slot.motif.ambient_assets if a.path not in slot.rejected_paths]
+        if slot.motif is None:
+            return []
+        return [
+            asset
+            for asset in slot.motif.ambient_assets
+            if asset.path not in slot.rejected_paths
+        ]
+
+    def _choose_ambient_asset(self, slot, avoid_path=None):
+        candidates = self._ambient_candidates(slot)
+        if not candidates:
+            return None
+
+        alternatives = [
+            asset
+            for asset in candidates
+            if asset.path != avoid_path
+        ]
+        pool = alternatives or candidates
+        return pool[int(self.rng.integers(0, len(pool)))]
+
+    def _request_next_ambient(self, slot, priority):
+        if (
+            slot.audio is None
+            or slot.next_audio is not None
+            or slot.next_pending_asset is not None
+        ):
+            return
+
+        asset = self._choose_ambient_asset(
+            slot,
+            avoid_path=slot.current_asset_path,
+        )
+        if asset is None:
+            return
+
+        slot.next_pending_asset = asset
+        self.asset_manager.request(asset, priority)
+
+    def _poll_next_ambient(self, slot):
+        asset = slot.next_pending_asset
+        if asset is None:
+            return
+
+        prepared = self.asset_manager.get_if_ready(asset)
+        if prepared is not None:
+            if prepared.is_layered_event:
+                slot.rejected_paths.add(asset.path)
+                slot.next_pending_asset = None
+                return
+
+            slot.next_audio = prepared.mono
+            slot.next_asset_path = asset.path
+            slot.next_read_position = 0
+            slot.next_pending_asset = None
+
+            self._journal(
+                "AMBIENT_READY",
+                f"motif={slot.motif.name if slot.motif else 'none'}; "
+                f"next={asset.path.name}",
+            )
+            return
+
+        if self.asset_manager.error_for(asset):
+            slot.rejected_paths.add(asset.path)
+            slot.next_pending_asset = None
+            self._journal(
+                "AMBIENT_LOAD_FAILED",
+                f"motif={slot.motif.name if slot.motif else 'none'}; "
+                f"asset={asset.path.name}",
+            )
 
     def _ensure_slot_audio(self, slot, priority):
-        if slot.audio is not None: return True
-        if slot.motif is None: return False
+        if slot.audio is not None:
+            self._poll_next_ambient(slot)
+            self._request_next_ambient(slot, priority)
+            return True
+
+        if slot.motif is None:
+            return False
+
         if slot.pending_asset is not None:
-            prepared = self.asset_manager.get_if_ready(slot.pending_asset)
+            prepared = self.asset_manager.get_if_ready(
+                slot.pending_asset
+            )
             if prepared is not None:
+                asset = slot.pending_asset
                 if prepared.is_layered_event:
-                    slot.rejected_paths.add(slot.pending_asset.path); slot.pending_asset = None
+                    slot.rejected_paths.add(asset.path)
+                    slot.pending_asset = None
                 else:
-                    slot.audio = prepared.mono; slot.read_position = 0; slot.pending_asset = None
+                    slot.audio = prepared.mono
+                    slot.current_asset_path = asset.path
+                    slot.read_position = 0
+                    slot.pending_asset = None
+
+                    self._journal(
+                        "AMBIENT_START",
+                        f"motif={slot.motif.name}; "
+                        f"asset={asset.path.name}; "
+                        f"duration={len(slot.audio) / self.sample_rate:.2f}s",
+                    )
+                    self._request_next_ambient(slot, priority)
                     return True
+
             elif self.asset_manager.error_for(slot.pending_asset):
-                slot.rejected_paths.add(slot.pending_asset.path); slot.pending_asset = None
+                slot.rejected_paths.add(slot.pending_asset.path)
+                slot.pending_asset = None
+
         if slot.pending_asset is None:
-            candidates = self._ambient_candidates(slot)
-            if candidates:
-                slot.pending_asset = candidates[int(self.rng.integers(0, len(candidates)))]
-                self.asset_manager.request(slot.pending_asset, priority)
+            asset = self._choose_ambient_asset(slot)
+            if asset is not None:
+                slot.pending_asset = asset
+                self.asset_manager.request(asset, priority)
+
         return slot.audio is not None
 
+    def _promote_next_ambient(self, slot):
+        previous_name = (
+            slot.current_asset_path.name
+            if slot.current_asset_path is not None
+            else "none"
+        )
+        incoming_name = (
+            slot.next_asset_path.name
+            if slot.next_asset_path is not None
+            else "none"
+        )
+
+        slot.audio = slot.next_audio
+        slot.current_asset_path = slot.next_asset_path
+        slot.read_position = slot.next_read_position
+
+        slot.next_audio = None
+        slot.next_asset_path = None
+        slot.next_pending_asset = None
+        slot.next_read_position = 0
+
+        self._journal(
+            "AMBIENT_SWITCH",
+            f"motif={slot.motif.name if slot.motif else 'none'}; "
+            f"{previous_name} -> {incoming_name}",
+        )
+
     def _render_loop(self, slot, frame_count):
-        if slot.audio is None: return np.zeros(frame_count, dtype=np.float32)
-        idx = (np.arange(frame_count, dtype=np.int64) + slot.read_position) % len(slot.audio)
-        slot.read_position = int((slot.read_position + frame_count) % len(slot.audio))
-        return slot.audio[idx]
+        output = np.zeros(frame_count, dtype=np.float32)
+
+        if slot.audio is None or len(slot.audio) == 0:
+            return output
+
+        self._poll_next_ambient(slot)
+        self._request_next_ambient(
+            slot,
+            AudioAssetManager.PRIORITY_HIGH,
+        )
+
+        written = 0
+
+        while written < frame_count:
+            current = slot.audio
+            if current is None or len(current) == 0:
+                break
+
+            remaining = len(current) - slot.read_position
+
+            if remaining <= 0:
+                if slot.next_audio is not None:
+                    self._promote_next_ambient(slot)
+                    self._request_next_ambient(
+                        slot,
+                        AudioAssetManager.PRIORITY_HIGH,
+                    )
+                    continue
+
+                # Never loop a completed ambient. Stay silent until the next
+                # environmental recording is ready.
+                self._journal(
+                    "AMBIENT_GAP",
+                    f"motif={slot.motif.name if slot.motif else 'none'}; "
+                    "completed recording; waiting for next ambient",
+                )
+                slot.audio = None
+                slot.current_asset_path = None
+                slot.read_position = 0
+                break
+
+            fade_frames = max(
+                1,
+                min(
+                    int(
+                        self.state.get().ambient_clip_fade_seconds
+                        * self.sample_rate
+                    ),
+                    len(current) // 4,
+                ),
+            )
+
+            crossfade_available = (
+                slot.next_audio is not None
+                and remaining <= fade_frames
+            )
+
+            take = min(frame_count - written, remaining)
+            current_indices = (
+                np.arange(take, dtype=np.int64)
+                + slot.read_position
+            )
+            current_chunk = current[current_indices].astype(
+                np.float64,
+                copy=False,
+            )
+
+            # Fade-in at the beginning of every new environmental recording.
+            current_positions = (
+                np.arange(take, dtype=np.int64)
+                + slot.read_position
+            )
+            fade_in = np.clip(
+                current_positions / fade_frames,
+                0.0,
+                1.0,
+            )
+            current_gain = np.sin(
+                fade_in * math.pi * 0.5
+            )
+
+            if crossfade_available:
+                # Fade the current recording out while the next different
+                # recording fades in at the same spatial anchor.
+                fade_out = np.clip(
+                    (
+                        len(current)
+                        - current_positions
+                    ) / fade_frames,
+                    0.0,
+                    1.0,
+                )
+                current_gain *= np.sin(
+                    fade_out * math.pi * 0.5
+                )
+
+                next_audio = slot.next_audio
+                next_indices = (
+                    np.arange(take, dtype=np.int64)
+                    + slot.next_read_position
+                )
+                valid = next_indices < len(next_audio)
+
+                next_chunk = np.zeros(take, dtype=np.float64)
+                next_chunk[valid] = next_audio[
+                    next_indices[valid]
+                ]
+
+                incoming_progress = np.clip(
+                    next_indices / fade_frames,
+                    0.0,
+                    1.0,
+                )
+                incoming_gain = np.sin(
+                    incoming_progress * math.pi * 0.5
+                )
+
+                output[written:written + take] = (
+                    current_chunk * current_gain
+                    + next_chunk * incoming_gain
+                ).astype(np.float32)
+
+                slot.next_read_position += int(np.sum(valid))
+            else:
+                # No next recording ready: still fade the current ambient
+                # naturally to silence rather than cutting or looping.
+                fade_out = np.clip(
+                    (
+                        len(current)
+                        - current_positions
+                    ) / fade_frames,
+                    0.0,
+                    1.0,
+                )
+                current_gain *= np.sin(
+                    fade_out * math.pi * 0.5
+                )
+
+                output[written:written + take] = (
+                    current_chunk * current_gain
+                ).astype(np.float32)
+
+            slot.read_position += take
+            written += take
+
+            if slot.read_position >= len(current):
+                if slot.next_audio is not None:
+                    self._promote_next_ambient(slot)
+                    self._request_next_ambient(
+                        slot,
+                        AudioAssetManager.PRIORITY_HIGH,
+                    )
+                else:
+                    slot.audio = None
+                    slot.current_asset_path = None
+                    slot.read_position = 0
+
+        return output
 
     def _manual_event_candidates(self, motif_name):
         motif = next((m for m in self.bag.motifs if m.name == motif_name), None)
@@ -4533,13 +4877,16 @@ class DreamMotif3DEngine:
 
         # These are real sleep-time durations. Development testing is done by
         # accelerating the conductor clock, not by making the composition dense.
+        if scene == self.SCENE_ESTABLISH:
+            return float(spec.ambient_approach_seconds)
+        if scene == self.SCENE_EXCHANGE:
+            return float(spec.motif_crossfade_seconds)
+
         base = {
-            self.SCENE_ESTABLISH: 180.0,
             self.SCENE_DEVELOP: 360.0,
             self.SCENE_FOCUS: 100.0,
             self.SCENE_REVEAL: 80.0,
             self.SCENE_AFTERIMAGE: 180.0,
-            self.SCENE_EXCHANGE: 240.0,
             self.SCENE_REST: 360.0,
         }[scene]
         # Low Activity substantially lengthens scenes and especially rest.
@@ -4552,6 +4899,7 @@ class DreamMotif3DEngine:
             * activity_scale
             * drama_scale
             * self.rng.uniform(0.80, 1.25)
+            * spec.scene_duration_scale
         )
 
     @staticmethod
@@ -4576,6 +4924,96 @@ class DreamMotif3DEngine:
         self._event_journal.clear()
         return entries
 
+    def _capture_exchange_start(self, spec) -> None:
+        outgoing_index = self.dominant_index
+        incoming_index = 1 - self.dominant_index
+
+        for index, slot in enumerate(self.slots):
+            slot.exchange_start_position = slot.position.copy()
+
+        outgoing = self.slots[outgoing_index]
+        incoming = self.slots[incoming_index]
+        self._journal(
+            "EXCHANGE_START",
+            f"outgoing="
+            f"{outgoing.motif.name if outgoing.motif else 'none'} "
+            f"{np.linalg.norm(outgoing.position):.2f}m -> "
+            f"{spec.far_distance_calibrated:.2f}m; "
+            f"incoming="
+            f"{incoming.motif.name if incoming.motif else 'none'} "
+            f"{np.linalg.norm(incoming.position):.2f}m -> "
+            f"{spec.closest_ambient_distance:.2f}m; "
+            f"duration={spec.motif_crossfade_seconds:.1f}s",
+        )
+
+    def _exchange_target_position(
+        self,
+        slot,
+        target_radius: float,
+        progress: float,
+    ) -> np.ndarray:
+        start = slot.exchange_start_position
+        start_radius = float(np.linalg.norm(start))
+
+        if start_radius > 1.0e-9:
+            direction = start / start_radius
+        elif float(np.linalg.norm(slot.direction)) > 1.0e-9:
+            direction = slot.direction / np.linalg.norm(slot.direction)
+        else:
+            direction = np.array(
+                [0.0, 0.0, -1.0],
+                dtype=np.float64,
+            )
+
+        radius = (
+            start_radius
+            + (target_radius - start_radius) * progress
+        )
+        return direction * radius
+
+    def _update_exchange_position(
+        self,
+        slot,
+        progress: float,
+        target_radius: float,
+    ) -> None:
+        position = self._exchange_target_position(
+            slot,
+            target_radius,
+            progress,
+        )
+        slot.position = position
+        slot.distance = float(np.linalg.norm(position))
+        slot.direction = position / max(slot.distance, 1.0e-9)
+        slot.source.set_position_vector(
+            self._vector3(position)
+        )
+
+    def _finish_exchange_positions(self, spec) -> None:
+        outgoing = self.slots[self.dominant_index]
+        incoming = self.slots[1 - self.dominant_index]
+
+        self._update_exchange_position(
+            outgoing,
+            1.0,
+            spec.far_distance_calibrated,
+        )
+        self._update_exchange_position(
+            incoming,
+            1.0,
+            spec.closest_ambient_distance,
+        )
+
+        self._journal(
+            "EXCHANGE_COMPLETE",
+            f"outgoing="
+            f"{outgoing.motif.name if outgoing.motif else 'none'} "
+            f"at {outgoing.distance:.2f}m; "
+            f"incoming="
+            f"{incoming.motif.name if incoming.motif else 'none'} "
+            f"at {incoming.distance:.2f}m",
+        )
+
     def _next_scene(self, spec, quiet):
         if self.scene == self.SCENE_ESTABLISH: return self.SCENE_DEVELOP
         if self.scene == self.SCENE_DEVELOP:
@@ -4588,17 +5026,57 @@ class DreamMotif3DEngine:
             return self.SCENE_EXCHANGE if self.rng.random() < 0.45 + 0.35 * spec.drama else self.SCENE_REST
         if self.scene == self.SCENE_EXCHANGE:
             self.dominant_index = 1 - self.dominant_index
-            return self.SCENE_ESTABLISH
+            # The incoming motif completed its approach during EXCHANGE.
+            # Entering ESTABLISH here would target the far endpoint again
+            # and visibly undo the completed handoff.
+            return self.SCENE_DEVELOP
         return self.SCENE_ESTABLISH
+
+    def request_force_exchange(self) -> None:
+        with self._command_lock:
+            self._force_exchange_requested = True
+
+    def _consume_force_exchange_request(self) -> bool:
+        with self._command_lock:
+            requested = self._force_exchange_requested
+            self._force_exchange_requested = False
+            return requested
+
+    def _begin_forced_exchange(self, spec) -> None:
+        outgoing = self.slots[self.dominant_index]
+        incoming = self.slots[1 - self.dominant_index]
+
+        self.scene = self.SCENE_EXCHANGE
+        self.scene_elapsed = 0.0
+        self.scene_duration = float(
+            spec.motif_crossfade_seconds
+        )
+        self._capture_exchange_start(spec)
+
+        self._journal(
+            "FORCED_EXCHANGE",
+            f"outgoing="
+            f"{outgoing.motif.name if outgoing.motif else 'none'}; "
+            f"incoming="
+            f"{incoming.motif.name if incoming.motif else 'none'}; "
+            f"duration={self.scene_duration:.1f}s",
+        )
 
     def _advance_scene(self, dt, spec, quiet):
         self.scene_elapsed += dt
         if self.scene_elapsed >= self.scene_duration:
             previous_scene = self.scene
             previous_dominant = self.dominant_index
+
+            if previous_scene == self.SCENE_EXCHANGE:
+                self._finish_exchange_positions(spec)
+
             self.scene = self._next_scene(spec, quiet)
             self.scene_elapsed = 0.0
             self.scene_duration = self._scene_duration(spec, self.scene)
+
+            if self.scene == self.SCENE_EXCHANGE:
+                self._capture_exchange_start(spec)
             self._journal(
                 "SCENE",
                 f"{previous_scene} -> {self.scene}; "
@@ -4613,12 +5091,46 @@ class DreamMotif3DEngine:
                     f"recessive={recessive.motif.name if recessive.motif else 'none'}",
                 )
 
+    def _testing_skip_rest(self, spec, quiet) -> None:
+        """Skip only genuinely idle REST time during Testing.
+
+        Audible approach, development, reveal, afterimage, and exchange
+        remain real-time performances.
+        """
+        if self.scene != self.SCENE_REST:
+            return
+
+        previous_scene = self.scene
+        self.scene = self.SCENE_ESTABLISH
+        self.scene_elapsed = 0.0
+        self.scene_duration = self._scene_duration(
+            spec,
+            self.scene,
+        )
+        self._journal(
+            "TEST_SCENE",
+            f"{previous_scene} -> {self.scene}; idle rest skipped; "
+            f"performance duration {self.scene_duration:.1f} s",
+        )
+
     def _testing_advance_to_event_scene(self, spec, quiet) -> None:
         eligible = {
             self.SCENE_DEVELOP,
             self.SCENE_REVEAL,
             self.SCENE_AFTERIMAGE,
         }
+
+        # Exchange and Establish are protected performances, never idle.
+        if self.scene in {
+            self.SCENE_EXCHANGE,
+            self.SCENE_ESTABLISH,
+        }:
+            return
+
+        self._testing_skip_rest(spec, quiet)
+        if self.scene == self.SCENE_ESTABLISH:
+            return
+
         must_advance = (
             self._testing_advance_pending
             or self.scene not in eligible
@@ -4631,12 +5143,20 @@ class DreamMotif3DEngine:
 
             previous_scene = self.scene
             previous_dominant = self.dominant_index
-            self.scene = self._next_scene(spec, quiet)
+
+            if previous_scene == self.SCENE_EXCHANGE:
+                self._finish_exchange_positions(spec)
+
+            next_scene = self._next_scene(spec, quiet)
+            self.scene = next_scene
             self.scene_elapsed = 0.0
             self.scene_duration = self._scene_duration(spec, self.scene)
+
+            if self.scene == self.SCENE_EXCHANGE:
+                self._capture_exchange_start(spec)
             self._journal(
                 "TEST_SCENE",
-                f"{previous_scene} -> {self.scene}; waiting skipped",
+                f"{previous_scene} -> {self.scene}; idle waiting skipped",
             )
 
             if self.dominant_index != previous_dominant:
@@ -4647,6 +5167,11 @@ class DreamMotif3DEngine:
                     f"dominant={dominant.motif.name if dominant.motif else 'none'}; "
                     f"recessive={recessive.motif.name if recessive.motif else 'none'}",
                 )
+
+            # Stop immediately upon entering exchange. Its simultaneous
+            # cross-fade and anchor motion must run in real time.
+            if self.scene == self.SCENE_EXCHANGE:
+                break
 
             must_advance = self.scene not in eligible
             if self.scene in eligible:
@@ -4662,24 +5187,24 @@ class DreamMotif3DEngine:
         targets = {
             self.SCENE_REST: (floor, floor),
             self.SCENE_ESTABLISH: (
-                0.08 + 0.30 * presence,
-                floor + 0.018 * presence,
+                0.20 + 0.38 * presence,
+                floor + 0.022 * presence,
             ),
             self.SCENE_DEVELOP: (
-                0.14 + 0.42 * presence,
-                0.008 + 0.09 * presence,
+                0.28 + 0.46 * presence,
+                0.010 + 0.08 * presence,
             ),
             self.SCENE_FOCUS: (
-                0.06 + 0.18 * presence,
-                floor,
+                0.24 + 0.36 * presence,
+                floor + 0.012 * presence,
             ),
             self.SCENE_REVEAL: (
-                0.22 + 0.62 * presence,
-                0.006 + 0.05 * presence,
+                0.36 + 0.52 * presence,
+                0.008 + 0.045 * presence,
             ),
             self.SCENE_AFTERIMAGE: (
-                0.06 + 0.25 * presence,
-                0.012 + 0.08 * presence,
+                0.16 + 0.30 * presence,
+                0.012 + 0.065 * presence,
             ),
             self.SCENE_EXCHANGE: (0.0, 0.0),
         }
@@ -4691,12 +5216,12 @@ class DreamMotif3DEngine:
             )
             # The old world dissolves as the recessive world gradually enters.
             dominant_target = (
-                (0.16 + 0.42 * presence) * (1.0 - progress)
-                + (0.012 + 0.08 * presence) * progress
+                (0.30 + 0.42 * presence) * (1.0 - progress)
+                + (0.014 + 0.07 * presence) * progress
             )
             recessive_target = (
-                (0.012 + 0.08 * presence) * (1.0 - progress)
-                + (0.16 + 0.42 * presence) * progress
+                (0.014 + 0.07 * presence) * (1.0 - progress)
+                + (0.30 + 0.42 * presence) * progress
             )
 
         # Busy brown noise closes the creepy window rather than forcing the
@@ -4729,61 +5254,199 @@ class DreamMotif3DEngine:
         )
 
     def _role_distance(self, spec, dominant, quiet):
-        # Quiet brown noise opens the window: dominant comes closer, recessive
-        # becomes legible. Busy brown noise pushes both worlds outward.
+        """Return the distance of each moving ambient-world anchor.
+
+        Ambient beds never enter the near-ear zone. They make broad, slow
+        far-to-less-far excursions; featured effects may later detach from the
+        anchor and travel independently.
+        """
         presence = spec.presence * (0.30 + 0.70 * quiet)
-        near = spec.near_distance + (1.0 - presence) * 4.0
-        far = spec.far_distance + (1.0 - quiet) * 8.0
-        if self.scene == self.SCENE_FOCUS:
-            return far + 2.0 if not dominant else near + 1.5
-        if self.scene == self.SCENE_REVEAL:
-            return near * (0.65 + 0.25 * (1.0 - spec.intimacy)) if dominant else far
-        if self.scene == self.SCENE_AFTERIMAGE:
-            return near + 3.0 if dominant else far - 1.5
-        if self.scene == self.SCENE_EXCHANGE:
-            t = self._smoothstep5(self.scene_elapsed / max(self.scene_duration, 1e-9))
-            return (near + (far-near)*t) if dominant else (far + (near-far)*t)
+        ambient_near = spec.closest_ambient_distance
+        far = max(
+            ambient_near + 0.1,
+            spec.far_distance_calibrated,
+        )
+        recessive_far = far
+        middle = ambient_near + 0.48 * (far - ambient_near)
+        progress = self._smoothstep5(
+            self.scene_elapsed / max(self.scene_duration, 1.0e-9)
+        )
+
         if self.scene == self.SCENE_REST:
-            return far + 3.0 if dominant else far + 7.0
-        return near if dominant else far
+            return far + 3.0 if dominant else recessive_far
+
+        if self.scene == self.SCENE_ESTABLISH:
+            if dominant:
+                approach = self._smoothstep5(
+                    min(1.0, progress / 0.55)
+                )
+                return far + (ambient_near - far) * approach
+            return recessive_far
+
+        if self.scene == self.SCENE_DEVELOP:
+            if dominant:
+                # Hover between near-middle and near distance rather than
+                # drifting back into near-inaudibility.
+                return (
+                    ambient_near
+                    + 0.22 * (far - ambient_near)
+                    * (0.5 + 0.5 * math.sin(progress * math.pi))
+                )
+            return recessive_far
+
+        if self.scene == self.SCENE_FOCUS:
+            return ambient_near + 1.5 if dominant else recessive_far
+
+        if self.scene == self.SCENE_REVEAL:
+            return ambient_near if dominant else recessive_far
+
+        if self.scene == self.SCENE_AFTERIMAGE:
+            if dominant:
+                return ambient_near + (middle - ambient_near) * progress
+            return recessive_far
+
+        if self.scene == self.SCENE_EXCHANGE:
+            # Both world anchors move simultaneously: the outgoing dominant
+            # recedes while the incoming recessive advances.
+            if dominant:
+                return ambient_near + (recessive_far - ambient_near) * progress
+            return recessive_far + (ambient_near - recessive_far) * progress
+
+        return middle if dominant else recessive_far
 
     def _choose_wander_target(self, slot, role_distance, spec, dominant, quiet):
         motion = spec.motion * (0.45 + 0.55 * quiet)
-        lateral = (1.0 + 4.0 * motion) * self.rng.uniform(-1.0, 1.0)
-        elevation = (0.25 + 1.8 * motion) * self.rng.uniform(-0.6, 1.0)
-        # Mostly front hemisphere, with drama allowing occasional rear presence.
-        behind_chance = (0.03 + 0.22 * spec.drama) * quiet
-        z_sign = 1.0 if self.rng.random() < behind_chance else -1.0
-        z = z_sign * math.sqrt(max(0.25, role_distance**2 - lateral**2 - elevation**2))
-        target = np.array([lateral, elevation, z], dtype=np.float64)
-        slot.move_start = slot.position.copy(); slot.move_target = target
+
+        # Ambient worlds drift across a broad angular field while remaining
+        # outside the listener's immediate headspace.
+        azimuth_span = math.radians(22.0 + 58.0 * motion)
+        elevation_span = math.radians(5.0 + 16.0 * motion)
+        azimuth = float(self.rng.uniform(-azimuth_span, azimuth_span))
+        elevation = float(
+            self.rng.uniform(-0.45 * elevation_span, elevation_span)
+        )
+
+        # Mostly in front; high drama allows an occasional distant rear world.
+        behind_chance = (0.02 + 0.12 * spec.drama) * quiet
+        if self.rng.random() < behind_chance:
+            azimuth = math.copysign(
+                math.pi - abs(azimuth),
+                azimuth if abs(azimuth) > 1.0e-9 else 1.0,
+            )
+
+        horizontal = role_distance * math.cos(elevation)
+        target = np.array(
+            [
+                horizontal * math.sin(azimuth),
+                role_distance * math.sin(elevation),
+                -horizontal * math.cos(azimuth),
+            ],
+            dtype=np.float64,
+        )
+        slot.move_start = slot.position.copy()
+        slot.move_target = target
         slot.move_elapsed = 0.0
-        slow = 45.0 + (1.0-motion) * 100.0
-        slot.move_duration = float(self.rng.uniform(slow*0.7, slow*1.35))
+
+        # The world anchor should feel architectural, not like a moving object.
+        slow = 70.0 + (1.0 - motion) * 150.0
+        slot.move_duration = float(
+            self.rng.uniform(slow * 0.80, slow * 1.35)
+        )
 
     def _update_wander(self, slot, dt, role_distance, spec, dominant, quiet):
         slot.move_elapsed += dt
         if slot.move_elapsed >= slot.move_duration:
-            self._choose_wander_target(slot, role_distance, spec, dominant, quiet)
-        t = self._smoothstep5(slot.move_elapsed / max(slot.move_duration, 1e-9))
+            self._choose_wander_target(
+                slot,
+                role_distance,
+                spec,
+                dominant,
+                quiet,
+            )
+
+        t = self._smoothstep5(
+            slot.move_elapsed / max(slot.move_duration, 1.0e-9)
+        )
         p = slot.move_start + (slot.move_target - slot.move_start) * t
-        # Radially ease toward the current scene role without abrupt repositioning.
-        r = float(np.linalg.norm(p))
-        if r > 1e-9:
-            desired = p / r * role_distance
-            p = p + (desired - p) * min(1.0, dt / 25.0)
-        slot.position = p; slot.distance = float(np.linalg.norm(p))
-        slot.direction = p / max(slot.distance, 1e-9)
+
+        # Scene distance is a continuously moving radial target. Ease toward
+        # it slowly so the bed can be heard approaching or receding.
+        radius = float(np.linalg.norm(p))
+        if radius > 1.0e-9:
+            desired = p / radius * role_distance
+            radial_time_constant = (
+                28.0
+                if self.scene == self.SCENE_EXCHANGE
+                else 18.0
+                if self.scene in {
+                    self.SCENE_ESTABLISH,
+                    self.SCENE_DEVELOP,
+                    self.SCENE_FOCUS,
+                    self.SCENE_REVEAL,
+                }
+                else 35.0
+            )
+            p = p + (desired - p) * min(
+                1.0,
+                dt / radial_time_constant,
+            )
+
+        slot.position = p
+        slot.distance = float(np.linalg.norm(p))
+        slot.direction = p / max(slot.distance, 1.0e-9)
         slot.source.set_position_vector(self._vector3(p))
 
+    @staticmethod
+    def _event_family(path: Path) -> str:
+        stem = path.stem.lower()
+        stem = re.sub(r"[_\-#]*\d+(?:[_\-#]*\d+)*$", "", stem)
+        stem = re.sub(r"\b(?:take|version|ver|copy|edit|alt)\s*\d*\b", "", stem)
+        stem = re.sub(r"[^a-z]+", " ", stem)
+        return " ".join(stem.split())
+
     def _event_candidates(self, slot, spec):
-        if slot.motif is None: return []
-        c = list(slot.motif.layered_assets)
-        c.extend(a for a in slot.motif.ambient_assets if not a.metadata_known)
-        recent_window = max(2, int(round(3 + spec.novelty * 9)))
-        recent = set(self.recent_event_paths[-recent_window:])
-        filtered = [a for a in c if a.path not in self.pending_event_rejected and a.path not in recent]
-        return filtered or [a for a in c if a.path not in self.pending_event_rejected]
+        if slot.motif is None:
+            return []
+
+        candidates = list(slot.motif.layered_assets)
+        candidates.extend(
+            asset
+            for asset in slot.motif.ambient_assets
+            if not asset.metadata_known
+        )
+
+        recent_window = max(
+            6,
+            int(round(8 + spec.novelty * 8)),
+        )
+        recent_paths = set(
+            self.recent_event_paths[-recent_window:]
+        )
+        recent_families = set(
+            self.recent_event_families[-recent_window:]
+        )
+
+        eligible = [
+            asset
+            for asset in candidates
+            if asset.path not in self.pending_event_rejected
+        ]
+        novel = [
+            asset
+            for asset in eligible
+            if asset.path not in recent_paths
+            and self._event_family(asset.path)
+            not in recent_families
+        ]
+        if novel:
+            return novel
+
+        path_novel = [
+            asset
+            for asset in eligible
+            if asset.path not in recent_paths
+        ]
+        return path_novel or eligible
 
     def _new_event_interval(self, spec, quiet):
         # Real sleep-time spacing. At typical settings this is measured in
@@ -4818,33 +5481,213 @@ class DreamMotif3DEngine:
                 "no eligible layered-event candidates",
             )
 
-    def _gesture(self, spec, quiet):
-        gestures = ["cross", "approach", "overhead", "apparition", "orbit"]
-        if quiet > 0.6 and spec.intimacy > 0.2: gestures += ["near-ear", "presence"] * 2
-        recent = set(self.recent_gestures[-max(1, int(2 + 4*spec.novelty)):])
-        available = [g for g in gestures if g not in recent] or gestures
-        g = available[int(self.rng.integers(0, len(available)))]
-        self.recent_gestures.append(g); self.recent_gestures = self.recent_gestures[-16:]
-        return g
+    def _gesture(
+        self,
+        spec,
+        quiet,
+        anchor_distance,
+        sample_seconds,
+    ):
+        # Short events make local gestures. Close/near-ear gestures are only
+        # available when the ambient world is already close enough and the
+        # sample is long enough to perform them naturally.
+        if sample_seconds < 5.0:
+            gestures = ["local-drift", "local-cross", "local-approach"]
+        elif sample_seconds < 10.0:
+            gestures = [
+                "local-drift",
+                "local-cross",
+                "approach",
+                "overhead",
+            ]
+        else:
+            gestures = [
+                "local-cross",
+                "approach",
+                "overhead",
+                "orbit",
+                "apparition",
+            ]
 
-    def _gesture_points(self, gesture, spec, quiet):
-        intimate = 0.45 + (1.0-spec.intimacy)*1.6
-        far = 7.0 + (1.0-quiet)*8.0
+        intimate_allowed = (
+            anchor_distance <= 9.0
+            and sample_seconds >= 7.0
+            and quiet > 0.58
+            and spec.intimacy > 0.20
+        )
+        if intimate_allowed:
+            gestures += ["near-ear", "presence"]
+
+        recent = set(
+            self.recent_gestures[
+                -max(1, int(2 + 4 * spec.novelty)):
+            ]
+        )
+        available = [
+            gesture for gesture in gestures
+            if gesture not in recent
+        ] or gestures
+        gesture = available[
+            int(self.rng.integers(0, len(available)))
+        ]
+        self.recent_gestures.append(gesture)
+        self.recent_gestures = self.recent_gestures[-16:]
+        return gesture
+
+    def _gesture_points(
+        self,
+        gesture,
+        spec,
+        quiet,
+        anchor_position,
+        sample_seconds,
+    ):
+        """Build an event path in the ambient world's local reference frame."""
+        anchor = np.asarray(anchor_position, dtype=np.float64).copy()
+        anchor_distance = float(np.linalg.norm(anchor))
+        if anchor_distance < 1.0e-6:
+            anchor = np.array([0.0, 0.0, -6.0], dtype=np.float64)
+            anchor_distance = 6.0
+
+        radial = anchor / anchor_distance
+        world_up = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        right = np.cross(world_up, radial)
+        right_norm = float(np.linalg.norm(right))
+        if right_norm < 1.0e-6:
+            right = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+        else:
+            right /= right_norm
+        up = np.cross(radial, right)
+        up /= max(float(np.linalg.norm(up)), 1.0e-9)
+
         side = -1.0 if self.rng.random() < 0.5 else 1.0
+        local_width = max(0.8, min(4.0, anchor_distance * 0.16))
+        local_height = max(0.25, min(1.8, anchor_distance * 0.07))
+
+        # Every event begins inside the current ambient world.
+        start = (
+            anchor
+            + right * side * self.rng.uniform(0.0, local_width)
+            + up * self.rng.uniform(-0.25, local_height)
+        )
+
+        # Duration limits how far the event may detach from its world.
+        if sample_seconds < 5.0:
+            approach_fraction = 0.08
+        elif sample_seconds < 10.0:
+            approach_fraction = 0.22
+        else:
+            approach_fraction = 0.40
+
+        ordinary_min_distance = max(
+            4.5,
+            anchor_distance * (1.0 - approach_fraction),
+        )
+        intimate_distance = 0.55 + (1.0 - spec.intimacy) * 1.35
+
+        def at_distance(distance, lateral=0.0, vertical=0.0):
+            return (
+                radial * distance
+                + right * lateral
+                + up * vertical
+            )
+
         if gesture == "near-ear":
-            return (np.array([side*far, .2, -far*.6]), np.array([side*intimate, .15, -.35]), np.array([side*3.5, .4, 2.5]))
+            control = at_distance(
+                max(2.2, anchor_distance * 0.45),
+                side * 1.2,
+                0.2,
+            )
+            end = at_distance(
+                intimate_distance,
+                side * intimate_distance,
+                0.15,
+            )
+            return start, control, end
+
         if gesture == "presence":
-            p=np.array([side*intimate, self.rng.uniform(-.2,.5), self.rng.uniform(-.7,.4)])
-            return (p + np.array([0,0,-1.5]), p, p + np.array([0,0,.8]))
-        if gesture == "overhead":
-            return (np.array([side*4,-.5,-far]), np.array([0,3.0,-.3]), np.array([-side*4,.2,far*.7]))
-        if gesture == "orbit":
-            return (np.array([side*4,0,-4]), np.array([-side*1.2,1.0,-.2]), np.array([-side*3,.2,2.5]))
+            end = at_distance(
+                max(1.4, intimate_distance * 1.4),
+                side * 0.8,
+                self.rng.uniform(-0.1, 0.45),
+            )
+            control = (start + end) * 0.5 + up * 0.35
+            return start, control, end
+
+        if gesture == "local-drift":
+            end = start + right * (-side) * local_width * 0.8
+            control = (start + end) * 0.5 + up * local_height * 0.35
+            return start, control, end
+
+        if gesture == "local-cross":
+            end = (
+                anchor
+                - right * side * local_width
+                + up * self.rng.uniform(-0.2, local_height)
+            )
+            control = anchor + up * local_height
+            return start, control, end
+
+        if gesture == "local-approach":
+            end = at_distance(
+                ordinary_min_distance,
+                side * local_width * 0.35,
+                0.1,
+            )
+            control = (start + end) * 0.5 + up * 0.25
+            return start, control, end
+
         if gesture == "approach":
-            return (np.array([side*3,0,-far]), np.array([side*.8,.4,-2]), np.array([side*1.5,0,-.7]))
+            end = at_distance(
+                ordinary_min_distance,
+                side * local_width * 0.45,
+                0.0,
+            )
+            control = (
+                (start + end) * 0.5
+                + right * (-side) * local_width * 0.35
+                + up * 0.4
+            )
+            return start, control, end
+
+        if gesture == "overhead":
+            end = (
+                anchor
+                - right * side * local_width
+                + up * local_height * 1.5
+            )
+            control = at_distance(
+                ordinary_min_distance,
+                0.0,
+                local_height * 2.0,
+            )
+            return start, control, end
+
+        if gesture == "orbit":
+            end = (
+                anchor
+                - right * side * local_width
+                + up * 0.25
+            )
+            control = at_distance(
+                ordinary_min_distance,
+                -side * local_width * 0.25,
+                local_height,
+            )
+            return start, control, end
+
         if gesture == "apparition":
-            return (np.array([side*2,.1,3.5]), np.array([side*.8,.2,.7]), np.array([side*4,.4,5]))
-        return (np.array([side*far,0,-5]), np.array([0,1,-.5]), np.array([-side*far,0,4]))
+            end = (
+                anchor
+                + right * (-side) * local_width * 0.5
+                - radial * min(2.0, anchor_distance * 0.18)
+            )
+            control = (start + end) * 0.5 + up * local_height
+            return start, control, end
+
+        end = anchor - right * side * local_width
+        control = anchor + up * local_height
+        return start, control, end
 
     def _spawn_prepared_event(self, slot_index, spec, quiet):
         slot = self.slots[slot_index]
@@ -4895,14 +5738,23 @@ class DreamMotif3DEngine:
             )
             return False
 
-        gesture = self._gesture(spec, quiet)
+        sample_seconds = len(prepared.mono) / self.sample_rate
+        anchor_position = slot.position.copy()
+        anchor_distance = float(np.linalg.norm(anchor_position))
+        gesture = self._gesture(
+            spec,
+            quiet,
+            anchor_distance,
+            sample_seconds,
+        )
         start, control, end = self._gesture_points(
             gesture,
             spec,
             quiet,
+            anchor_position,
+            sample_seconds,
         )
         free.set_position_vector(self._vector3(start))
-        sample_seconds = len(prepared.mono) / self.sample_rate
         desired_travel_seconds = (
             spec.event_travel_seconds
             * (1.6 + 1.8 * (1.0 - spec.activity))
@@ -4927,8 +5779,12 @@ class DreamMotif3DEngine:
                 start=start,
                 control=control,
                 end=end,
-                gain_linear=self._db_gain(
-                    spec.event_calibrated_gain_db
+                # Begin as part of the ambient world. Spatial approach,
+                # spectral clarity, and the event envelope create prominence.
+                gain_linear=(
+                    self._db_gain(spec.motif_calibrated_gain_db)
+                    * max(slot.exposure, 0.035)
+                    * (1.15 + 1.15 * spec.presence)
                 ),
             )
         )
@@ -4937,14 +5793,24 @@ class DreamMotif3DEngine:
             "EVENT_START",
             f"{prepared.path.name}; role="
             f"{'dominant' if slot_index == self.dominant_index else 'recessive'}; "
-            f"gesture={gesture}; sample "
-            f"{len(prepared.mono) / self.sample_rate:.2f} s; "
+            f"gesture={gesture}; anchor {anchor_distance:.2f} m; "
+            f"start {float(np.linalg.norm(start)):.2f} m; "
+            f"end {float(np.linalg.norm(end)):.2f} m; "
+            f"sample {sample_seconds:.2f} s; "
             f"travel {travel_seconds:.2f} s",
         )
 
         if asset is not None:
             self.recent_event_paths.append(asset.path)
-            self.recent_event_paths = self.recent_event_paths[-32:]
+            self.recent_event_families.append(
+                self._event_family(asset.path)
+            )
+            self.recent_event_paths = (
+                self.recent_event_paths[-48:]
+            )
+            self.recent_event_families = (
+                self.recent_event_families[-48:]
+            )
         self.pending_event_asset = None
         self.pending_event_rejected.clear()
         return True
@@ -5050,10 +5916,31 @@ class DreamMotif3DEngine:
         ) * min(1.0, real_dt / 18.0)
         quiet = self.creepy_window
 
+        if (
+            not manual_enabled
+            and self._consume_force_exchange_request()
+        ):
+            self._begin_forced_exchange(spec)
+
         if not manual_enabled:
             if spec.testing:
-                if not spec.featured_events_enabled:
-                    self.current_clock_mode = "TESTING — AMBIENCE ONLY"
+                self._testing_skip_rest(spec, quiet)
+
+                if self.scene == self.SCENE_EXCHANGE:
+                    self.current_clock_mode = "TESTING — CROSSFADE"
+                    self._advance_scene(real_dt, spec, quiet)
+                elif self.scene == self.SCENE_ESTABLISH:
+                    self.current_clock_mode = (
+                        "TESTING — AMBIENT APPROACH"
+                    )
+                    self._advance_scene(real_dt, spec, quiet)
+                elif not spec.featured_events_enabled:
+                    self.current_clock_mode = (
+                        "TESTING — AMBIENT PERFORMANCE"
+                    )
+                    # Establish/develop/focus/reveal/afterimage are audible
+                    # spatial performances, not delays.
+                    self._advance_scene(real_dt, spec, quiet)
                 elif self.events:
                     self.current_clock_mode = "TESTING — PLAYING EVENT"
                 else:
@@ -5124,19 +6011,35 @@ class DreamMotif3DEngine:
                     performance_dt,
                     spec,
                 )
-                distance = self._role_distance(
-                    spec,
-                    index == self.dominant_index,
-                    quiet,
-                )
-                self._update_wander(
-                    slot,
-                    performance_dt,
-                    distance,
-                    spec,
-                    index == self.dominant_index,
-                    quiet,
-                )
+                if self.scene == self.SCENE_EXCHANGE:
+                    exchange_progress = self._smoothstep5(
+                        self.scene_elapsed
+                        / max(self.scene_duration, 1.0e-9)
+                    )
+                    exchange_target = (
+                        spec.far_distance_calibrated
+                        if index == self.dominant_index
+                        else spec.closest_ambient_distance
+                    )
+                    self._update_exchange_position(
+                        slot,
+                        exchange_progress,
+                        exchange_target,
+                    )
+                else:
+                    distance = self._role_distance(
+                        spec,
+                        index == self.dominant_index,
+                        quiet,
+                    )
+                    self._update_wander(
+                        slot,
+                        performance_dt,
+                        distance,
+                        spec,
+                        index == self.dominant_index,
+                        quiet,
+                    )
                 gain = (
                     self._db_gain(
                         spec.motif_calibrated_gain_db
@@ -5258,9 +6161,23 @@ class DreamMotif3DEngine:
                 ):
                     self._testing_advance_pending = True
             else:
+                # Disable future scheduling, but never truncate a sound
+                # which has already started.
                 self.pending_event_asset = None
                 self.pending_event_rejected.clear()
-                self.events.clear()
+                if self.events:
+                    had_active_event = True
+                    stereo += self._render_events(
+                        frame_count,
+                        real_dt,
+                        performance_dt,
+                    )
+                    if (
+                        spec.testing
+                        and had_active_event
+                        and not self.events
+                    ):
+                        self._testing_advance_pending = True
 
         dominant = self.slots[self.dominant_index]
         recessive = self.slots[1 - self.dominant_index]
@@ -5376,11 +6293,11 @@ class DreamMotif3DEngine:
             f"scene remaining {scene_remaining:.1f} s; "
             f"conductor {self.conductor_elapsed / 60.0:.2f} min; "
             f"creepy window {quiet:.2f}\n"
-            f"DOMINANT: {self.current_dominant_name or 'none'}; "
+            f"DOMINANT WORLD: {self.current_dominant_name or 'none'}; "
             f"{dominant_phase}; exposure "
             f"{dominant.exposure:.3f} → {dominant.target_exposure:.3f}; "
             f"distance {dominant.distance:.2f} m\n"
-            f"RECESSIVE: {self.current_distant_name or 'none'}; "
+            f"RECESSIVE WORLD: {self.current_distant_name or 'none'}; "
             f"{recessive_phase}; exposure "
             f"{recessive.exposure:.3f} → {recessive.target_exposure:.3f}; "
             f"distance {recessive.distance:.2f} m\n"
@@ -6530,6 +7447,28 @@ class MainWindow(QMainWindow):
         self.motif_rng = np.random.default_rng(77123)
         self.export_worker: ExportWorker | None = None
 
+        self._conductor_log_lock = threading.Lock()
+        self._conductor_log_started = time.time()
+        self._last_conductor_snapshot_second = -1
+        self._last_logged_callback_error = None
+        try:
+            CONDUCTOR_LOG_PATH.write_text(
+                "Living Brown Noise — conductor diagnostic log\n"
+                f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"Script: {Path(__file__).resolve()}\n"
+                + "=" * 78
+                + "\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+        self.gui_snapshot_timer = QTimer(self)
+        self.gui_snapshot_timer.setSingleShot(True)
+        self.gui_snapshot_timer.timeout.connect(
+            lambda: self._log_gui_snapshot("settled GUI state")
+        )
+
         self.settings_save_timer = QTimer(self)
         self.settings_save_timer.setSingleShot(True)
         self.settings_save_timer.timeout.connect(self._save_settings)
@@ -6606,16 +7545,28 @@ class MainWindow(QMainWindow):
         self.motif_expand_button = QToolButton()
         self.motif_expand_button.setText("Dream motif catalogue")
         self.motif_expand_button.setCheckable(True)
-        self.motif_expand_button.setChecked(True)
+        self.motif_expand_button.setChecked(
+            bool(
+                self.loaded_settings.get(
+                    "motif_panel_expanded",
+                    True,
+                )
+            )
+        )
         self.motif_expand_button.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonTextBesideIcon
         )
         self.motif_expand_button.setArrowType(
-            Qt.ArrowType.RightArrow
+            Qt.ArrowType.DownArrow
+            if self.motif_expand_button.isChecked()
+            else Qt.ArrowType.RightArrow
         )
         controls_layout.addWidget(self.motif_expand_button)
 
         self.motif_panel = QWidget()
+        self.motif_panel.setVisible(
+            self.motif_expand_button.isChecked()
+        )
         motif_layout = QVBoxLayout(self.motif_panel)
         motif_layout.setContentsMargins(24, 4, 0, 8)
         motif_layout.setSpacing(4)
@@ -6709,6 +7660,57 @@ class MainWindow(QMainWindow):
             motif_spatial_spec.enabled
         )
         motif_conductor_form.addRow("", self.motif_3d_enabled_checkbox)
+
+        self.motif_force_exchange_button = QPushButton(
+            "Force cross-fade now"
+        )
+        self.motif_force_exchange_button.setToolTip(
+            "Immediately starts the protected dominant/recessive exchange "
+            "using the selected cross-fade duration."
+        )
+        motif_conductor_form.addRow(
+            "",
+            self.motif_force_exchange_button,
+        )
+
+        self.motif_calibration_button = QToolButton()
+        self.motif_calibration_button.setText(
+            "Baseline spatial calibration"
+        )
+        self.motif_calibration_button.setCheckable(True)
+        self.motif_calibration_button.setChecked(
+            bool(
+                self.loaded_settings.get(
+                    "motif_calibration_group_expanded",
+                    True,
+                )
+            )
+        )
+        self.motif_calibration_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.motif_calibration_button.setArrowType(
+            Qt.ArrowType.DownArrow
+            if self.motif_calibration_button.isChecked()
+            else Qt.ArrowType.RightArrow
+        )
+        motif_conductor_form.addRow(
+            "",
+            self.motif_calibration_button,
+        )
+
+        self.motif_calibration_panel = QWidget()
+        motif_calibration_form = QFormLayout(
+            self.motif_calibration_panel
+        )
+        motif_calibration_form.setContentsMargins(24, 4, 0, 8)
+        self.motif_calibration_panel.setVisible(
+            self.motif_calibration_button.isChecked()
+        )
+        motif_conductor_form.addRow(
+            "",
+            self.motif_calibration_panel,
+        )
 
         self.motif_spatial_setup_button = QToolButton()
         self.motif_spatial_setup_button.setText(
@@ -6917,6 +7919,81 @@ class MainWindow(QMainWindow):
             )
             form.addRow(label, control)
             return control
+
+        self.motif_far_distance_calibrated_control = (
+            add_motif_spatial_control(
+                motif_calibration_form,
+                "Far distance:",
+                "far_distance_calibrated",
+                0.1,
+                80.0,
+                0.10,
+                2,
+                " m",
+            )
+        )
+        self.motif_closest_ambient_control = add_motif_spatial_control(
+            motif_calibration_form,
+            "Closest ambient approach:",
+            "closest_ambient_distance",
+            0.0,
+            20.0,
+            0.10,
+            2,
+            " m",
+        )
+        self.motif_ambient_gain_control = add_motif_spatial_control(
+            motif_calibration_form,
+            "Ambient calibrated gain:",
+            "motif_calibrated_gain_db",
+            -60.0,
+            0.0,
+            0.5,
+            1,
+            " dB",
+        )
+        self.motif_approach_duration_control = add_motif_spatial_control(
+            motif_calibration_form,
+            "Approach duration:",
+            "ambient_approach_seconds",
+            5.0,
+            600.0,
+            1.0,
+            0,
+            " s",
+        )
+        self.motif_crossfade_duration_control = add_motif_spatial_control(
+            motif_calibration_form,
+            "Cross-fade duration:",
+            "motif_crossfade_seconds",
+            5.0,
+            600.0,
+            1.0,
+            0,
+            " s",
+        )
+        self.motif_ambient_clip_fade_control = add_motif_spatial_control(
+            motif_calibration_form,
+            "Ambient clip fade duration:",
+            "ambient_clip_fade_seconds",
+            0.5,
+            30.0,
+            0.5,
+            1,
+            " s",
+        )
+        self.motif_scene_duration_scale_control = (
+            add_motif_spatial_control(
+                motif_calibration_form,
+                "Scene-duration scale:",
+                "scene_duration_scale",
+                0.10,
+                2.00,
+                0.05,
+                2,
+                "×",
+            )
+        )
 
         self.motif_far_distance_control = add_motif_spatial_control(
             motif_spatial_setup_form,
@@ -8555,6 +9632,13 @@ class MainWindow(QMainWindow):
                 expanded,
             )
         )
+        self.motif_calibration_button.toggled.connect(
+            lambda expanded: self._toggle_motif_subgroup(
+                self.motif_calibration_button,
+                self.motif_calibration_panel,
+                expanded,
+            )
+        )
         self.motif_spatial_setup_button.toggled.connect(
             lambda expanded: self._toggle_motif_subgroup(
                 self.motif_spatial_setup_button,
@@ -8583,6 +9667,9 @@ class MainWindow(QMainWindow):
             lambda checked: self._update_dream_motif_spatial(
                 enabled=bool(checked)
             )
+        )
+        self.motif_force_exchange_button.clicked.connect(
+            self._force_motif_exchange
         )
         self.motif_testing_checkbox.toggled.connect(
             lambda checked: self._update_dream_motif_spatial(
@@ -8686,6 +9773,11 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._refresh_status)
         self.timer.start(100)
+
+        QTimer.singleShot(
+            0,
+            lambda: self._log_gui_snapshot("startup GUI state"),
+        )
 
         self._toggle_motif_panel(
             self.motif_expand_button.isChecked()
@@ -8795,6 +9887,213 @@ class MainWindow(QMainWindow):
         )
         self._on_modes_changed()
 
+    def _write_conductor_log(
+        self,
+        category: str,
+        message: str,
+    ) -> None:
+        elapsed = time.time() - self._conductor_log_started
+        line = (
+            f"{elapsed:012.3f}  "
+            f"{category:<24}  "
+            f"{message}\n"
+        )
+        try:
+            with self._conductor_log_lock:
+                with CONDUCTOR_LOG_PATH.open(
+                    "a",
+                    encoding="utf-8",
+                ) as handle:
+                    handle.write(line)
+        except Exception:
+            pass
+
+    def _schedule_gui_snapshot(self, reason: str) -> None:
+        self._write_conductor_log("GUI_CHANGE", reason)
+        self.gui_snapshot_timer.start(250)
+
+    def _gui_snapshot_payload(self) -> dict:
+        motif_spec = self.mixer.dream_motif_spatial_state.get()
+        modes = self.mode_state.get()
+        manual = self.mixer.dream_motif_3d.manual_snapshot()
+
+        return {
+            "modes": asdict(modes),
+            "dream_motif_spatial": asdict(motif_spec),
+            "controls": {
+                "dream_motif_catalogue_expanded": (
+                    self.motif_expand_button.isChecked()
+                ),
+                "catalogue_status_expanded": (
+                    self.motif_catalogue_button.isChecked()
+                ),
+                "automatic_conductor_expanded": (
+                    self.motif_conductor_button.isChecked()
+                ),
+                "baseline_calibration_expanded": (
+                    self.motif_calibration_button.isChecked()
+                ),
+                "spatial_setup_expanded": (
+                    self.motif_spatial_setup_button.isChecked()
+                ),
+                "orchestrator_guidance_expanded": (
+                    self.motif_guidance_button.isChecked()
+                ),
+                "manual_lab_expanded": (
+                    self.motif_manual_button.isChecked()
+                ),
+                "selected_motif": self.motif_combo.currentText(),
+                "manual_source": (
+                    self.motif_manual_source_combo.currentText()
+                ),
+                "manual_enabled": (
+                    self.motif_manual_checkbox.isChecked()
+                ),
+                "manual_solo": (
+                    self.motif_manual_solo_checkbox.isChecked()
+                ),
+            },
+            "manual_engine_state": {
+                "enabled": bool(manual[0]),
+                "source_kind": str(manual[1]),
+                "position": [
+                    float(value) for value in manual[2]
+                ],
+                "gain_db": float(manual[3]),
+                "solo": bool(manual[4]),
+                "motif_name": str(manual[5]),
+            },
+        }
+
+    def _log_gui_snapshot(self, reason: str) -> None:
+        try:
+            payload = self._gui_snapshot_payload()
+            serialized = json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            self._write_conductor_log(
+                "GUI_SNAPSHOT",
+                f"reason={reason}; {serialized}",
+            )
+        except Exception as exc:
+            self._write_conductor_log(
+                "GUI_SNAPSHOT_ERROR",
+                str(exc),
+            )
+
+    @staticmethod
+    def _slot_log_snapshot(slot) -> dict:
+        motif_name = (
+            slot.motif.name
+            if slot.motif is not None
+            else "none"
+        )
+        current_asset = (
+            slot.current_asset_path.name
+            if slot.current_asset_path is not None
+            else "none"
+        )
+        next_asset = (
+            slot.next_asset_path.name
+            if slot.next_asset_path is not None
+            else "none"
+        )
+        return {
+            "motif": motif_name,
+            "distance_m": round(float(slot.distance), 4),
+            "position_m": [
+                round(float(value), 4)
+                for value in slot.position
+            ],
+            "exposure": round(float(slot.exposure), 6),
+            "target_exposure": round(
+                float(slot.target_exposure),
+                6,
+            ),
+            "ambient": current_asset,
+            "next_ambient": next_asset,
+            "read_position": int(slot.read_position),
+        }
+
+    def _log_conductor_snapshot(self) -> None:
+        engine = self.mixer.dream_motif_3d
+        spec = self.mixer.dream_motif_spatial_state.get()
+        dominant_index = int(engine.dominant_index)
+        recessive_index = 1 - dominant_index
+
+        payload = {
+            "clock_mode": engine.current_clock_mode,
+            "scene": engine.scene,
+            "scene_elapsed_s": round(
+                float(engine.scene_elapsed),
+                3,
+            ),
+            "scene_duration_s": round(
+                float(engine.scene_duration),
+                3,
+            ),
+            "scene_remaining_s": round(
+                max(
+                    0.0,
+                    float(
+                        engine.scene_duration
+                        - engine.scene_elapsed
+                    ),
+                ),
+                3,
+            ),
+            "testing": bool(spec.testing),
+            "featured_events": bool(
+                spec.featured_events_enabled
+            ),
+            "closest_m": float(
+                spec.closest_ambient_distance
+            ),
+            "far_m": float(
+                spec.far_distance_calibrated
+            ),
+            "approach_s": float(
+                spec.ambient_approach_seconds
+            ),
+            "crossfade_s": float(
+                spec.motif_crossfade_seconds
+            ),
+            "ambient_clip_fade_s": float(
+                spec.ambient_clip_fade_seconds
+            ),
+            "scene_duration_scale": float(
+                spec.scene_duration_scale
+            ),
+            "dominant_index": dominant_index,
+            "dominant": self._slot_log_snapshot(
+                engine.slots[dominant_index]
+            ),
+            "recessive": self._slot_log_snapshot(
+                engine.slots[recessive_index]
+            ),
+            "active_events": len(engine.events),
+        }
+        self._write_conductor_log(
+            "CONDUCTOR_SNAPSHOT",
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        )
+
+    def _drain_live_conductor_journal(self) -> None:
+        engine = self.mixer.dream_motif_3d
+        for timestamp, category, message in (
+            engine.drain_event_journal()
+        ):
+            self._write_conductor_log(
+                f"ENGINE_{category}",
+                f"engine_time={timestamp:.3f}; {message}",
+            )
+
     def _update_manual_motif_spatial(
         self,
         **changes,
@@ -8802,6 +10101,10 @@ class MainWindow(QMainWindow):
         self.mixer.dream_motif_3d.set_manual_spatial(
             motif_name=self.motif_combo.currentText(),
             **changes,
+        )
+        self._schedule_gui_snapshot(
+            "manual motif spatial changed: "
+            + json.dumps(changes, sort_keys=True)
         )
 
         (
@@ -8851,6 +10154,10 @@ class MainWindow(QMainWindow):
         self._schedule_settings_save()
 
     def _on_featured_events_toggled(self, checked: bool) -> None:
+        self._write_conductor_log(
+            "GUI_ACTION",
+            f"featured events toggled={bool(checked)}",
+        )
         self._update_dream_motif_spatial(
             featured_events_enabled=bool(checked)
         )
@@ -8858,18 +10165,39 @@ class MainWindow(QMainWindow):
             engine = self.mixer.dream_motif_3d
             engine.pending_event_asset = None
             engine.pending_event_rejected.clear()
-            engine.events.clear()
             engine._testing_advance_pending = False
             engine._journal(
                 "EVENTS_DISABLED",
-                "featured one-shot effects disabled; ambient motifs only",
+                "new featured effects disabled; "
+                f"{len(engine.events)} active effect(s) allowed to finish",
             )
 
     def _update_dream_motif_spatial(self, **changes) -> None:
         self.mixer.dream_motif_spatial_state.update(**changes)
+        self._schedule_gui_snapshot(
+            "dream motif setting changed: "
+            + json.dumps(changes, sort_keys=True)
+        )
         self._schedule_settings_save()
 
+    def _force_motif_exchange(self) -> None:
+        self._write_conductor_log(
+            "GUI_ACTION",
+            "Force cross-fade now clicked",
+        )
+        self._log_gui_snapshot(
+            "immediately before forced cross-fade"
+        )
+        self.mixer.dream_motif_3d.request_force_exchange()
+        self.motif_playing_label.setText(
+            "Forced cross-fade requested; exchange begins "
+            "on the next audio block."
+        )
+
     def _toggle_motif_panel(self, expanded: bool) -> None:
+        self._schedule_gui_snapshot(
+            f"Dream motif catalogue expanded={bool(expanded)}"
+        )
         self.motif_panel.setVisible(expanded)
         self.motif_expand_button.setArrowType(
             Qt.ArrowType.DownArrow
@@ -8883,6 +10211,9 @@ class MainWindow(QMainWindow):
         panel: QWidget,
         expanded: bool,
     ) -> None:
+        self._schedule_gui_snapshot(
+            f"subgroup {button.text()!r} expanded={bool(expanded)}"
+        )
         panel.setVisible(expanded)
         button.setArrowType(
             Qt.ArrowType.DownArrow
@@ -9482,6 +10813,9 @@ class MainWindow(QMainWindow):
 
     def _on_modes_changed(self) -> None:
         stereo = self.stereo_checkbox.isChecked()
+        self._schedule_gui_snapshot(
+            "engine-layer checkbox changed"
+        )
 
         self.mode_state.set(
             base_enabled=self.base_checkbox.isChecked(),
@@ -9540,11 +10874,17 @@ class MainWindow(QMainWindow):
             "dream_motifs_checkbox_checked": (
                 self.dream_motif_checkbox.isChecked()
             ),
+            "motif_panel_expanded": (
+                self.motif_expand_button.isChecked()
+            ),
             "motif_catalogue_group_expanded": (
                 self.motif_catalogue_button.isChecked()
             ),
             "motif_conductor_group_expanded": (
                 self.motif_conductor_button.isChecked()
+            ),
+            "motif_calibration_group_expanded": (
+                self.motif_calibration_button.isChecked()
             ),
             "motif_spatial_setup_group_expanded": (
                 self.motif_spatial_setup_button.isChecked()
@@ -9767,6 +11107,11 @@ class MainWindow(QMainWindow):
         self._finish_export_ui()
 
     def _start(self) -> None:
+        self._write_conductor_log(
+            "GUI_ACTION",
+            "Start clicked",
+        )
+        self._log_gui_snapshot("playback start")
         try:
             self.engine.start()
         except Exception as exc:
@@ -9778,16 +11123,36 @@ class MainWindow(QMainWindow):
         self.playback_label.setText("Running")
 
     def _stop(self) -> None:
+        self._write_conductor_log(
+            "GUI_ACTION",
+            "Stop clicked",
+        )
         self.engine.stop()
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.playback_label.setText("Stopped")
 
     def _refresh_status(self) -> None:
+        self._drain_live_conductor_journal()
+
         if self.engine.callback_error is not None:
             self.playback_label.setText(
                 f"Audio error: {self.engine.callback_error}"
             )
+            error_text = str(self.engine.callback_error)
+            if error_text != self._last_logged_callback_error:
+                self._write_conductor_log(
+                    "AUDIO_ERROR",
+                    error_text,
+                )
+                self._last_logged_callback_error = error_text
+
+        elapsed_second = int(
+            time.time() - self._conductor_log_started
+        )
+        if elapsed_second != self._last_conductor_snapshot_second:
+            self._last_conductor_snapshot_second = elapsed_second
+            self._log_conductor_snapshot()
 
         self._update_metabolism_status()
         self.motif_3d_status_label.setText(
@@ -9845,6 +11210,12 @@ class MainWindow(QMainWindow):
                 )
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
+        self._write_conductor_log(
+            "SHUTDOWN",
+            "application closing",
+        )
+        self._log_gui_snapshot("shutdown GUI state")
+        self._drain_live_conductor_journal()
         self._save_settings()
         self.engine.stop()
         self.mixer.close()
