@@ -49,12 +49,12 @@ SOUND_EFFECTS_DIRECTORY = SCRIPT_DIRECTORY / "sounds"
 EXPORT_DIRECTORY = SCRIPT_DIRECTORY / "exports"
 CONDUCTOR_LOG_PATH = SCRIPT_DIRECTORY / "conductor-log.txt"
 
-LOG_DIRECTORY = Path.home() / ".living_brown_noise"
-STARTUP_LOG_PATH = LOG_DIRECTORY / "startup.log"
+SETTINGS_PATH = SCRIPT_DIRECTORY / "settings.json"
+STARTUP_LOG_PATH = SCRIPT_DIRECTORY / "startup.log"
 
 
 def configure_startup_logging() -> logging.Logger:
-    LOG_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    SCRIPT_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger("dream_instigator")
     logger.setLevel(logging.DEBUG)
@@ -204,9 +204,9 @@ class OrganicMotionSpec:
     """
 
     natural_period_seconds: float = 2.5
-    damping_ratio: float = 0.72
-    drive_strength: float = 1.10
-    drive_smoothing_seconds: float = 0.90
+    damping_ratio: float = 1.07
+    drive_strength: float = 0.95
+    drive_smoothing_seconds: float = 0.9
     soft_limit: float = 1.35
 
     def validated(self) -> OrganicMotionSpec:
@@ -337,10 +337,10 @@ class BreathSpec:
     Rare event probabilities are evaluated once per complete breath cycle.
     """
 
-    inhale_mean_seconds: float = 1.30
-    hold_mean_seconds: float = 0.10
-    exhale_mean_seconds: float = 2.30
-    rest_mean_seconds: float = 0.80
+    inhale_mean_seconds: float = 3.85
+    hold_mean_seconds: float = 0.07
+    exhale_mean_seconds: float = 0.95
+    rest_mean_seconds: float = 0.8
 
     timing_variation: float = 0.08
     timing_memory: float = 0.82
@@ -352,14 +352,14 @@ class BreathSpec:
     deep_breath_scale: float = 1.45
 
     long_rest_probability: float = 0.008
-    long_rest_scale: float = 2.20
+    long_rest_scale: float = 2.2
 
-    shallow_breath_probability: float = 0.020
+    shallow_breath_probability: float = 0.02
     shallow_breath_scale: float = 0.72
 
-    gain_range_db: float = 4.5
-    spectral_depth: float = 0.35
-    width_depth: float = 0.18
+    gain_range_db: float = 11.7
+    spectral_depth: float = 1.0
+    width_depth: float = 0.44
 
     def validated(self) -> BreathSpec:
         for name, value in (
@@ -964,8 +964,8 @@ class BrownNoiseSpec:
         Blend of the brighter filtered branch from 0 through 1.
     """
 
-    body: float = 0.50
-    slope_strength: float = 1.00
+    body: float = 0.5
+    slope_strength: float = 1.0
     low_end_emphasis_db: float = 0.0
     upper_texture: float = 0.0
 
@@ -3126,7 +3126,7 @@ class EngineModes:
     correlation_enabled: bool = True
     breath_enabled: bool = True
     heartbeat_enabled: bool = True
-    dream_motifs_enabled: bool = False
+    dream_motifs_enabled: bool = True
 
 
 class ModeState:
@@ -3190,11 +3190,11 @@ class DualBrownMotionSpec:
     """Live controls for the two brown-noise bodies moving on a sphere."""
 
     layer_enabled: bool = True
-    layer_amount: float = 0.35
+    layer_amount: float = 1.5
     enabled: bool = True
-    sphere_radius: float = 2.75
-    center_distance: float = 2.0
-    evolution_rate: float = 0.32
+    sphere_radius: float = 3.15
+    center_distance: float = 0.1
+    evolution_rate: float = 0.42
 
     def validated(self) -> "DualBrownMotionSpec":
         if not 0.0 <= self.layer_amount <= 1.5:
@@ -3476,9 +3476,9 @@ class DualBrownFluidMotion:
 
 @dataclass(frozen=True, slots=True)
 class HeartbeatSpatialSpec:
-    distance: float = HEARTBEAT_DISTANCE_DEFAULT_METERS
-    horizontal: float = HEARTBEAT_HORIZONTAL_DEFAULT_METERS
-    vertical: float = HEARTBEAT_VERTICAL_DEFAULT_METERS
+    distance: float = 0.75
+    horizontal: float = 0.0
+    vertical: float = -0.25
     level_db: float = 12.0
 
     def validated(self) -> "HeartbeatSpatialSpec":
@@ -3520,13 +3520,13 @@ class HeartbeatSpatialState:
 class MetabolismSpec:
     """Independent ranges for the central living-system controller."""
 
-    enabled: bool = False
-    phase_min_minutes: float = 8.0
-    phase_max_minutes: float = 35.0
+    enabled: bool = True
+    phase_min_minutes: float = 3.0
+    phase_max_minutes: float = 9.25
 
     # Percentage preference for resting states. Zero leaves the activity
     # drive linear; 100 strongly favors rest while preserving rare excursions.
-    resting_tendency_percent: float = 75.0
+    resting_tendency_percent: float = 38.0
 
     brown_body_min: float = 0.15
     brown_body_max: float = 1.0
@@ -3541,8 +3541,8 @@ class MetabolismSpec:
     breath_prominence_max: float = 0.85
     breath_tempo_min: float = 1.0
     breath_tempo_max: float = 2.6
-    breath_gain_min_db: float = 0.25
-    breath_gain_max_db: float = 4.5
+    breath_gain_min_db: float = 0.9
+    breath_gain_max_db: float = 5.5
     breath_spectral_min: float = 0.05
     breath_spectral_max: float = 0.35
     breath_width_min: float = 0.03
@@ -3553,13 +3553,13 @@ class MetabolismSpec:
     heartbeat_level_min_db: float = 0.0
     heartbeat_level_max_db: float = 18.0
 
-    brown_3d_amount_min: float = 0.02
-    brown_3d_amount_max: float = 0.55
-    brown_radius_min: float = 0.25
+    brown_3d_amount_min: float = 0.16
+    brown_3d_amount_max: float = 0.66
+    brown_radius_min: float = 0.95
     brown_radius_max: float = 5.0
-    brown_center_distance_min: float = 0.5
-    brown_center_distance_max: float = 5.0
-    brown_evolution_min: float = 0.02
+    brown_center_distance_min: float = 0.15
+    brown_center_distance_max: float = 3.65
+    brown_evolution_min: float = 0.07
     brown_evolution_max: float = 0.65
 
     def validated(self) -> "MetabolismSpec":
@@ -4052,18 +4052,18 @@ class DreamMotifSpatialSpec:
 
     # Explicit baseline spatial calibration. These are the primary
     # listening controls; higher-level style controls may shape them later.
-    far_distance_calibrated: float = 18.0
-    closest_ambient_distance: float = 3.0
-    ambient_approach_seconds: float = 90.0
-    motif_crossfade_seconds: float = 180.0
-    ambient_clip_fade_seconds: float = 8.0
+    far_distance_calibrated: float = 14.2
+    closest_ambient_distance: float = 3.8
+    ambient_approach_seconds: float = 10.0
+    motif_crossfade_seconds: float = 10.0
+    ambient_clip_fade_seconds: float = 2.0
     scene_duration_scale: float = 1.0
 
     # Legacy fields retained for settings compatibility and advanced tuning.
-    far_distance: float = 14.0
-    near_distance: float = 2.0
-    fade_in_seconds: float = 90.0
-    fade_out_seconds: float = 90.0
+    far_distance: float = 15.0
+    near_distance: float = 2.3
+    fade_in_seconds: float = 5.0
+    fade_out_seconds: float = 5.0
 
 
     distant_gain_db: float = -42.0
@@ -4076,13 +4076,13 @@ class DreamMotifSpatialSpec:
 
     # High-level conductor guidance, 0..1. These shape scene timing, spatial
     # ambition, creepy-window use, intimacy, and repetition pressure.
-    activity: float = 0.45
-    presence: float = 0.55
-    motion: float = 0.55
-    intimacy: float = 0.35
-    drama: float = 0.55
-    coherence: float = 0.70
-    novelty: float = 0.80
+    activity: float = 1.0
+    presence: float = 0.59
+    motion: float = 0.73
+    intimacy: float = 0.91
+    drama: float = 1.0
+    coherence: float = 0.7
+    novelty: float = 0.8
 
     # Testing mode removes conductor waiting while preserving real-time
     # sample playback, fades, motion, envelopes, and spatial gestures.
@@ -4094,7 +4094,7 @@ class DreamMotifSpatialSpec:
 
     # Stable calibrated levels. Automatic choreography never animates gain;
     # apparent prominence is controlled by source position and attenuation.
-    motif_calibrated_gain_db: float = -22.0
+    motif_calibrated_gain_db: float = -16.5
     event_calibrated_gain_db: float = -16.0
 
     def validated(self) -> "DreamMotifSpatialSpec":
@@ -6978,14 +6978,10 @@ class AudioEngine:
 # =============================================================================
 
 class SettingsStore:
-    """JSON settings stored in the user's home directory."""
+    """JSON settings stored beside the Python script."""
 
     def __init__(self) -> None:
-        self.path = (
-            Path.home()
-            / ".living_brown_noise"
-            / "settings.json"
-        )
+        self.path = SETTINGS_PATH
 
     def load(self) -> dict:
         try:
@@ -7610,7 +7606,7 @@ class MainWindow(QMainWindow):
         ) = make_motif_subgroup(
             "Catalogue and live status",
             "motif_catalogue_group_expanded",
-            True,
+            False,
         )
 
         self.motif_directory_label = QLabel(
@@ -7650,7 +7646,7 @@ class MainWindow(QMainWindow):
         ) = make_motif_subgroup(
             "Automatic conductor",
             "motif_conductor_group_expanded",
-            True,
+            False,
         )
 
         self.motif_3d_enabled_checkbox = QCheckBox(
@@ -8283,7 +8279,7 @@ class MainWindow(QMainWindow):
         self.heartbeat_spatial_expand_button.setCheckable(True)
         self.heartbeat_spatial_expand_button.setChecked(
             bool(self.loaded_settings.get(
-                "heartbeat_spatial_panel_expanded", True
+                "heartbeat_spatial_panel_expanded", False
             ))
         )
         self.heartbeat_spatial_expand_button.setToolButtonStyle(
@@ -8374,7 +8370,7 @@ class MainWindow(QMainWindow):
             bool(
                 self.loaded_settings.get(
                     "metabolism_panel_expanded",
-                    True,
+                    False,
                 )
             )
         )
@@ -8449,7 +8445,7 @@ class MainWindow(QMainWindow):
         ) = create_metabolism_subgroup(
             "Brown-noise style parameters",
             "metabolism_brown_expanded",
-            True,
+            False,
         )
 
         (
@@ -8851,7 +8847,7 @@ class MainWindow(QMainWindow):
             bool(
                 self.loaded_settings.get(
                     "brown_motion_panel_expanded",
-                    True,
+                    False,
                 )
             )
         )
@@ -9527,7 +9523,7 @@ class MainWindow(QMainWindow):
         self.export_duration_slider.setSingleStep(5)
         self.export_duration_slider.setPageStep(15)
         self.export_duration_slider.setValue(
-            int(self.loaded_settings.get("export_duration_minutes", 60))
+            int(self.loaded_settings.get("export_duration_minutes", 360))
         )
 
         self.export_duration_label = QLabel("")
