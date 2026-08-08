@@ -4054,10 +4054,10 @@ class DreamMotifSpatialSpec:
     # listening controls; higher-level style controls may shape them later.
     far_distance_calibrated: float = 14.2
     closest_ambient_distance: float = 3.8
-    ambient_approach_seconds: float = 10.0
-    motif_crossfade_seconds: float = 10.0
-    ambient_clip_fade_seconds: float = 2.0
-    scene_duration_scale: float = 1.0
+    ambient_approach_seconds: float = 20.0
+    motif_crossfade_seconds: float = 30.0
+    ambient_clip_fade_seconds: float = 4.0
+    scene_duration_scale: float = 1.25
 
     # Legacy fields retained for settings compatibility and advanced tuning.
     far_distance: float = 15.0
@@ -4069,18 +4069,22 @@ class DreamMotifSpatialSpec:
     distant_gain_db: float = -42.0
     dominant_gain_db: float = -22.0
 
-    event_interval_min_seconds: float = 25.0
-    event_interval_max_seconds: float = 75.0
+    # Baseline spacing between featured-effect opportunities. Actual audible
+    # events remain sparser because scene, quiet-window and probability gates
+    # still apply. Rejected opportunities retry sooner rather than restarting
+    # an entire long interval.
+    event_interval_min_seconds: float = 600.0
+    event_interval_max_seconds: float = 1200.0
     event_gain_db: float = -16.0
     event_travel_seconds: float = 14.0
 
     # High-level conductor guidance, 0..1. These shape scene timing, spatial
     # ambition, creepy-window use, intimacy, and repetition pressure.
-    activity: float = 1.0
+    activity: float = 0.68
     presence: float = 0.59
     motion: float = 0.73
     intimacy: float = 0.91
-    drama: float = 1.0
+    drama: float = 0.70
     coherence: float = 0.7
     novelty: float = 0.8
 
@@ -4287,6 +4291,7 @@ class DreamMotifSlot:
     next_read_position: int = 0
 
     rejected_paths: set[Path] = field(default_factory=set)
+    recent_ambient_paths: list[Path] = field(default_factory=list)
     read_position: int = 0
     position: np.ndarray = field(
         default_factory=lambda: np.array([0.0, 0.0, -12.0], dtype=np.float64)
@@ -4394,9 +4399,20 @@ class DreamMotif3DEngine:
         self.scene_duration = 240.0
         self.conductor_elapsed = 0.0
         self.creepy_window = 0.0
-        self.next_event_seconds = 300.0
+        # Do not front-load a guaranteed five-minute event. Start from the
+        # same irregular opportunity spacing used throughout the session.
+        self.next_event_seconds = self._new_event_interval(spec, 0.65)
         self.seconds_since_last_event = 0.0
-        self.soft_max_event_silence_seconds = 3600.0
+        self.soft_max_event_silence_seconds = 2700.0
+        # Prevent an expired countdown from firing the instant an audible
+        # scene begins after a long rest. Give the world time to establish.
+        self.event_scene_grace_seconds = 75.0
+
+        # A motif pair is persistent during a cross-fade, but the outgoing
+        # motif must be replaced afterward. This upper bound also prevents a
+        # sequence of REST/DEVELOP choices from starving catalogue rotation.
+        self.seconds_since_role_exchange = 0.0
+        self.maximum_motif_tenure_seconds = 2700.0
         self.pending_event_asset: DreamMotifAsset | None = None
         self.pending_event_rejected: set[Path] = set()
         self.recent_event_paths: list[Path] = []
@@ -4500,7 +4516,10 @@ class DreamMotif3DEngine:
         slot.next_read_position = 0
 
         slot.rejected_paths.clear()
+        slot.recent_ambient_paths.clear()
         slot.read_position = 0
+        slot.exposure = 0.0
+        slot.target_exposure = 0.0
         slot.position = p.copy(); slot.move_start = p.copy(); slot.move_target = p.copy()
         slot.move_elapsed = 0.0; slot.move_duration = 30.0
         slot.distance = float(np.linalg.norm(p)); slot.direction = p / max(slot.distance, 1e-9)
@@ -4544,18 +4563,49 @@ class DreamMotif3DEngine:
             if asset.path not in slot.rejected_paths
         ]
 
+    def _remember_ambient_asset(self, slot, path):
+        if path is None:
+            return
+        slot.recent_ambient_paths.append(path)
+        slot.recent_ambient_paths = slot.recent_ambient_paths[-8:]
+
     def _choose_ambient_asset(self, slot, avoid_path=None):
         candidates = self._ambient_candidates(slot)
         if not candidates:
             return None
 
+        recent = set(slot.recent_ambient_paths[-6:])
+        novel = [
+            asset for asset in candidates
+            if asset.path != avoid_path and asset.path not in recent
+        ]
         alternatives = [
-            asset
-            for asset in candidates
+            asset for asset in candidates
             if asset.path != avoid_path
         ]
-        pool = alternatives or candidates
-        return pool[int(self.rng.integers(0, len(pool)))]
+        pool = novel or alternatives or candidates
+
+        # Ambient beds should feel like a stable distant environment, not a
+        # playlist changing every few seconds. Prefer longer known recordings
+        # while still allowing shorter material to appear occasionally.
+        weights = []
+        for asset in pool:
+            duration = (
+                float(asset.duration_seconds)
+                if asset.metadata_known and asset.duration_seconds > 0.0
+                else 30.0
+            )
+            weight = math.sqrt(max(8.0, min(duration, 300.0)) / 30.0)
+            if duration < 20.0:
+                weight *= 0.30
+            elif duration < 40.0:
+                weight *= 0.60
+            weights.append(max(0.05, weight))
+
+        probabilities = np.asarray(weights, dtype=np.float64)
+        probabilities /= np.sum(probabilities)
+        index = int(self.rng.choice(len(pool), p=probabilities))
+        return pool[index]
 
     def _request_next_ambient(self, slot, priority):
         if (
@@ -4632,6 +4682,7 @@ class DreamMotif3DEngine:
                     slot.read_position = 0
                     slot.pending_asset = None
 
+                    self._remember_ambient_asset(slot, asset.path)
                     self._journal(
                         "AMBIENT_START",
                         f"motif={slot.motif.name}; "
@@ -4674,6 +4725,7 @@ class DreamMotif3DEngine:
         slot.next_pending_asset = None
         slot.next_read_position = 0
 
+        self._remember_ambient_asset(slot, slot.current_asset_path)
         self._journal(
             "AMBIENT_SWITCH",
             f"motif={slot.motif.name if slot.motif else 'none'}; "
@@ -5014,18 +5066,61 @@ class DreamMotif3DEngine:
             f"at {incoming.distance:.2f}m",
         )
 
+    def _replace_recessive_motif_after_exchange(self, spec, outgoing_index):
+        recessive = self.slots[outgoing_index]
+        outgoing_name = recessive.motif.name if recessive.motif else "none"
+        dominant = self.slots[self.dominant_index]
+
+        excluded = set()
+        if dominant.motif is not None:
+            excluded.add(dominant.motif.name)
+
+        # With three or more motifs, also exclude the world that just receded.
+        # This gives the intended A/B -> B/C -> C/A rotation. With only two
+        # motifs, exclude only the dominant so the other motif can return.
+        if len(self.bag.motifs) > 2 and recessive.motif is not None:
+            excluded.add(recessive.motif.name)
+
+        replacement = self.bag.next(excluded)
+        if replacement is None:
+            return
+
+        self._assign_slot(
+            outgoing_index,
+            replacement,
+            spec.far_distance_calibrated,
+        )
+        self._journal(
+            "MOTIF_REPLACED",
+            f"recessive slot {outgoing_name} -> {replacement.name}; "
+            f"dominant={dominant.motif.name if dominant.motif else 'none'}",
+        )
+
     def _next_scene(self, spec, quiet):
-        if self.scene == self.SCENE_ESTABLISH: return self.SCENE_DEVELOP
+        if self.scene == self.SCENE_ESTABLISH:
+            if self.seconds_since_role_exchange >= self.maximum_motif_tenure_seconds:
+                return self.SCENE_EXCHANGE
+            return self.SCENE_DEVELOP
         if self.scene == self.SCENE_DEVELOP:
+            if self.seconds_since_role_exchange >= self.maximum_motif_tenure_seconds:
+                return self.SCENE_EXCHANGE
             if quiet > 0.55 and self.rng.random() < 0.35 + 0.45 * spec.drama:
                 return self.SCENE_FOCUS
             return self.SCENE_EXCHANGE if self.rng.random() < 0.25 + 0.35 * spec.activity else self.SCENE_REST
         if self.scene == self.SCENE_FOCUS: return self.SCENE_REVEAL
         if self.scene == self.SCENE_REVEAL: return self.SCENE_AFTERIMAGE
         if self.scene == self.SCENE_AFTERIMAGE:
+            if self.seconds_since_role_exchange >= self.maximum_motif_tenure_seconds:
+                return self.SCENE_EXCHANGE
             return self.SCENE_EXCHANGE if self.rng.random() < 0.45 + 0.35 * spec.drama else self.SCENE_REST
         if self.scene == self.SCENE_EXCHANGE:
+            outgoing_index = self.dominant_index
             self.dominant_index = 1 - self.dominant_index
+            self.seconds_since_role_exchange = 0.0
+            self._replace_recessive_motif_after_exchange(
+                spec,
+                outgoing_index,
+            )
             # The incoming motif completed its approach during EXCHANGE.
             # Entering ESTABLISH here would target the far endpoint again
             # and visibly undo the completed handoff.
@@ -5449,15 +5544,29 @@ class DreamMotif3DEngine:
         return path_novel or eligible
 
     def _new_event_interval(self, spec, quiet):
-        # Real sleep-time spacing. At typical settings this is measured in
-        # Normal sleep-time spacing; Testing mode bypasses this countdown.
-        base = 180.0 + (1.0 - spec.activity) * 540.0
-        busy_penalty = (1.0 - quiet) * 600.0
-        presence_reduction = quiet * spec.presence * 90.0
-        return float(
-            self.rng.uniform(0.75, 1.35)
-            * max(120.0, base + busy_penalty - presence_reduction)
+        # These settings describe opportunity spacing, not guaranteed audible
+        # events. Scene/quiet/probability gates remain in charge of subtlety.
+        low = float(spec.event_interval_min_seconds)
+        high = float(spec.event_interval_max_seconds)
+        base = float(self.rng.uniform(low, high))
+
+        # Busy metabolism stretches the wait modestly; a quiet window with
+        # reasonable Presence shortens it modestly. Keep the correction small
+        # so the user-facing min/max values remain meaningful.
+        modifier = (
+            1.0
+            + 0.20 * (1.0 - quiet)
+            - 0.12 * quiet * spec.presence
         )
+        return float(max(120.0, base * modifier))
+
+    def _event_retry_interval(self, spec):
+        # A probability rejection should not restart a full 10-20 minute wait.
+        # Retry after a shorter irregular window, while all normal scene and
+        # quiet gates still apply.
+        low = max(120.0, min(300.0, spec.event_interval_min_seconds * 0.35))
+        high = max(low + 30.0, min(600.0, spec.event_interval_max_seconds * 0.35))
+        return float(self.rng.uniform(low, high))
 
     def _prepare_event(self, slot, spec):
         if self.pending_event_asset is not None:
@@ -5892,6 +6001,7 @@ class DreamMotif3DEngine:
         real_dt = frame_count / self.sample_rate
         self.render_elapsed_seconds += real_dt
         self.seconds_since_last_event += real_dt
+        self.seconds_since_role_exchange += real_dt
         performance_dt = real_dt
 
         if not spec.enabled or not enabled or not self.bag.motifs:
@@ -6071,6 +6181,10 @@ class DreamMotif3DEngine:
                     self.SCENE_REVEAL,
                     self.SCENE_AFTERIMAGE,
                 }
+                and (
+                    spec.testing
+                    or self.scene_elapsed >= self.event_scene_grace_seconds
+                )
             )
 
             if (
@@ -6144,7 +6258,7 @@ class DreamMotif3DEngine:
                     self.pending_event_asset = None
                     self.pending_event_rejected.clear()
                     self.next_event_seconds = (
-                        self._new_event_interval(spec, quiet)
+                        self._event_retry_interval(spec)
                     )
 
             if spec.featured_events_enabled:
@@ -6303,6 +6417,8 @@ class DreamMotif3DEngine:
             f"distance {recessive.distance:.2f} m\n"
             f"EVENT WAIT: {max(0.0, self.next_event_seconds):.1f} s "
             f"({'enabled' if spec.featured_events_enabled else 'disabled'}); "
+            f"opportunity range {spec.event_interval_min_seconds:.0f}-"
+            f"{spec.event_interval_max_seconds:.0f} s; "
             f"prepared {pending_event_text}; "
             f"silence {self.seconds_since_last_event / 60.0:.1f} min "
             f"/ soft max "
@@ -8053,6 +8169,26 @@ class MainWindow(QMainWindow):
         motif_guidance_form.addRow(
             "",
             self.motif_featured_events_checkbox,
+        )
+        self.motif_event_interval_min_control = add_motif_spatial_control(
+            motif_guidance_form,
+            "Effect opportunity minimum:",
+            "event_interval_min_seconds",
+            60.0,
+            3600.0,
+            30.0,
+            0,
+            " s",
+        )
+        self.motif_event_interval_max_control = add_motif_spatial_control(
+            motif_guidance_form,
+            "Effect opportunity maximum:",
+            "event_interval_max_seconds",
+            60.0,
+            7200.0,
+            30.0,
+            0,
+            " s",
         )
         self.motif_activity_control = add_motif_spatial_control(
             motif_guidance_form,
