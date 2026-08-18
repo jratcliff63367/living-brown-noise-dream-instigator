@@ -6431,6 +6431,144 @@ class DreamMotif3DEngine:
         return stereo
 
 
+class BaseBrownFluidStereo:
+    """
+    Stateful, non-spatial stereo flow for the 2D brown-noise foundation.
+
+    Two persistent mono brown-noise personalities are treated like two heavy
+    fluids sharing a stereo container. A slow under-damped primary motion gives
+    the system momentum and overshoot; a smaller, quicker eddy prevents the
+    redistribution from collapsing into a mathematically perfect pan.
+
+    This class produces only gain trajectories. It does not touch Steam Audio
+    or the separate moving 3D brown-noise bodies.
+    """
+
+    def __init__(self) -> None:
+        self.primary_state = OrganicMotionState(
+            OrganicMotionSpec(
+                natural_period_seconds=82.0,
+                damping_ratio=0.46,
+                drive_strength=1.12,
+                drive_smoothing_seconds=24.0,
+                soft_limit=1.15,
+            )
+        )
+        self.eddy_state = OrganicMotionState(
+            OrganicMotionSpec(
+                natural_period_seconds=27.0,
+                damping_ratio=0.72,
+                drive_strength=0.58,
+                drive_smoothing_seconds=8.5,
+                soft_limit=1.35,
+            )
+        )
+        self.primary = OrganicMotion1D(
+            self.primary_state,
+            seed=246_801,
+        )
+        self.eddy = OrganicMotion1D(
+            self.eddy_state,
+            seed=246_802,
+        )
+        self.current_flow = 0.0
+        self.current_eddy = 0.0
+
+    @staticmethod
+    def _equal_power_pan(
+        position: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Map -1..+1 onto an equal-power left/right pair.
+
+        -1 = fully left, 0 = center, +1 = fully right.
+        """
+        angle = (
+            np.clip(position, -1.0, 1.0) + 1.0
+        ) * (math.pi * 0.25)
+        return np.cos(angle), np.sin(angle)
+
+    def gains(
+        self,
+        frame_count: int,
+        sample_rate: float,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        elapsed_seconds = frame_count / float(sample_rate)
+
+        primary_start, primary_end = self.primary.advance(
+            elapsed_seconds
+        )
+        eddy_start, eddy_end = self.eddy.advance(
+            elapsed_seconds
+        )
+
+        primary = np.linspace(
+            primary_start,
+            primary_end,
+            frame_count,
+            endpoint=False,
+            dtype=np.float64,
+        )
+        eddy = np.linspace(
+            eddy_start,
+            eddy_end,
+            frame_count,
+            endpoint=False,
+            dtype=np.float64,
+        )
+
+        # The two fluids broadly displace one another, but the eddy term makes
+        # their motion imperfectly reciprocal. That creates lingering residue,
+        # small internal swirls, and a less synthetic "crossfade" impression.
+        voice_a_position = np.clip(
+            0.88 * primary + 0.20 * eddy,
+            -1.0,
+            1.0,
+        )
+        voice_b_position = np.clip(
+            -0.88 * primary + 0.16 * eddy,
+            -1.0,
+            1.0,
+        )
+
+        a_left, a_right = self._equal_power_pan(
+            voice_a_position
+        )
+        b_left, b_right = self._equal_power_pan(
+            voice_b_position
+        )
+
+        # Normalize channel power so the perceived motion is redistribution,
+        # not a slow loudness pump.
+        left_norm = np.sqrt(
+            np.maximum(
+                1.0e-9,
+                a_left * a_left + b_left * b_left,
+            )
+        )
+        right_norm = np.sqrt(
+            np.maximum(
+                1.0e-9,
+                a_right * a_right + b_right * b_right,
+            )
+        )
+
+        a_left /= left_norm
+        b_left /= left_norm
+        a_right /= right_norm
+        b_right /= right_norm
+
+        self.current_flow = float(primary[-1])
+        self.current_eddy = float(eddy[-1])
+
+        return (
+            a_left.astype(np.float32),
+            a_right.astype(np.float32),
+            b_left.astype(np.float32),
+            b_right.astype(np.float32),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class MixerSpec:
     correlation_min: float = 0.0
@@ -6446,6 +6584,8 @@ class LivingBrownNoiseMixer:
         common: BrownNoiseInstance,
         independent_left: BrownNoiseInstance,
         independent_right: BrownNoiseInstance,
+        base_voice_a: BrownNoiseInstance,
+        base_voice_b: BrownNoiseInstance,
         mode_state: ModeState,
         noise_state: BrownNoiseState,
         noise_evolution_state: BrownNoiseEvolutionState,
@@ -6465,6 +6605,9 @@ class LivingBrownNoiseMixer:
         self.common = common
         self.independent_left = independent_left
         self.independent_right = independent_right
+        self.base_voice_a = base_voice_a
+        self.base_voice_b = base_voice_b
+        self.base_fluid_stereo = BaseBrownFluidStereo()
         self.mode_state = mode_state
         self.noise_state = noise_state
         self.noise_evolution_state = noise_evolution_state
@@ -6571,6 +6714,8 @@ class LivingBrownNoiseMixer:
         )
 
         self.current_correlation = 0.536
+        self.current_base_flow = 0.0
+        self.current_base_eddy = 0.0
         self.current_breath = 0.0
         self.current_breath_stage = BreathEnvelope.STAGE_INHALE
         self.current_breath_prominence = 1.0
@@ -6669,6 +6814,47 @@ class LivingBrownNoiseMixer:
         amount: np.ndarray,
     ) -> np.ndarray:
         return dark + (bright - dark) * amount
+
+    def _base_personality_specs(
+        self,
+        center: BrownNoiseSpec,
+    ) -> tuple[BrownNoiseSpec, BrownNoiseSpec]:
+        """Return two clearly different but still brown-noise personalities.
+
+        Both voices inherit the slowly evolving global center. Voice A is the
+        heavier/darker member; Voice B is the leaner/brighter member. The
+        offsets are intentionally large enough to survive an A/B listening
+        test, while remaining inside the already validated brown-noise ranges.
+        """
+        voice_a = replace(
+            center,
+            body=float(np.clip(center.body - 0.11, 0.15, 1.0)),
+            slope_strength=float(
+                np.clip(center.slope_strength + 0.055, 0.75, 1.0)
+            ),
+            low_end_emphasis_db=float(
+                np.clip(center.low_end_emphasis_db + 1.8, 0.0, 8.0)
+            ),
+            upper_texture=float(
+                np.clip(center.upper_texture - 0.18, 0.0, 1.0)
+            ),
+        ).validated(self.sample_rate)
+
+        voice_b = replace(
+            center,
+            body=float(np.clip(center.body + 0.11, 0.15, 1.0)),
+            slope_strength=float(
+                np.clip(center.slope_strength - 0.055, 0.75, 1.0)
+            ),
+            low_end_emphasis_db=float(
+                np.clip(center.low_end_emphasis_db - 1.8, 0.0, 8.0)
+            ),
+            upper_texture=float(
+                np.clip(center.upper_texture + 0.18, 0.0, 1.0)
+            ),
+        ).validated(self.sample_rate)
+
+        return voice_a, voice_b
 
     def generate(self, frame_count: int) -> np.ndarray:
         modes = self.mode_state.get()
@@ -6790,6 +6976,10 @@ class LivingBrownNoiseMixer:
             frame_count,
             spec_snapshot=evolved_noise_spec,
         )
+
+        # These existing independent generators remain dedicated to the
+        # already-working Steam Audio 3D bodies. Their spectra and motion are
+        # deliberately left unchanged by the new 2D foundation experiment.
         left_dark, left_bright = self.independent_left.generate(
             frame_count,
             spec_snapshot=evolved_noise_spec,
@@ -6797,6 +6987,18 @@ class LivingBrownNoiseMixer:
         right_dark, right_bright = self.independent_right.generate(
             frame_count,
             spec_snapshot=evolved_noise_spec,
+        )
+
+        base_spec_a, base_spec_b = self._base_personality_specs(
+            evolved_noise_spec
+        )
+        base_a_dark, base_a_bright = self.base_voice_a.generate(
+            frame_count,
+            spec_snapshot=base_spec_a,
+        )
+        base_b_dark, base_b_bright = self.base_voice_b.generate(
+            frame_count,
+            spec_snapshot=base_spec_b,
         )
 
         common = self._blend(
@@ -6812,6 +7014,16 @@ class LivingBrownNoiseMixer:
         independent_right = self._blend(
             right_dark,
             right_bright,
+            spectral_amount,
+        )
+        base_voice_a = self._blend(
+            base_a_dark,
+            base_a_bright,
+            spectral_amount,
+        )
+        base_voice_b = self._blend(
+            base_b_dark,
+            base_b_bright,
             spectral_amount,
         )
 
@@ -6843,13 +7055,41 @@ class LivingBrownNoiseMixer:
         common_gain = np.sqrt(correlation)
         independent_gain = np.sqrt(1.0 - correlation)
 
+        (
+            a_left_gain,
+            a_right_gain,
+            b_left_gain,
+            b_right_gain,
+        ) = self.base_fluid_stereo.gains(
+            frame_count,
+            self.sample_rate,
+        )
+        self.current_base_flow = (
+            self.base_fluid_stereo.current_flow
+        )
+        self.current_base_eddy = (
+            self.base_fluid_stereo.current_eddy
+        )
+
+        # Two spectrally distinct mono voices now make up the independent
+        # portion of the 2D foundation. Their identities physically
+        # redistribute between ears instead of remaining hard-wired L/R.
+        fluid_left = (
+            base_voice_a * a_left_gain
+            + base_voice_b * b_left_gain
+        )
+        fluid_right = (
+            base_voice_a * a_right_gain
+            + base_voice_b * b_right_gain
+        )
+
         stereo_left = (
             common_gain * common
-            + independent_gain * independent_left
+            + independent_gain * fluid_left
         )
         stereo_right = (
             common_gain * common
-            + independent_gain * independent_right
+            + independent_gain * fluid_right
         )
 
         mono = common
@@ -7172,6 +7412,16 @@ def build_mixer(
         noise_state,
         seed=seed_base + 3,
     )
+    base_voice_a = BrownNoiseInstance(
+        sample_rate,
+        noise_state,
+        seed=seed_base + 4,
+    )
+    base_voice_b = BrownNoiseInstance(
+        sample_rate,
+        noise_state,
+        seed=seed_base + 5,
+    )
 
     mode_state = ModeState(modes)
     breath_state = BreathState(breath_spec)
@@ -7189,6 +7439,8 @@ def build_mixer(
         common=common,
         independent_left=independent_left,
         independent_right=independent_right,
+        base_voice_a=base_voice_a,
+        base_voice_b=base_voice_b,
         mode_state=mode_state,
         noise_state=noise_state,
         noise_evolution_state=noise_evolution_state,
@@ -11300,7 +11552,9 @@ class MainWindow(QMainWindow):
         self._update_heartbeat_position_status()
 
         self.correlation_label.setText(
-            f"{self.mixer.current_correlation:.3f}"
+            f"{self.mixer.current_correlation:.3f}; "
+            f"base flow {self.mixer.current_base_flow:+.3f}; "
+            f"eddy {self.mixer.current_base_eddy:+.3f}"
         )
         self.breath_label.setText(
             f"{self.mixer.current_breath:.3f} "

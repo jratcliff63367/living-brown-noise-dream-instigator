@@ -1,7 +1,7 @@
 {
   "body_movement": {
     "enabled": true,
-    "frequency": 0.08
+    "frequency": 0.25
   },
   "breath": {
     "deep_breath_probability": 0.012,
@@ -26,7 +26,7 @@
     "curve_power": 1.35,
     "enabled": true,
     "multiplier_max": 1.0,
-    "multiplier_min": 0.0,
+    "multiplier_min": 0.1,
     "period_max_seconds": 480.0,
     "period_min_seconds": 180.0
   },
@@ -49,13 +49,13 @@
   },
   "brown_noise_evolution": {
     "enabled": true,
-    "rate": 0.16
+    "rate": 0.51
   },
   "dream_motif_spatial": {
     "activity": 0.75,
     "ambient_approach_seconds": 20.0,
     "ambient_clip_fade_seconds": 4.0,
-    "closest_ambient_distance": 3.4000000000000004,
+    "closest_ambient_distance": 6.1000000000000005,
     "coherence": 0.7,
     "distant_gain_db": -42.0,
     "dominant_gain_db": -22.0,
@@ -63,32 +63,32 @@
     "enabled": true,
     "event_calibrated_gain_db": -16.0,
     "event_gain_db": -16.0,
-    "event_interval_max_seconds": 300.0,
+    "event_interval_max_seconds": 210.0,
     "event_interval_min_seconds": 120.0,
     "event_travel_seconds": 14.0,
-    "fade_in_seconds": 5.0,
-    "fade_out_seconds": 5.0,
-    "far_distance": 15.0,
-    "far_distance_calibrated": 14.200000000000001,
+    "fade_in_seconds": 15.0,
+    "fade_out_seconds": 19.0,
+    "far_distance": 18.5,
+    "far_distance_calibrated": 18.400000000000002,
     "featured_events_enabled": true,
-    "intimacy": 0.91,
-    "motif_calibrated_gain_db": -14.0,
+    "intimacy": 0.7000000000000001,
+    "motif_calibrated_gain_db": -21.0,
     "motif_crossfade_seconds": 30.0,
-    "motion": 0.73,
-    "near_distance": 2.3,
+    "motion": 0.67,
+    "near_distance": 4.65,
     "novelty": 0.8,
-    "presence": 0.7000000000000001,
+    "presence": 0.48,
     "scene_duration_scale": 1.25,
     "testing": false
   },
   "dream_motifs_checkbox_checked": true,
   "dual_brown_motion": {
-    "center_distance": 0.3,
+    "center_distance": 0.55,
     "enabled": true,
     "evolution_rate": 0.55,
-    "layer_amount": 1.45,
-    "layer_enabled": true,
-    "sphere_radius": 3.1500000000000004
+    "layer_amount": 1.3900000000000001,
+    "layer_enabled": false,
+    "sphere_radius": 2.75
   },
   "export_duration_minutes": 360,
   "heartbeat": {
@@ -142,14 +142,14 @@
     "heartbeat_level_min_db": 0.0,
     "phase_max_minutes": 9.25,
     "phase_min_minutes": 3.0,
-    "resting_tendency_percent": 30.0
+    "resting_tendency_percent": 61.0
   },
   "metabolism_3d_expanded": false,
   "metabolism_breath_expanded": false,
   "metabolism_brown_expanded": false,
   "metabolism_heartbeat_expanded": false,
   "metabolism_panel_expanded": false,
-  "metabolism_rhythm_expanded": false,
+  "metabolism_rhythm_expanded": true,
   "modes": {
     "base_enabled": true,
     "breath_enabled": true,
@@ -158,10 +158,10 @@
     "heartbeat_enabled": true,
     "stereo_enabled": true
   },
-  "motif_calibration_group_expanded": true,
+  "motif_calibration_group_expanded": false,
   "motif_catalogue_group_expanded": false,
   "motif_conductor_group_expanded": true,
-  "motif_guidance_group_expanded": true,
+  "motif_guidance_group_expanded": false,
   "motif_manual_group_expanded": false,
   "motif_panel_expanded": true,
   "motif_spatial_setup_group_expanded": false,
