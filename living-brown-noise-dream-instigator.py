@@ -6447,19 +6447,19 @@ class BaseBrownFluidStereo:
     def __init__(self) -> None:
         self.primary_state = OrganicMotionState(
             OrganicMotionSpec(
-                natural_period_seconds=82.0,
+                natural_period_seconds=30.0,
                 damping_ratio=0.46,
                 drive_strength=1.12,
-                drive_smoothing_seconds=24.0,
+                drive_smoothing_seconds=9.0,
                 soft_limit=1.15,
             )
         )
         self.eddy_state = OrganicMotionState(
             OrganicMotionSpec(
-                natural_period_seconds=27.0,
+                natural_period_seconds=10.0,
                 damping_ratio=0.72,
                 drive_strength=0.58,
-                drive_smoothing_seconds=8.5,
+                drive_smoothing_seconds=3.5,
                 soft_limit=1.35,
             )
         )

@@ -85,9 +85,9 @@
   "dual_brown_motion": {
     "center_distance": 0.55,
     "enabled": true,
-    "evolution_rate": 0.55,
+    "evolution_rate": 0.49,
     "layer_amount": 1.3900000000000001,
-    "layer_enabled": false,
+    "layer_enabled": true,
     "sphere_radius": 2.75
   },
   "export_duration_minutes": 360,
@@ -163,7 +163,7 @@
   "motif_conductor_group_expanded": true,
   "motif_guidance_group_expanded": false,
   "motif_manual_group_expanded": false,
-  "motif_panel_expanded": true,
+  "motif_panel_expanded": false,
   "motif_spatial_setup_group_expanded": false,
   "motion_panel_expanded": false,
   "noise_panel_expanded": false,
