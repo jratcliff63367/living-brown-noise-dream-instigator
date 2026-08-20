@@ -7572,51 +7572,114 @@ class ExportWorker(QThread):
             frames_written = 0
             motif_engine = mixer.dream_motif_3d
 
-            with (
-                wave.open(str(output), "wb") as wav,
-                log_output.open("w", encoding="utf-8") as export_log,
-            ):
-                export_log.write(
-                    "Living Brown Noise — Dream Instigator export log\n"
-                )
-                export_log.write(f"Audio file: {output.name}\n")
-                export_log.write(
-                    f"Duration: {self.duration_minutes} minutes\n"
-                )
-                export_log.write(
-                    f"Sample rate: {self.sample_rate} Hz\n"
-                )
-                export_log.write(f"Seed: {seed_base}\n")
-                export_log.write(
-                    "Timestamps are rendered-audio positions.\n"
-                )
-                export_log.write(
-                    "Format: HH:MM:SS.mmm  CATEGORY  MESSAGE\n\n"
+            # Encode the generated float stereo buffers directly to MP3.
+            # This avoids creating a multi-gigabyte intermediate WAV file and
+            # also avoids the classic RIFF/WAV 4 GB size limit.
+            mp3_bitrate = 192_000
+            container = None
+
+            try:
+                container = av.open(
+                    str(output),
+                    mode="w",
+                    format="mp3",
                 )
 
-                wav.setnchannels(2)
-                wav.setsampwidth(2)  # 16-bit PCM
-                wav.setframerate(self.sample_rate)
-
-                while frames_written < total_frames:
-                    if self._cancel_requested.is_set():
-                        raise InterruptedError
-
-                    remaining_frames = (
-                        total_frames - frames_written
+                # Prefer LAME when it is available in the FFmpeg build used by
+                # PyAV. Fall back to the generic MP3 encoder name otherwise.
+                try:
+                    mp3_stream = container.add_stream(
+                        "libmp3lame",
+                        rate=self.sample_rate,
+                    )
+                except Exception:
+                    mp3_stream = container.add_stream(
+                        "mp3",
+                        rate=self.sample_rate,
                     )
 
-                    # Normal chunks are exact Steam Audio frame multiples.
-                    # A short request occurs only once, at the true end of the
-                    # complete export, so zero padding can never contaminate
-                    # persistent HRTF state between ordinary chunks.
-                    frame_count = (
-                        chunk_frames
-                        if remaining_frames > chunk_frames
-                        else remaining_frames
+                mp3_stream.bit_rate = mp3_bitrate
+
+                with log_output.open(
+                    "w",
+                    encoding="utf-8",
+                ) as export_log:
+                    export_log.write(
+                        "Living Brown Noise — Dream Instigator export log\n"
+                    )
+                    export_log.write(f"Audio file: {output.name}\n")
+                    export_log.write(
+                        f"Duration: {self.duration_minutes} minutes\n"
+                    )
+                    export_log.write(
+                        f"Sample rate: {self.sample_rate} Hz\n"
+                    )
+                    export_log.write(
+                        f"Encoding: MP3 stereo, "
+                        f"{mp3_bitrate // 1000} kbps\n"
+                    )
+                    export_log.write(f"Seed: {seed_base}\n")
+                    export_log.write(
+                        "Timestamps are rendered-audio positions.\n"
+                    )
+                    export_log.write(
+                        "Format: HH:MM:SS.mmm  CATEGORY  MESSAGE\n\n"
                     )
 
-                    audio = mixer.generate(frame_count)
+                    while frames_written < total_frames:
+                        if self._cancel_requested.is_set():
+                            raise InterruptedError
+
+                        remaining_frames = (
+                            total_frames - frames_written
+                        )
+
+                        # Normal chunks are exact Steam Audio frame multiples.
+                        # A short request occurs only once, at the true end of
+                        # the complete export, so zero padding can never
+                        # contaminate persistent HRTF state between chunks.
+                        frame_count = (
+                            chunk_frames
+                            if remaining_frames > chunk_frames
+                            else remaining_frames
+                        )
+
+                        audio = mixer.generate(frame_count)
+
+                        for timestamp, category, message in (
+                            motif_engine.drain_event_journal()
+                        ):
+                            export_log.write(
+                                f"{motif_engine._format_log_time(timestamp)}  "
+                                f"{category:<26}  {message}\n"
+                            )
+
+                        # PyAV's planar float format is channels x samples.
+                        # The mixer already produces float32 stereo, so no
+                        # intermediate PCM16/WAV representation is needed.
+                        planar = np.ascontiguousarray(
+                            np.clip(audio, -1.0, 1.0).T,
+                            dtype=np.float32,
+                        )
+                        frame = av.AudioFrame.from_ndarray(
+                            planar,
+                            format="fltp",
+                            layout="stereo",
+                        )
+                        frame.sample_rate = self.sample_rate
+
+                        for packet in mp3_stream.encode(frame):
+                            container.mux(packet)
+
+                        frames_written += frame_count
+                        percent = int(
+                            frames_written * 100 / total_frames
+                        )
+                        self.progress_changed.emit(percent)
+
+                    # Flush delayed MP3 encoder frames.
+                    for packet in mp3_stream.encode(None):
+                        container.mux(packet)
 
                     for timestamp, category, message in (
                         motif_engine.drain_event_journal()
@@ -7625,27 +7688,11 @@ class ExportWorker(QThread):
                             f"{motif_engine._format_log_time(timestamp)}  "
                             f"{category:<26}  {message}\n"
                         )
+                    export_log.write("\nEND OF EXPORT\n")
 
-                    # Convert float [-1, 1] to little-endian signed PCM16.
-                    pcm = np.clip(audio, -1.0, 1.0)
-                    pcm = np.round(pcm * 32767.0).astype("<i2")
-                    wav.writeframesraw(pcm.tobytes())
-
-                    frames_written += frame_count
-                    percent = int(
-                        frames_written * 100 / total_frames
-                    )
-                    self.progress_changed.emit(percent)
-
-                wav.writeframes(b"")
-                for timestamp, category, message in (
-                    motif_engine.drain_event_journal()
-                ):
-                    export_log.write(
-                        f"{motif_engine._format_log_time(timestamp)}  "
-                        f"{category:<26}  {message}\n"
-                    )
-                export_log.write("\nEND OF EXPORT\n")
+            finally:
+                if container is not None:
+                    container.close()
 
             self.progress_changed.emit(100)
             self.export_finished.emit(str(output))
@@ -9907,7 +9954,7 @@ class MainWindow(QMainWindow):
         self.export_duration_slider = QSlider(
             Qt.Orientation.Horizontal
         )
-        self.export_duration_slider.setRange(5, 360)
+        self.export_duration_slider.setRange(5, 480)
         self.export_duration_slider.setSingleStep(5)
         self.export_duration_slider.setPageStep(15)
         self.export_duration_slider.setValue(
@@ -9937,8 +9984,8 @@ class MainWindow(QMainWindow):
         export_layout.addWidget(self.export_progress)
 
         self.export_status_label = QLabel(
-            "Exports the current settings as stereo 16-bit WAV. "
-            "Rendering runs faster than real time."
+            "Exports the current settings directly as stereo "
+            "192 kbps MP3. Rendering runs faster than real time."
         )
         self.export_status_label.setWordWrap(True)
         export_layout.addWidget(self.export_status_label)
@@ -11363,21 +11410,21 @@ class MainWindow(QMainWindow):
 
         suggested_name = (
             f"living-brown-noise-"
-            f"{self.export_duration_slider.value()}min.wav"
+            f"{self.export_duration_slider.value()}min.mp3"
         )
 
         output_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export living brown noise",
             str(EXPORT_DIRECTORY / suggested_name),
-            "Wave audio (*.wav)",
+            "MP3 audio (*.mp3)",
         )
 
         if not output_path:
             return
 
-        if not output_path.lower().endswith(".wav"):
-            output_path += ".wav"
+        if not output_path.lower().endswith(".mp3"):
+            output_path += ".mp3"
 
         # Free the audio device and CPU for the renderer.
         self._stop()
