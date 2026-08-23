@@ -5,11 +5,10 @@ import threading
 
 import numpy as np
 import sounddevice as sd
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
-    QDoubleSpinBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -20,21 +19,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from steam_audio_renderer import DEFAULT_SAMPLE_RATE, SteamAudioRenderer, Vector3
-from synthesized_sound_source import (
-    OrganicSpatialMotion,
-    SpatialMotionSpec,
-    SpatialMotionState,
+from steam_audio_renderer import (
+    DEFAULT_SAMPLE_RATE,
+    SteamAudioRenderer,
+    Vector3,
 )
 from tibetan_singing_bowl import (
     BowlCeremonyController,
     BowlCeremonySpec,
     BowlCeremonyState,
-    SingingBowlSpec,
-    SingingBowlState,
-    TibetanSingingBowlGenerator,
 )
-
 
 FRAME_SIZE = 1024
 
@@ -42,86 +36,80 @@ FRAME_SIZE = 1024
 class FloatSlider(QWidget):
     def __init__(
         self,
-        label: str,
-        minimum: float,
-        maximum: float,
-        value: float,
+        label,
+        minimum,
+        maximum,
+        value,
         *,
-        decimals: int = 2,
-        steps: int = 1000,
-        suffix: str = "",
+        decimals=2,
+        suffix="",
         parent=None,
-    ) -> None:
+    ):
         super().__init__(parent)
         self.minimum = float(minimum)
         self.maximum = float(maximum)
-        self.steps = int(steps)
-        self.suffix = suffix
         self.decimals = int(decimals)
-        self._callbacks = []
+        self.suffix = suffix
+        self.steps = 1000
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.name_label = QLabel(label)
+
+        self.name = QLabel(label)
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(0, self.steps)
         self.value_label = QLabel()
-        self.value_label.setMinimumWidth(82)
+        self.value_label.setMinimumWidth(90)
 
-        layout.addWidget(self.name_label)
+        layout.addWidget(self.name)
         layout.addWidget(self.slider, 1)
         layout.addWidget(self.value_label)
 
+        self._callbacks = []
         self.slider.valueChanged.connect(self._changed)
         self.set_value(value)
 
-    def _from_slider(self, raw: int) -> float:
-        f = raw / self.steps
+    def value(self):
+        f = self.slider.value() / self.steps
         return self.minimum + f * (self.maximum - self.minimum)
 
-    def _to_slider(self, value: float) -> int:
+    def set_value(self, value):
         f = (
             (float(value) - self.minimum)
-            / max(1.0e-12, self.maximum - self.minimum)
+            / max(1.0e-9, self.maximum - self.minimum)
         )
-        return int(round(np.clip(f, 0.0, 1.0) * self.steps))
+        self.slider.setValue(
+            int(round(np.clip(f, 0.0, 1.0) * self.steps))
+        )
 
-    def value(self) -> float:
-        return self._from_slider(self.slider.value())
-
-    def set_value(self, value: float) -> None:
-        self.slider.setValue(self._to_slider(value))
-        self._update_label(self.value())
-
-    def _update_label(self, value: float) -> None:
+    def _changed(self, _):
+        value = self.value()
         self.value_label.setText(
             f"{value:.{self.decimals}f}{self.suffix}"
         )
-
-    def _changed(self, _raw: int) -> None:
-        value = self.value()
-        self._update_label(value)
         for callback in self._callbacks:
             callback(value)
 
-    def on_change(self, callback) -> None:
+    def on_change(self, callback):
         self._callbacks.append(callback)
 
 
-class BowlAudioEngine:
-    def __init__(self) -> None:
+class BowlCeremonyAudioEngine:
+    def __init__(self):
         self.sample_rate = DEFAULT_SAMPLE_RATE
-        self.bowl_state = SingingBowlState(SingingBowlSpec())
-        self.ceremony_state = BowlCeremonyState(BowlCeremonySpec())
-        self.motion_state = SpatialMotionState(
-            SpatialMotionSpec(
-                enabled=True,
-                distance_m=1.35,
-                distance_wander_m=0.85,
-                azimuth_span_degrees=220.0,
-                elevation_span_degrees=70.0,
-                motion_speed=0.38,
+
+        self.ceremony_state = BowlCeremonyState(
+            BowlCeremonySpec(
+                enabled=False,
+                duration_minutes=30.0,
+                intensity=0.62,
+                spatiality=0.88,
+                rubbing=0.78,
             )
+        )
+        self.ceremony = BowlCeremonyController(
+            self.sample_rate,
+            self.ceremony_state,
         )
 
         self.renderer = SteamAudioRenderer(
@@ -130,44 +118,57 @@ class BowlAudioEngine:
             validation_enabled=False,
             log_messages=False,
         )
-        self.source = self.renderer.create_source(
-            position=Vector3(0.0, 0.0, -1.35),
-            spatial_blend=1.0,
-            distance_attenuation_enabled=True,
-        )
-        self.generator = TibetanSingingBowlGenerator(
-            self.sample_rate,
-            self.bowl_state,
-        )
-        self.ceremony = BowlCeremonyController(
-            self.bowl_state,
-            self.ceremony_state,
-        )
-        self.motion = OrganicSpatialMotion(self.motion_state)
 
-        self.stream: sd.OutputStream | None = None
-        self._stream_lock = threading.Lock()
+        self.sources = []
+        for voice in self.ceremony.voices:
+            p = voice.position
+            self.sources.append(
+                self.renderer.create_source(
+                    position=Vector3(
+                        float(p[0]),
+                        float(p[1]),
+                        float(p[2]),
+                    ),
+                    spatial_blend=1.0,
+                    distance_attenuation_enabled=True,
+                )
+            )
+
+        self.stream = None
+        self._lock = threading.Lock()
         self.running = False
-        self.manual_position = Vector3(0.0, 0.0, -1.35)
 
-    def callback(self, outdata, frames, time_info, status) -> None:
+    def callback(self, outdata, frames, time_info, status):
         if status:
             print(status, file=sys.stderr)
 
-        elapsed = frames / self.sample_rate
-        self.ceremony.advance(elapsed, self.generator)
-        mono = self.generator.generate(frames)
+        dt = frames / self.sample_rate
+        self.ceremony.advance(dt)
+        mono_blocks = self.ceremony.render_mono(frames)
 
-        if self.motion_state.get().enabled:
-            position = self.motion.advance(elapsed)
-        else:
-            position = self.manual_position
-        self.source.set_position_vector(position)
+        stereo = np.zeros((frames, 2), dtype=np.float32)
 
-        outdata[:] = self.source.process_mono(mono)
+        for voice, source, mono in zip(
+            self.ceremony.voices,
+            self.sources,
+            mono_blocks,
+        ):
+            p = voice.position
+            source.set_position(
+                float(p[0]),
+                float(p[1]),
+                float(p[2]),
+            )
+            stereo += source.process_mono(mono)
 
-    def start(self) -> None:
-        with self._stream_lock:
+        # Protect constructive multi-bowl peaks without flattening normal
+        # resonance dynamics.
+        outdata[:] = (
+            0.94 * np.tanh(stereo * 0.82)
+        ).astype(np.float32, copy=False)
+
+    def start_audio(self):
+        with self._lock:
             if self.stream is not None:
                 return
             self.stream = sd.OutputStream(
@@ -181,217 +182,188 @@ class BowlAudioEngine:
             self.stream.start()
             self.running = True
 
-    def stop(self) -> None:
-        with self._stream_lock:
+    def stop_audio(self):
+        with self._lock:
             if self.stream is not None:
                 self.stream.stop()
                 self.stream.close()
                 self.stream = None
             self.running = False
 
-    def close(self) -> None:
-        self.stop()
+    def start_ceremony(self):
+        self.ceremony_state.update(enabled=True)
+        self.ceremony.restart()
+
+    def stop_ceremony(self):
+        self.ceremony_state.update(enabled=False)
+        self.ceremony.stop()
+
+    def close(self):
+        self.stop_audio()
         self.renderer.close()
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
-        self.setWindowTitle("Tibetan Singing Bowl Synthesis Lab")
-        self.resize(900, 1050)
-        self.engine = BowlAudioEngine()
+        self.setWindowTitle(
+            "Tibetan Singing Bowl — Full Ceremony Lab"
+        )
+        self.resize(940, 800)
+
+        self.engine = BowlCeremonyAudioEngine()
 
         root = QWidget()
         layout = QVBoxLayout(root)
         self.setCentralWidget(root)
 
-        top = QHBoxLayout()
-        self.start_button = QPushButton("Start Audio")
-        self.stop_button = QPushButton("Stop Audio")
-        self.strike_button = QPushButton("Strike Bowl")
-        self.clear_button = QPushButton("Clear Resonance")
-        top.addWidget(self.start_button)
-        top.addWidget(self.stop_button)
-        top.addWidget(self.strike_button)
-        top.addWidget(self.clear_button)
-        layout.addLayout(top)
+        row = QHBoxLayout()
+        buttons = [
+            ("Start Audio", self.engine.start_audio),
+            ("Stop Audio", self.engine.stop_audio),
+            ("Start / Restart Ceremony", self.engine.start_ceremony),
+            ("Stop Ceremony", self.engine.stop_ceremony),
+        ]
+        for text, callback in buttons:
+            button = QPushButton(text)
+            button.clicked.connect(callback)
+            row.addWidget(button)
+        layout.addLayout(row)
 
-        self.start_button.clicked.connect(self.engine.start)
-        self.stop_button.clicked.connect(self.engine.stop)
-        self.strike_button.clicked.connect(lambda: self.engine.generator.strike())
-        self.clear_button.clicked.connect(self.engine.generator.clear)
-
-        instrument_group = QGroupBox("Bowl instrument")
-        instrument_layout = QVBoxLayout(instrument_group)
-        layout.addWidget(instrument_group)
-        spec = self.engine.bowl_state.get()
-
-        self._add_slider(instrument_layout, "Fundamental", 70.0, 700.0,
-                         spec.fundamental_hz, 1, " Hz",
-                         lambda v: self.engine.bowl_state.update(fundamental_hz=v))
-        self._add_slider(instrument_layout, "Decay", 1.0, 40.0,
-                         spec.decay_seconds, 1, " s",
-                         lambda v: self.engine.bowl_state.update(decay_seconds=v))
-        self._add_slider(instrument_layout, "Default strike strength", 0.0, 1.0,
-                         spec.strike_strength, 2, "",
-                         lambda v: self.engine.bowl_state.update(strike_strength=v))
-        self._add_slider(instrument_layout, "Brightness", 0.0, 1.0,
-                         spec.brightness, 2, "",
-                         lambda v: self.engine.bowl_state.update(brightness=v))
-        self._add_slider(instrument_layout, "Inharmonicity", 0.0, 1.0,
-                         spec.inharmonicity, 2, "",
-                         lambda v: self.engine.bowl_state.update(inharmonicity=v))
-        self._add_slider(instrument_layout, "Modal beating / shimmer", 0.0, 1.0,
-                         spec.beating, 2, "",
-                         lambda v: self.engine.bowl_state.update(beating=v))
-        self._add_slider(instrument_layout, "Body / low-mode weight", 0.0, 1.0,
-                         spec.body, 2, "",
-                         lambda v: self.engine.bowl_state.update(body=v))
-        self._add_slider(instrument_layout, "Manual rubbing level", 0.0, 1.0,
-                         spec.rub_level, 2, "",
-                         lambda v: self.engine.bowl_state.update(rub_level=v))
-        self._add_slider(instrument_layout, "Rubbing instability", 0.0, 1.0,
-                         spec.rub_motion, 2, "",
-                         lambda v: self.engine.bowl_state.update(rub_motion=v))
-        self._add_slider(instrument_layout, "Output gain", -36.0, 0.0,
-                         spec.output_gain_db, 1, " dB",
-                         lambda v: self.engine.bowl_state.update(output_gain_db=v))
-
-        ceremony_group = QGroupBox("Ceremony metabolism")
-        ceremony_layout = QVBoxLayout(ceremony_group)
-        layout.addWidget(ceremony_group)
-
-        self.ceremony_enabled = QCheckBox("Enable automatic ceremony evolution")
-        self.ceremony_enabled.toggled.connect(
-            lambda checked: self.engine.ceremony_state.update(enabled=checked)
+        description = QLabel(
+            "Automated mode performs a complete four-bowl ceremony: "
+            "large-to-small bowl layering, overlapping decays, sustained "
+            "rim singing, deliberate movement around the head and body, "
+            "an immersive middle section, gradual integration, three soft "
+            "closing low-bowl strikes, and a true silent tail."
         )
-        ceremony_layout.addWidget(self.ceremony_enabled)
-        c = self.engine.ceremony_state.get()
-        self._add_slider(ceremony_layout, "Activity / event density", 0.0, 1.0,
-                         c.activity, 2, "",
-                         lambda v: self.engine.ceremony_state.update(activity=v))
-        self._add_slider(ceremony_layout, "Evolution speed", 0.0, 1.0,
-                         c.evolution, 2, "",
-                         lambda v: self.engine.ceremony_state.update(evolution=v))
-        self._add_slider(ceremony_layout, "Strike tendency", 0.0, 1.0,
-                         c.strike_probability, 2, "",
-                         lambda v: self.engine.ceremony_state.update(strike_probability=v))
-        self._add_slider(ceremony_layout, "Rubbing tendency", 0.0, 1.0,
-                         c.rub_probability, 2, "",
-                         lambda v: self.engine.ceremony_state.update(rub_probability=v))
+        description.setWordWrap(True)
+        layout.addWidget(description)
 
-        spatial_group = QGroupBox("3D spatial motion")
-        spatial_layout = QVBoxLayout(spatial_group)
-        layout.addWidget(spatial_group)
-        m = self.engine.motion_state.get()
+        group = QGroupBox("Ceremony performance")
+        controls = QVBoxLayout(group)
+        layout.addWidget(group)
 
-        self.motion_enabled = QCheckBox("Enable organic 3D motion")
-        self.motion_enabled.setChecked(m.enabled)
-        self.motion_enabled.toggled.connect(
-            lambda checked: self.engine.motion_state.update(enabled=checked)
+        spec = self.engine.ceremony_state.get()
+        self._slider(
+            controls, "Ceremony duration",
+            8.0, 60.0, spec.duration_minutes,
+            decimals=1, suffix=" min",
+            callback=lambda v:
+                self.engine.ceremony_state.update(duration_minutes=v),
         )
-        spatial_layout.addWidget(self.motion_enabled)
-        self._add_slider(spatial_layout, "Center distance", 0.25, 6.0,
-                         m.distance_m, 2, " m",
-                         lambda v: self.engine.motion_state.update(distance_m=v))
-        self._add_slider(spatial_layout, "Distance wander", 0.0, 4.0,
-                         m.distance_wander_m, 2, " m",
-                         lambda v: self.engine.motion_state.update(distance_wander_m=v))
-        self._add_slider(spatial_layout, "Azimuth span", 0.0, 360.0,
-                         m.azimuth_span_degrees, 0, "°",
-                         lambda v: self.engine.motion_state.update(azimuth_span_degrees=v))
-        self._add_slider(spatial_layout, "Elevation span", 0.0, 120.0,
-                         m.elevation_span_degrees, 0, "°",
-                         lambda v: self.engine.motion_state.update(elevation_span_degrees=v))
-        self._add_slider(spatial_layout, "Motion speed", 0.0, 1.0,
-                         m.motion_speed, 2, "",
-                         lambda v: self.engine.motion_state.update(motion_speed=v))
+        self._slider(
+            controls, "Performance intensity",
+            0.0, 1.0, spec.intensity,
+            callback=lambda v:
+                self.engine.ceremony_state.update(intensity=v),
+        )
+        self._slider(
+            controls, "3D movement / proximity",
+            0.0, 1.0, spec.spatiality,
+            callback=lambda v:
+                self.engine.ceremony_state.update(spatiality=v),
+        )
+        self._slider(
+            controls, "Rim-rubbing presence",
+            0.0, 1.0, spec.rubbing,
+            callback=lambda v:
+                self.engine.ceremony_state.update(rubbing=v),
+        )
 
-        manual_group = QGroupBox("Manual source position (used when motion is off)")
-        manual_layout = QHBoxLayout(manual_group)
-        layout.addWidget(manual_group)
-        self.manual_x = self._spin(-8.0, 8.0, 0.0)
-        self.manual_y = self._spin(-8.0, 8.0, 0.0)
-        self.manual_z = self._spin(-8.0, -0.15, -1.35)
-        manual_layout.addWidget(QLabel("X"))
-        manual_layout.addWidget(self.manual_x)
-        manual_layout.addWidget(QLabel("Y"))
-        manual_layout.addWidget(self.manual_y)
-        manual_layout.addWidget(QLabel("Z"))
-        manual_layout.addWidget(self.manual_z)
-        for spin in (self.manual_x, self.manual_y, self.manual_z):
-            spin.valueChanged.connect(self._update_manual_position)
+        strike_group = QGroupBox(
+            "Manual bowl strikes (optional during ceremony)"
+        )
+        strike_row = QHBoxLayout(strike_group)
+        layout.addWidget(strike_group)
 
-        status_group = QGroupBox("Live state")
+        for index, voice in enumerate(self.engine.ceremony.voices):
+            button = QPushButton(voice.profile.name)
+            button.clicked.connect(
+                lambda _checked=False, i=index:
+                    self.engine.ceremony.voices[i].generator.strike()
+            )
+            strike_row.addWidget(button)
+
+        status_group = QGroupBox("Live performance state")
         status_layout = QVBoxLayout(status_group)
         layout.addWidget(status_group)
-        self.status_label = QLabel()
-        self.status_label.setTextInteractionFlags(
+
+        self.status = QLabel()
+        self.status.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
-        status_layout.addWidget(self.status_label)
+        self.status.setWordWrap(True)
+        status_layout.addWidget(self.status)
 
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self._refresh_status)
+        self.timer.timeout.connect(self.refresh)
         self.timer.start(150)
-        self._refresh_status()
+        self.refresh()
 
     @staticmethod
-    def _spin(minimum: float, maximum: float, value: float) -> QDoubleSpinBox:
-        box = QDoubleSpinBox()
-        box.setRange(minimum, maximum)
-        box.setDecimals(2)
-        box.setSingleStep(0.10)
-        box.setValue(value)
-        return box
-
-    @staticmethod
-    def _add_slider(layout, label, minimum, maximum, value,
-                    decimals, suffix, callback):
+    def _slider(
+        layout,
+        label,
+        minimum,
+        maximum,
+        value,
+        *,
+        decimals=2,
+        suffix="",
+        callback=None,
+    ):
         widget = FloatSlider(
-            label, minimum, maximum, value,
-            decimals=decimals, suffix=suffix,
+            label,
+            minimum,
+            maximum,
+            value,
+            decimals=decimals,
+            suffix=suffix,
         )
-        widget.on_change(callback)
+        if callback is not None:
+            widget.on_change(callback)
         layout.addWidget(widget)
         return widget
 
-    def _update_manual_position(self) -> None:
-        self.engine.manual_position = Vector3(
-            self.manual_x.value(),
-            self.manual_y.value(),
-            self.manual_z.value(),
-        )
-        if not self.motion_enabled.isChecked():
-            self.engine.source.set_position_vector(self.engine.manual_position)
+    @staticmethod
+    def _time(seconds):
+        seconds = max(0, int(round(seconds)))
+        minutes, secs = divmod(seconds, 60)
+        return f"{minutes:02d}:{secs:02d}"
 
-    def _refresh_status(self) -> None:
-        if self.engine.motion_state.get().enabled:
-            p = self.engine.motion.current_position
-            az = self.engine.motion.current_azimuth_degrees
-            el = self.engine.motion.current_elevation_degrees
-            dist = self.engine.motion.current_distance_m
-        else:
-            p = self.engine.manual_position
-            az = 0.0
-            el = 0.0
-            dist = p.distance()
+    def refresh(self):
+        c = self.engine.ceremony
+        lines = [
+            f"Audio: {'RUNNING' if self.engine.running else 'STOPPED'}",
+            (
+                f"Ceremony: {'RUNNING' if c.running else 'STOPPED'}; "
+                f"phase={c.phase}; "
+                f"progress={100.0 * c.performance_progress:.1f}%; "
+                f"remaining={self._time(c.remaining_seconds)}"
+            ),
+            "",
+        ]
 
-        self.status_label.setText(
-            f"Audio: {'RUNNING' if self.engine.running else 'STOPPED'}\n"
-            f"Position: x={p.x:+.2f} m, y={p.y:+.2f} m, z={p.z:+.2f} m\n"
-            f"Azimuth: {az:+.1f}°, elevation: {el:+.1f}°, distance: {dist:.2f} m\n"
-            f"Ceremony activity: {self.engine.ceremony.current_activity:.2f}; "
-            f"automatic rub: {self.engine.ceremony.current_rub:.2f}; "
-            f"active strike resonances: {len(self.engine.generator.events)}"
-        )
+        for voice in c.voices:
+            p = voice.position
+            lines.append(
+                f"{voice.profile.name}: "
+                f"{voice.profile.fundamental_hz:.1f} Hz; "
+                f"rub={voice.current_rub:.2f}; "
+                f"weight={voice.active_weight:.2f}; "
+                f"strikes={voice.strikes}; "
+                f"pos=({p[0]:+.2f}, {p[1]:+.2f}, {p[2]:+.2f}) m"
+            )
 
-    def closeEvent(self, event) -> None:
+        self.status.setText("\n".join(lines))
+
+    def closeEvent(self, event):
         self.engine.close()
         event.accept()
 
 
-def main() -> int:
+def main():
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

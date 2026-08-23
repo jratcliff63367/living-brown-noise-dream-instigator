@@ -369,18 +369,35 @@ class TibetanSingingBowlGenerator:
         return output.astype(np.float32, copy=False)
 
 
+
 @dataclass(frozen=True, slots=True)
 class BowlCeremonySpec:
+    """
+    High-level controls for a complete multi-bowl sound-bath performance.
+
+    duration_minutes:
+        Total arc including a quiet closing tail.
+
+    intensity:
+        Controls density and strike strength, not a rigid tempo.
+
+    spatiality:
+        Controls how boldly the practitioner moves bowls around the listener.
+
+    rubbing:
+        Controls how often rim-singing becomes the active technique.
+    """
+
     enabled: bool = False
-    activity: float = 0.35
-    evolution: float = 0.45
-    strike_probability: float = 0.65
-    rub_probability: float = 0.35
+    duration_minutes: float = 30.0
+    intensity: float = 0.62
+    spatiality: float = 0.88
+    rubbing: float = 0.78
 
     def validated(self) -> "BowlCeremonySpec":
-        for name in (
-            "activity", "evolution", "strike_probability", "rub_probability"
-        ):
+        if not 8.0 <= self.duration_minutes <= 90.0:
+            raise ValueError("duration_minutes must be between 8 and 90")
+        for name in ("intensity", "spatiality", "rubbing"):
             if not 0.0 <= getattr(self, name) <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
         return self
@@ -395,108 +412,679 @@ class BowlCeremonyState:
         with self._lock:
             return self._spec
 
+    def set(self, spec: BowlCeremonySpec) -> None:
+        with self._lock:
+            self._spec = spec.validated()
+
     def update(self, **changes) -> None:
         with self._lock:
-            self._spec = replace(self._spec, **changes).validated()
+            self._spec = replace(
+                self._spec,
+                **changes,
+            ).validated()
+
+
+@dataclass(frozen=True, slots=True)
+class CeremonyBowlProfile:
+    name: str
+    fundamental_hz: float
+    decay_seconds: float
+    brightness: float
+    inharmonicity: float
+    beating: float
+    body: float
+    output_gain_db: float
+    size_class: float
+
+
+@dataclass(slots=True)
+class CeremonyBowlVoice:
+    profile: CeremonyBowlProfile
+    state: SingingBowlState
+    generator: TibetanSingingBowlGenerator
+
+    position: np.ndarray
+    move_start: np.ndarray
+    move_target: np.ndarray
+    move_elapsed: float
+    move_duration: float
+
+    next_strike_seconds: float = 1.0
+    rub_target: float = 0.0
+    current_rub: float = 0.0
+    active_weight: float = 0.0
+    strikes: int = 0
 
 
 class BowlCeremonyController:
-    """Slow, non-grid generative behavior for the bowl instrument."""
+    """
+    Complete beginning-middle-end procedural singing-bowl ceremony.
+
+    Four differently sized bowls share one evolving performance arc. The
+    controller deliberately behaves more like a practitioner than a sequencer:
+    long resonances overlap; one or two bowls may be rim-sung while other bowls
+    continue to ring; spatial gestures move sources around the listener's head
+    and body; density rises toward an immersive middle and then recedes into
+    progressively larger spaces and a final low-bowl closing.
+
+    No beat grid is used.
+    """
+
+    PHASE_ARRIVAL = "arrival"
+    PHASE_GROUNDING = "grounding"
+    PHASE_OPENING = "opening"
+    PHASE_IMMERSION = "immersion"
+    PHASE_INTEGRATION = "integration"
+    PHASE_CLOSING = "closing"
+    PHASE_SILENCE = "final silence"
+    PHASE_COMPLETE = "complete"
+
+    PROFILES = (
+        CeremonyBowlProfile(
+            name="Large grounding bowl",
+            fundamental_hz=107.3,
+            decay_seconds=24.0,
+            brightness=0.26,
+            inharmonicity=0.46,
+            beating=0.30,
+            body=0.90,
+            output_gain_db=-13.5,
+            size_class=1.00,
+        ),
+        CeremonyBowlProfile(
+            name="Low-mid bowl",
+            fundamental_hz=143.8,
+            decay_seconds=20.0,
+            brightness=0.38,
+            inharmonicity=0.43,
+            beating=0.38,
+            body=0.78,
+            output_gain_db=-14.5,
+            size_class=0.78,
+        ),
+        CeremonyBowlProfile(
+            name="Middle singing bowl",
+            fundamental_hz=191.6,
+            decay_seconds=16.5,
+            brightness=0.52,
+            inharmonicity=0.40,
+            beating=0.46,
+            body=0.64,
+            output_gain_db=-15.0,
+            size_class=0.55,
+        ),
+        CeremonyBowlProfile(
+            name="Small clear bowl",
+            fundamental_hz=286.7,
+            decay_seconds=12.5,
+            brightness=0.68,
+            inharmonicity=0.36,
+            beating=0.52,
+            body=0.46,
+            output_gain_db=-16.0,
+            size_class=0.32,
+        ),
+    )
 
     def __init__(
         self,
-        bowl_state: SingingBowlState,
+        sample_rate: float,
         ceremony_state: BowlCeremonyState,
         *,
         seed: int = 602_900,
     ) -> None:
-        self.bowl_state = bowl_state
+        self.sample_rate = float(sample_rate)
         self.ceremony_state = ceremony_state
         self.rng = np.random.default_rng(seed)
 
-        self.activity_wander = OrganicWanderer1D(
-            seed=seed,
-            natural_period_seconds=38.0,
-            damping_ratio=0.66,
-            drive_strength=0.95,
-            drive_smoothing_seconds=11.0,
+        self.elapsed_seconds = 0.0
+        self.phase = self.PHASE_ARRIVAL
+        self.phase_progress = 0.0
+        self.performance_progress = 0.0
+        self.running = False
+        self.complete = False
+
+        self.dynamic_wander = OrganicWanderer1D(
+            seed=seed + 40,
+            natural_period_seconds=48.0,
+            damping_ratio=0.68,
+            drive_strength=0.82,
+            drive_smoothing_seconds=14.0,
         )
         self.rub_wander = OrganicWanderer1D(
-            seed=seed + 1,
-            natural_period_seconds=52.0,
-            damping_ratio=0.72,
-            drive_strength=0.85,
-            drive_smoothing_seconds=15.0,
+            seed=seed + 41,
+            natural_period_seconds=61.0,
+            damping_ratio=0.76,
+            drive_strength=0.72,
+            drive_smoothing_seconds=17.0,
         )
 
-        self.elapsed_to_next_strike = 1.5
-        self.current_activity = 0.0
-        self.current_rub = 0.0
+        self.voices: list[CeremonyBowlVoice] = []
+        for index, profile in enumerate(self.PROFILES):
+            spec = SingingBowlSpec(
+                fundamental_hz=profile.fundamental_hz,
+                decay_seconds=profile.decay_seconds,
+                strike_strength=0.60,
+                brightness=profile.brightness,
+                inharmonicity=profile.inharmonicity,
+                beating=profile.beating,
+                body=profile.body,
+                rub_level=0.0,
+                rub_motion=0.38 + 0.10 * (1.0 - profile.size_class),
+                output_gain_db=profile.output_gain_db,
+            )
+            state = SingingBowlState(spec)
+            generator = TibetanSingingBowlGenerator(
+                self.sample_rate,
+                state,
+                seed=seed + 100 + index * 17,
+            )
 
-    def _schedule_next_strike(self, activity: float) -> None:
-        minimum = 2.8 + (1.0 - activity) * 8.0
-        maximum = 10.0 + (1.0 - activity) * 45.0
-        self.elapsed_to_next_strike = float(
+            home = self._home_position(profile, index)
+            self.voices.append(
+                CeremonyBowlVoice(
+                    profile=profile,
+                    state=state,
+                    generator=generator,
+                    position=home.copy(),
+                    move_start=home.copy(),
+                    move_target=home.copy(),
+                    move_elapsed=0.0,
+                    move_duration=30.0,
+                    next_strike_seconds=2.0 + index * 1.2,
+                )
+            )
+
+    @staticmethod
+    def _smoothstep5(value: float) -> float:
+        value = float(np.clip(value, 0.0, 1.0))
+        return value ** 3 * (
+            value * (value * 6.0 - 15.0) + 10.0
+        )
+
+    @staticmethod
+    def _home_position(
+        profile: CeremonyBowlProfile,
+        index: int,
+    ) -> np.ndarray:
+        # Large bowls live lower in the body field; smaller bowls begin closer
+        # to chest/head height. All positions are listener-centered.
+        homes = (
+            np.array([0.0, -0.75, -2.80], dtype=np.float64),
+            np.array([-1.15, -0.25, -2.20], dtype=np.float64),
+            np.array([1.05, 0.25, -1.85], dtype=np.float64),
+            np.array([0.45, 0.85, -1.55], dtype=np.float64),
+        )
+        return homes[index].copy()
+
+    def restart(self) -> None:
+        for cue_index in range(3):
+            token = f"_closing_cue_{cue_index}"
+            if hasattr(self, token):
+                delattr(self, token)
+
+        self.elapsed_seconds = 0.0
+        self.phase = self.PHASE_ARRIVAL
+        self.phase_progress = 0.0
+        self.performance_progress = 0.0
+        self.running = True
+        self.complete = False
+
+        for index, voice in enumerate(self.voices):
+            voice.generator.clear()
+            voice.state.update(rub_level=0.0)
+            home = self._home_position(voice.profile, index)
+            voice.position = home.copy()
+            voice.move_start = home.copy()
+            voice.move_target = home.copy()
+            voice.move_elapsed = 0.0
+            voice.move_duration = 20.0
+            voice.next_strike_seconds = 1.8 + index * 1.3
+            voice.current_rub = 0.0
+            voice.rub_target = 0.0
+            voice.active_weight = 0.0
+            voice.strikes = 0
+
+    def stop(self) -> None:
+        self.running = False
+        for voice in self.voices:
+            voice.state.update(rub_level=0.0)
+
+    def _phase_for_progress(
+        self,
+        progress: float,
+    ) -> tuple[str, float]:
+        # Last 4% is intentional silence after all playing has stopped.
+        boundaries = (
+            (0.00, 0.08, self.PHASE_ARRIVAL),
+            (0.08, 0.22, self.PHASE_GROUNDING),
+            (0.22, 0.42, self.PHASE_OPENING),
+            (0.42, 0.72, self.PHASE_IMMERSION),
+            (0.72, 0.88, self.PHASE_INTEGRATION),
+            (0.88, 0.96, self.PHASE_CLOSING),
+            (0.96, 1.00, self.PHASE_SILENCE),
+        )
+        for start, end, phase in boundaries:
+            if progress < end:
+                local = (progress - start) / max(1.0e-9, end - start)
+                return phase, float(np.clip(local, 0.0, 1.0))
+        return self.PHASE_COMPLETE, 1.0
+
+    def _phase_energy(self, phase: str, local: float) -> float:
+        local_s = self._smoothstep5(local)
+
+        if phase == self.PHASE_ARRIVAL:
+            return 0.10 + 0.16 * local_s
+        if phase == self.PHASE_GROUNDING:
+            return 0.26 + 0.22 * local_s
+        if phase == self.PHASE_OPENING:
+            return 0.48 + 0.25 * local_s
+        if phase == self.PHASE_IMMERSION:
+            # Broad plateau rather than a single climax.
+            return 0.82 + 0.16 * math.sin(math.pi * local_s)
+        if phase == self.PHASE_INTEGRATION:
+            return 0.78 - 0.33 * local_s
+        if phase == self.PHASE_CLOSING:
+            return 0.42 - 0.30 * local_s
+        return 0.0
+
+    def _voice_weight(
+        self,
+        index: int,
+        phase: str,
+        local: float,
+    ) -> float:
+        # The practitioner reveals bowls gradually and removes them gradually.
+        if phase == self.PHASE_ARRIVAL:
+            return (1.0, 0.0, 0.0, 0.0)[index]
+        if phase == self.PHASE_GROUNDING:
+            return (1.0, 0.70, 0.10, 0.0)[index]
+        if phase == self.PHASE_OPENING:
+            return (0.95, 0.85, 0.75, 0.30 + 0.45 * local)[index]
+        if phase == self.PHASE_IMMERSION:
+            return (0.88, 0.95, 1.00, 0.85)[index]
+        if phase == self.PHASE_INTEGRATION:
+            return (0.75, 0.65, 0.55, 0.45)[index]
+        if phase == self.PHASE_CLOSING:
+            return (1.0, 0.22 * (1.0 - local), 0.12 * (1.0 - local), 0.0)[index]
+        return 0.0
+
+    def _strike_interval(
+        self,
+        voice: CeremonyBowlVoice,
+        energy: float,
+        weight: float,
+        intensity: float,
+    ) -> float:
+        size = voice.profile.size_class
+        effective = max(
+            0.03,
+            energy * weight * (0.55 + 0.65 * intensity),
+        )
+
+        # Large bowls are naturally less frequent; small bowls may answer
+        # between larger resonances. Log-uniform spacing keeps it non-grid.
+        minimum = 3.5 + 5.5 * size
+        maximum = 10.0 + 26.0 * size
+        minimum /= 0.45 + effective
+        maximum /= 0.42 + effective
+
+        minimum = float(np.clip(minimum, 2.2, 22.0))
+        maximum = float(np.clip(max(maximum, minimum + 2.0), 6.0, 55.0))
+
+        return float(
             math.exp(
-                self.rng.uniform(math.log(minimum), math.log(maximum))
+                self.rng.uniform(
+                    math.log(minimum),
+                    math.log(maximum),
+                )
             )
         )
 
-    def advance(
+    def _strike_strength(
         self,
-        elapsed_seconds: float,
-        generator: TibetanSingingBowlGenerator,
+        voice: CeremonyBowlVoice,
+        energy: float,
+        intensity: float,
+        phase: str,
+        local: float,
+    ) -> float:
+        base = 0.26 + 0.50 * energy
+        base *= 0.78 + 0.32 * intensity
+
+        # Closing strikes get progressively lighter.
+        if phase == self.PHASE_CLOSING:
+            base *= 0.92 - 0.48 * local
+
+        # Big bowls tolerate slightly more physical energy.
+        base *= 0.92 + 0.16 * voice.profile.size_class
+
+        return float(
+            np.clip(
+                self.rng.normal(base, 0.08),
+                0.14,
+                0.96,
+            )
+        )
+
+    def _target_rub(
+        self,
+        index: int,
+        voice: CeremonyBowlVoice,
+        phase: str,
+        local: float,
+        energy: float,
+        rubbing: float,
+        rub_shape: float,
+    ) -> float:
+        if phase in {
+            self.PHASE_ARRIVAL,
+            self.PHASE_SILENCE,
+            self.PHASE_COMPLETE,
+        }:
+            return 0.0
+
+        if phase == self.PHASE_GROUNDING:
+            phase_amount = 0.30
+        elif phase == self.PHASE_OPENING:
+            phase_amount = 0.50
+        elif phase == self.PHASE_IMMERSION:
+            phase_amount = 0.72
+        elif phase == self.PHASE_INTEGRATION:
+            phase_amount = 0.44 * (1.0 - 0.45 * local)
+        else:
+            phase_amount = 0.24 * (1.0 - local)
+
+        # A single practitioner usually actively rims only one or two bowls
+        # while the rest continue ringing from previous excitation. The phase
+        # offsets cause that "active hand" to migrate among the set.
+        hand_cycle = 0.5 + 0.5 * math.sin(
+            self.elapsed_seconds * (0.032 + 0.004 * index)
+            + index * 1.75
+        )
+        selection = hand_cycle ** 2.4
+
+        # Medium bowls sing most readily; very large/small bowls are somewhat
+        # less often the sustained rubbed voice.
+        size_preference = (0.72, 1.00, 0.94, 0.68)[index]
+
+        return float(
+            np.clip(
+                rubbing
+                * phase_amount
+                * energy
+                * size_preference
+                * selection
+                * (0.62 + 0.38 * rub_shape),
+                0.0,
+                0.82,
+            )
+        )
+
+    def _choose_spatial_target(
+        self,
+        index: int,
+        voice: CeremonyBowlVoice,
+        phase: str,
+        energy: float,
+        spatiality: float,
+    ) -> tuple[np.ndarray, float]:
+        profile = voice.profile
+        home = self._home_position(profile, index)
+
+        # During arrival/closing, the performer largely returns bowls to
+        # stable stations. The middle of the ceremony is free to become much
+        # more intimate and mobile.
+        if phase in {
+            self.PHASE_ARRIVAL,
+            self.PHASE_CLOSING,
+            self.PHASE_SILENCE,
+        }:
+            jitter = np.array(
+                [
+                    self.rng.uniform(-0.20, 0.20),
+                    self.rng.uniform(-0.12, 0.12),
+                    self.rng.uniform(-0.18, 0.18),
+                ],
+                dtype=np.float64,
+            )
+            target = home + jitter * spatiality
+            duration = self.rng.uniform(24.0, 48.0)
+            return target, float(duration)
+
+        # A palette of human-like placements around the body/head. Smaller
+        # bowls are permitted closer head-level passes; large bowls spend more
+        # time chest/feet/front and generally remain farther away.
+        head_distance = 0.50 + 0.95 * profile.size_class
+        body_distance = 0.95 + 1.10 * profile.size_class
+        far_distance = 2.0 + 1.05 * profile.size_class
+
+        targets = [
+            np.array([-head_distance, 0.72, -0.58], dtype=np.float64),
+            np.array([ head_distance, 0.72, -0.58], dtype=np.float64),
+            np.array([0.0, 1.20, -0.72], dtype=np.float64),
+            np.array([-body_distance, 0.05, -1.05], dtype=np.float64),
+            np.array([ body_distance, 0.05, -1.05], dtype=np.float64),
+            np.array([0.0, -0.55, -far_distance], dtype=np.float64),
+            np.array([0.0, 0.20, -far_distance], dtype=np.float64),
+        ]
+
+        # Big bowls weight body/front positions. Small bowls weight head passes.
+        if profile.size_class > 0.80:
+            weights = np.array(
+                [0.04, 0.04, 0.02, 0.14, 0.14, 0.34, 0.28],
+                dtype=np.float64,
+            )
+        elif profile.size_class < 0.40:
+            weights = np.array(
+                [0.20, 0.20, 0.18, 0.10, 0.10, 0.08, 0.14],
+                dtype=np.float64,
+            )
+        else:
+            weights = np.array(
+                [0.13, 0.13, 0.10, 0.16, 0.16, 0.14, 0.18],
+                dtype=np.float64,
+            )
+
+        # Lower spatiality biases toward the home station.
+        if self.rng.random() > spatiality * (0.45 + 0.55 * energy):
+            return (
+                home
+                + self.rng.normal(0.0, 0.12, 3).astype(np.float64),
+                float(self.rng.uniform(24.0, 45.0)),
+            )
+
+        weights /= np.sum(weights)
+        target = targets[int(self.rng.choice(len(targets), p=weights))]
+
+        # A little asymmetry avoids obviously repeated coordinate destinations.
+        target = target + np.array(
+            [
+                self.rng.normal(0.0, 0.11),
+                self.rng.normal(0.0, 0.08),
+                self.rng.normal(0.0, 0.10),
+            ],
+            dtype=np.float64,
+        )
+
+        duration = self.rng.uniform(
+            13.0 + 8.0 * profile.size_class,
+            30.0 + 16.0 * profile.size_class,
+        )
+        return target, float(duration)
+
+    def _update_motion(
+        self,
+        index: int,
+        voice: CeremonyBowlVoice,
+        dt: float,
+        phase: str,
+        energy: float,
+        spatiality: float,
     ) -> None:
+        voice.move_elapsed += dt
+
+        if voice.move_elapsed >= voice.move_duration:
+            target, duration = self._choose_spatial_target(
+                index,
+                voice,
+                phase,
+                energy,
+                spatiality,
+            )
+            voice.move_start = voice.position.copy()
+            voice.move_target = target
+            voice.move_elapsed = 0.0
+            voice.move_duration = duration
+
+        progress = self._smoothstep5(
+            voice.move_elapsed / max(1.0e-9, voice.move_duration)
+        )
+        voice.position = (
+            voice.move_start
+            + (voice.move_target - voice.move_start) * progress
+        )
+
+    def advance(self, elapsed_seconds: float) -> None:
         spec = self.ceremony_state.get()
-        if not spec.enabled:
+        if not spec.enabled or not self.running or self.complete:
             return
 
-        speed = 0.25 + 2.5 * spec.evolution
-        activity_shape = 0.5 + 0.5 * self.activity_wander.advance(
-            elapsed_seconds * speed
+        dt = max(0.0, float(elapsed_seconds))
+        total = spec.duration_minutes * 60.0
+        self.elapsed_seconds += dt
+
+        self.performance_progress = float(
+            np.clip(self.elapsed_seconds / max(1.0, total), 0.0, 1.0)
         )
-        rub_shape = 0.5 + 0.5 * self.rub_wander.advance(
-            elapsed_seconds * speed * 0.72
+        self.phase, self.phase_progress = self._phase_for_progress(
+            self.performance_progress
         )
 
-        activity = float(
-            np.clip(
-                0.15 * spec.activity
-                + 0.85 * spec.activity * activity_shape,
-                0.0,
-                1.0,
+        if self.phase == self.PHASE_COMPLETE:
+            self.complete = True
+            self.running = False
+            for voice in self.voices:
+                voice.state.update(rub_level=0.0)
+            return
+
+        energy = self._phase_energy(
+            self.phase,
+            self.phase_progress,
+        )
+
+        dynamic = 0.5 + 0.5 * self.dynamic_wander.advance(dt)
+        rub_shape = 0.5 + 0.5 * self.rub_wander.advance(dt)
+
+        # Organic micro-variation rides on top of the deliberate long-form arc.
+        energy *= 0.82 + 0.22 * dynamic
+        energy = float(np.clip(energy, 0.0, 1.0))
+
+        for index, voice in enumerate(self.voices):
+            weight = self._voice_weight(
+                index,
+                self.phase,
+                self.phase_progress,
             )
-        )
-        self.current_activity = activity
+            voice.active_weight = weight
 
-        self.elapsed_to_next_strike -= elapsed_seconds
-        if self.elapsed_to_next_strike <= 0.0:
-            if self.rng.random() < spec.strike_probability:
-                generator.strike(
-                    float(
-                        np.clip(
-                            self.rng.normal(
-                                0.38 + 0.52 * activity,
-                                0.12,
-                            ),
-                            0.16,
-                            1.0,
-                        )
-                    )
+            self._update_motion(
+                index,
+                voice,
+                dt,
+                self.phase,
+                energy,
+                spec.spatiality,
+            )
+
+            target_rub = self._target_rub(
+                index,
+                voice,
+                self.phase,
+                self.phase_progress,
+                energy,
+                spec.rubbing,
+                rub_shape,
+            )
+            voice.rub_target = target_rub
+
+            # Rubbing fades in/out with hand-like inertia instead of switching.
+            rub_time = 2.5 if target_rub > voice.current_rub else 4.5
+            amount = 1.0 - math.exp(-dt / rub_time)
+            voice.current_rub += (
+                target_rub - voice.current_rub
+            ) * amount
+            voice.state.update(
+                rub_level=float(
+                    np.clip(voice.current_rub * weight, 0.0, 0.90)
                 )
-            self._schedule_next_strike(activity)
+            )
 
-        target_rub = (
-            spec.rub_probability
-            * activity
-            * (rub_shape ** 1.6)
-        )
-        self.current_rub = float(np.clip(target_rub, 0.0, 1.0))
+            if self.phase in {
+                self.PHASE_CLOSING,
+                self.PHASE_SILENCE,
+                self.PHASE_COMPLETE,
+            }:
+                # Closing is deliberately performed by the three low-bowl
+                # cues below rather than by the ordinary stochastic scheduler.
+                continue
 
-        bowl_spec = self.bowl_state.get()
-        self.bowl_state.set(
-            replace(
-                bowl_spec,
-                rub_level=self.current_rub,
-            ).validated()
+            voice.next_strike_seconds -= dt
+            if voice.next_strike_seconds <= 0.0:
+                if weight > 0.04:
+                    strength = self._strike_strength(
+                        voice,
+                        energy,
+                        spec.intensity,
+                        self.phase,
+                        self.phase_progress,
+                    )
+                    voice.generator.strike(strength)
+                    voice.strikes += 1
+
+                voice.next_strike_seconds = self._strike_interval(
+                    voice,
+                    energy,
+                    weight,
+                    spec.intensity,
+                )
+
+        # A professional-feeling ending: increasingly sparse final low-bowl
+        # punctuation followed by true silence. The normal scheduler already
+        # favors the large bowl in closing; these timed cues make the endpoint
+        # deliberate rather than merely probabilistic.
+        if self.phase == self.PHASE_CLOSING:
+            large = self.voices[0]
+            cue_points = (0.10, 0.43, 0.73)
+            for cue_index, cue in enumerate(cue_points):
+                token = f"_closing_cue_{cue_index}"
+                if (
+                    self.phase_progress >= cue
+                    and not hasattr(self, token)
+                ):
+                    setattr(self, token, True)
+                    large.generator.strike(
+                        (0.44, 0.34, 0.24)[cue_index]
+                    )
+                    large.strikes += 1
+
+    def render_mono(self, frame_count: int) -> list[np.ndarray]:
+        """
+        Generate one mono block for every bowl.
+
+        Spatial rendering remains outside this class so the same ceremony
+        engine can later be integrated into Living Brown Noise without GUI or
+        device dependencies.
+        """
+        return [
+            voice.generator.generate(frame_count)
+            for voice in self.voices
+        ]
+
+    @property
+    def remaining_seconds(self) -> float:
+        spec = self.ceremony_state.get()
+        return max(
+            0.0,
+            spec.duration_minutes * 60.0 - self.elapsed_seconds,
         )
