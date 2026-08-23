@@ -18,6 +18,11 @@ import numpy as np
 import sounddevice as sd
 import av
 from steam_audio_renderer import SteamAudioRenderer, Vector3
+from tibetan_singing_bowl import (
+    BowlCeremonyController,
+    BowlCeremonySpec,
+    BowlCeremonyState,
+)
 from scipy import signal
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -6569,6 +6574,361 @@ class BaseBrownFluidStereo:
         )
 
 
+
+# =============================================================================
+# Synthesized meditation performances
+# =============================================================================
+
+@dataclass(frozen=True, slots=True)
+class SynthesizedMeditationSpec:
+    """
+    Global orchestration settings for procedural meditation performances.
+
+    The orchestrator owns *when* a performance occurs. The individual
+    performance generator owns its musical/acoustic behavior.
+
+    Additional performance types can be added to the registry later without
+    changing the main Living Brown Noise scheduling model.
+    """
+
+    enabled: bool = True
+
+    # Rest time between complete performances.
+    interval_min_minutes: float = 45.0
+    interval_max_minutes: float = 120.0
+
+    # Current singing-bowl performance controls.
+    ceremony_duration_minutes: float = 30.0
+    performance_level_db: float = 0.0
+    intensity: float = 0.62
+    spatiality: float = 0.88
+    rubbing: float = 0.78
+
+    # The Living Brown Noise bed remains present, but becomes quieter and
+    # deliberately restful while a synthesized meditation is foregrounded.
+    brown_rest_gain_db: float = -4.5
+    transition_seconds: float = 12.0
+
+    def validated(self) -> "SynthesizedMeditationSpec":
+        if not isinstance(self.enabled, bool):
+            raise ValueError("enabled must be boolean")
+        if not 5.0 <= self.interval_min_minutes <= 480.0:
+            raise ValueError(
+                "interval_min_minutes must be between 5 and 480"
+            )
+        if not 5.0 <= self.interval_max_minutes <= 480.0:
+            raise ValueError(
+                "interval_max_minutes must be between 5 and 480"
+            )
+        if self.interval_min_minutes > self.interval_max_minutes:
+            raise ValueError(
+                "interval_min_minutes cannot exceed interval_max_minutes"
+            )
+        if not 8.0 <= self.ceremony_duration_minutes <= 90.0:
+            raise ValueError(
+                "ceremony_duration_minutes must be between 8 and 90"
+            )
+        if not -30.0 <= self.performance_level_db <= 12.0:
+            raise ValueError(
+                "performance_level_db must be between -30 and +12"
+            )
+        for name in ("intensity", "spatiality", "rubbing"):
+            if not 0.0 <= getattr(self, name) <= 1.0:
+                raise ValueError(f"{name} must be between 0 and 1")
+        if not -18.0 <= self.brown_rest_gain_db <= 0.0:
+            raise ValueError(
+                "brown_rest_gain_db must be between -18 and 0"
+            )
+        if not 1.0 <= self.transition_seconds <= 60.0:
+            raise ValueError(
+                "transition_seconds must be between 1 and 60"
+            )
+        return self
+
+
+class SynthesizedMeditationState:
+    """Thread-safe live synthesized-meditation settings."""
+
+    def __init__(self, spec: SynthesizedMeditationSpec) -> None:
+        self._lock = threading.Lock()
+        self._spec = spec.validated()
+
+    def get(self) -> SynthesizedMeditationSpec:
+        with self._lock:
+            return self._spec
+
+    def set(self, spec: SynthesizedMeditationSpec) -> None:
+        with self._lock:
+            self._spec = spec.validated()
+
+    def update(self, **changes) -> None:
+        with self._lock:
+            values = asdict(self._spec)
+            values.update(changes)
+
+            minimum = float(values["interval_min_minutes"])
+            maximum = float(values["interval_max_minutes"])
+            if minimum > maximum:
+                if "interval_min_minutes" in changes:
+                    values["interval_max_minutes"] = minimum
+                else:
+                    values["interval_min_minutes"] = maximum
+
+            self._spec = SynthesizedMeditationSpec(
+                **values
+            ).validated()
+
+
+class SynthesizedMeditationOrchestrator:
+    """
+    Chooses and performs procedural meditation experiences.
+
+    Only Tibetan singing bowls exist today, but selection is intentionally
+    registry-based. As gong, synthetic kirtan, drum-circle, and future systems
+    are added, they can become additional entries without restructuring the
+    Living Brown Noise mixer.
+
+    Automatic performances wait for a reasonably quiet metabolic moment once
+    their randomized rest interval has elapsed. Manual GUI requests bypass that
+    quiet-state gate so levels and integration can be tested immediately.
+    """
+
+    QUIET_ACTIVITY_THRESHOLD = 0.38
+
+    def __init__(
+        self,
+        *,
+        sample_rate: float,
+        renderer: SteamAudioRenderer,
+        state: SynthesizedMeditationState,
+        seed: int = 8_230_601,
+    ) -> None:
+        self.sample_rate = float(sample_rate)
+        self.renderer = renderer
+        self.state = state
+        self.rng = np.random.default_rng(seed)
+
+        initial = state.get()
+        self.bowl_state = BowlCeremonyState(
+            BowlCeremonySpec(
+                enabled=False,
+                duration_minutes=initial.ceremony_duration_minutes,
+                intensity=initial.intensity,
+                spatiality=initial.spatiality,
+                rubbing=initial.rubbing,
+            )
+        )
+        self.bowl = BowlCeremonyController(
+            self.sample_rate,
+            self.bowl_state,
+            seed=seed + 100,
+        )
+
+        self.bowl_sources = []
+        for voice in self.bowl.voices:
+            position = voice.position
+            self.bowl_sources.append(
+                renderer.create_source(
+                    position=Vector3(
+                        float(position[0]),
+                        float(position[1]),
+                        float(position[2]),
+                    ),
+                    spatial_blend=1.0,
+                    distance_attenuation_enabled=True,
+                )
+            )
+
+        # Future performance types belong here.
+        self.performance_registry = (
+            ("Tibetan singing bowls", self._start_singing_bowls),
+        )
+
+        self.active_name = ""
+        self.current_status = "waiting"
+        self.performance_count = 0
+        self.next_performance_seconds = 0.0
+
+        self._command_lock = threading.Lock()
+        self._manual_start_requested = False
+        self._manual_stop_requested = False
+
+        self._reschedule(initial)
+
+    @property
+    def active(self) -> bool:
+        return bool(self.active_name)
+
+    @staticmethod
+    def _db_gain(db: float) -> float:
+        return 10.0 ** (float(db) / 20.0)
+
+    def _reschedule(
+        self,
+        spec: SynthesizedMeditationSpec | None = None,
+    ) -> None:
+        spec = spec or self.state.get()
+
+        low = spec.interval_min_minutes * 60.0
+        high = spec.interval_max_minutes * 60.0
+
+        if abs(high - low) < 1.0e-9:
+            self.next_performance_seconds = low
+        else:
+            # Log-uniform timing gives the short and long ends of a wide
+            # interval range comparable opportunity.
+            self.next_performance_seconds = float(
+                math.exp(
+                    self.rng.uniform(
+                        math.log(low),
+                        math.log(high),
+                    )
+                )
+            )
+
+    def request_start_singing_bowls(self) -> None:
+        with self._command_lock:
+            self._manual_start_requested = True
+            self._manual_stop_requested = False
+
+    def request_stop(self) -> None:
+        with self._command_lock:
+            self._manual_stop_requested = True
+            self._manual_start_requested = False
+
+    def _consume_commands(self) -> tuple[bool, bool]:
+        with self._command_lock:
+            start = self._manual_start_requested
+            stop = self._manual_stop_requested
+            self._manual_start_requested = False
+            self._manual_stop_requested = False
+        return start, stop
+
+    def _sync_bowl_settings(
+        self,
+        spec: SynthesizedMeditationSpec,
+    ) -> None:
+        self.bowl_state.update(
+            duration_minutes=spec.ceremony_duration_minutes,
+            intensity=spec.intensity,
+            spatiality=spec.spatiality,
+            rubbing=spec.rubbing,
+        )
+
+    def _start_singing_bowls(self) -> None:
+        spec = self.state.get()
+        self._sync_bowl_settings(spec)
+        self.bowl_state.update(enabled=True)
+        self.bowl.restart()
+        self.active_name = "Tibetan singing bowls"
+        self.performance_count += 1
+        self.current_status = "performing Tibetan singing bowls"
+
+    def _stop_active(self, *, reschedule: bool) -> None:
+        if self.active_name == "Tibetan singing bowls":
+            self.bowl_state.update(enabled=False)
+            self.bowl.stop()
+
+        self.active_name = ""
+        self.current_status = "waiting"
+
+        if reschedule:
+            self._reschedule()
+
+    def advance(
+        self,
+        elapsed_seconds: float,
+        metabolism_activity: float,
+    ) -> None:
+        spec = self.state.get()
+        elapsed_seconds = max(0.0, float(elapsed_seconds))
+
+        manual_start, manual_stop = self._consume_commands()
+
+        if manual_stop:
+            self._stop_active(reschedule=True)
+            return
+
+        if manual_start:
+            if self.active:
+                self._stop_active(reschedule=False)
+            self._start_singing_bowls()
+
+        if self.active:
+            self._sync_bowl_settings(spec)
+            self.bowl.advance(elapsed_seconds)
+
+            if self.bowl.complete:
+                self._stop_active(reschedule=True)
+            else:
+                remaining = self.bowl.remaining_seconds
+                self.current_status = (
+                    f"{self.active_name}: {self.bowl.phase}; "
+                    f"{remaining / 60.0:.1f} min remaining"
+                )
+            return
+
+        if not spec.enabled:
+            self.current_status = "automatic performances disabled"
+            return
+
+        self.next_performance_seconds -= elapsed_seconds
+
+        if self.next_performance_seconds > 0.0:
+            self.current_status = (
+                "waiting; next opportunity in "
+                f"{self.next_performance_seconds / 60.0:.1f} min"
+            )
+            return
+
+        if metabolism_activity > self.QUIET_ACTIVITY_THRESHOLD:
+            self.current_status = (
+                "performance due; waiting for a restful brown-noise state"
+            )
+            # Recheck frequently without scheduling an entirely new interval.
+            self.next_performance_seconds = 20.0
+            return
+
+        if not self.performance_registry:
+            self.current_status = "no synthesized performances registered"
+            self._reschedule(spec)
+            return
+
+        index = int(
+            self.rng.integers(0, len(self.performance_registry))
+        )
+        _, starter = self.performance_registry[index]
+        starter()
+
+    def render(self, frame_count: int) -> np.ndarray:
+        if self.active_name != "Tibetan singing bowls":
+            return np.zeros((frame_count, 2), dtype=np.float32)
+
+        spec = self.state.get()
+        mono_blocks = self.bowl.render_mono(frame_count)
+        stereo = np.zeros((frame_count, 2), dtype=np.float32)
+
+        for voice, source, mono in zip(
+            self.bowl.voices,
+            self.bowl_sources,
+            mono_blocks,
+        ):
+            position = voice.position
+            source.set_position(
+                float(position[0]),
+                float(position[1]),
+                float(position[2]),
+            )
+            stereo += source.process_mono(mono)
+
+        # Retain the standalone ceremony's multi-bowl peak protection before
+        # applying the user-facing performance-level trim.
+        stereo = 0.94 * np.tanh(stereo * 0.82)
+        stereo *= self._db_gain(spec.performance_level_db)
+
+        return stereo.astype(np.float32, copy=False)
+
+
 @dataclass(frozen=True, slots=True)
 class MixerSpec:
     correlation_min: float = 0.0
@@ -6598,6 +6958,7 @@ class LivingBrownNoiseMixer:
         heartbeat_spatial_spec: HeartbeatSpatialSpec,
         metabolism_spec: MetabolismSpec,
         dream_motif_spatial_spec: DreamMotifSpatialSpec,
+        synthesized_meditation_spec: SynthesizedMeditationSpec,
         sound_effects_directory: Path,
         mixer_spec: MixerSpec,
     ) -> None:
@@ -6672,6 +7033,20 @@ class LivingBrownNoiseMixer:
             root_directory=sound_effects_directory,
             state=self.dream_motif_spatial_state,
         )
+
+        self.synthesized_meditation_state = (
+            SynthesizedMeditationState(
+                synthesized_meditation_spec
+            )
+        )
+        self.synthesized_meditation = (
+            SynthesizedMeditationOrchestrator(
+                sample_rate=self.sample_rate,
+                renderer=self.spatial_renderer,
+                state=self.synthesized_meditation_state,
+            )
+        )
+        self.current_meditation_mix = 0.0
 
         self.breath_state = breath_state
         self.breath_evolution_state = breath_evolution_state
@@ -6856,11 +7231,199 @@ class LivingBrownNoiseMixer:
 
         return voice_a, voice_b
 
+    def _approach_target_seconds(
+        self,
+        current: float,
+        target: float,
+        frame_count: int,
+        seconds: float,
+    ) -> np.ndarray:
+        smoothing_samples = max(
+            1,
+            int(max(0.01, float(seconds)) * self.sample_rate),
+        )
+        maximum_change = frame_count / smoothing_samples
+        end = current + np.clip(
+            target - current,
+            -maximum_change,
+            maximum_change,
+        )
+        return np.linspace(
+            current,
+            end,
+            frame_count,
+            endpoint=False,
+            dtype=np.float32,
+        )
+
+    @staticmethod
+    def _lerp(a: float, b: float, amount: float) -> float:
+        return float(a + (b - a) * amount)
+
+    def _meditation_rest_metabolism(
+        self,
+        values: MetabolismValues | None,
+        amount: float,
+    ) -> MetabolismValues:
+        """
+        Pull the living system toward a deliberately restful state while a
+        synthesized meditation is foregrounded.
+
+        The original metabolism keeps running underneath, so when the ceremony
+        ends the system smoothly rejoins wherever its long-form journey has
+        reached rather than restarting.
+        """
+        amount = float(np.clip(amount, 0.0, 1.0))
+
+        if values is None:
+            values = MetabolismValues(
+                activity=0.20,
+                activity_drive=0.08,
+                brown_body=0.42,
+                brown_slope=0.86,
+                brown_low_end_db=4.5,
+                brown_texture=0.22,
+                breath_prominence=0.28,
+                breath_tempo=1.80,
+                breath_gain_db=2.0,
+                breath_spectral_depth=0.10,
+                breath_width_depth=0.06,
+                heartbeat_distance=3.2,
+                heartbeat_level_db=2.5,
+                brown_3d_amount=0.24,
+                brown_radius=2.5,
+                brown_center_distance=1.8,
+                brown_evolution=0.12,
+            )
+
+        rest = MetabolismValues(
+            activity=0.08,
+            activity_drive=0.015,
+            brown_body=0.34,
+            brown_slope=0.84,
+            brown_low_end_db=5.6,
+            brown_texture=0.12,
+            breath_prominence=0.20,
+            breath_tempo=2.10,
+            breath_gain_db=1.6,
+            breath_spectral_depth=0.07,
+            breath_width_depth=0.04,
+            heartbeat_distance=3.55,
+            heartbeat_level_db=1.5,
+            brown_3d_amount=0.20,
+            brown_radius=2.2,
+            brown_center_distance=2.1,
+            brown_evolution=0.10,
+        )
+
+        return MetabolismValues(
+            activity=self._lerp(
+                values.activity, rest.activity, amount
+            ),
+            activity_drive=self._lerp(
+                values.activity_drive, rest.activity_drive, amount
+            ),
+            brown_body=self._lerp(
+                values.brown_body, rest.brown_body, amount
+            ),
+            brown_slope=self._lerp(
+                values.brown_slope, rest.brown_slope, amount
+            ),
+            brown_low_end_db=self._lerp(
+                values.brown_low_end_db,
+                rest.brown_low_end_db,
+                amount,
+            ),
+            brown_texture=self._lerp(
+                values.brown_texture, rest.brown_texture, amount
+            ),
+            breath_prominence=self._lerp(
+                values.breath_prominence,
+                rest.breath_prominence,
+                amount,
+            ),
+            breath_tempo=self._lerp(
+                values.breath_tempo, rest.breath_tempo, amount
+            ),
+            breath_gain_db=self._lerp(
+                values.breath_gain_db, rest.breath_gain_db, amount
+            ),
+            breath_spectral_depth=self._lerp(
+                values.breath_spectral_depth,
+                rest.breath_spectral_depth,
+                amount,
+            ),
+            breath_width_depth=self._lerp(
+                values.breath_width_depth,
+                rest.breath_width_depth,
+                amount,
+            ),
+            heartbeat_distance=self._lerp(
+                values.heartbeat_distance,
+                rest.heartbeat_distance,
+                amount,
+            ),
+            heartbeat_level_db=self._lerp(
+                values.heartbeat_level_db,
+                rest.heartbeat_level_db,
+                amount,
+            ),
+            brown_3d_amount=self._lerp(
+                values.brown_3d_amount,
+                rest.brown_3d_amount,
+                amount,
+            ),
+            brown_radius=self._lerp(
+                values.brown_radius, rest.brown_radius, amount
+            ),
+            brown_center_distance=self._lerp(
+                values.brown_center_distance,
+                rest.brown_center_distance,
+                amount,
+            ),
+            brown_evolution=self._lerp(
+                values.brown_evolution,
+                rest.brown_evolution,
+                amount,
+            ),
+        )
+
+    def request_start_singing_bowl_ceremony(self) -> None:
+        self.synthesized_meditation.request_start_singing_bowls()
+
+    def request_stop_synthesized_meditation(self) -> None:
+        self.synthesized_meditation.request_stop()
+
     def generate(self, frame_count: int) -> np.ndarray:
         modes = self.mode_state.get()
         elapsed_seconds = frame_count / self.sample_rate
 
+        # The scheduler uses the previous buffer's metabolic activity to decide
+        # whether an overdue automatic ceremony has reached a suitable quiet
+        # opening. Manual test starts bypass this gate.
+        self.synthesized_meditation.advance(
+            elapsed_seconds,
+            self.current_metabolism_activity,
+        )
+
+        meditation_spec = self.synthesized_meditation_state.get()
+        meditation_curve = self._approach_target_seconds(
+            self.current_meditation_mix,
+            1.0 if self.synthesized_meditation.active else 0.0,
+            frame_count,
+            meditation_spec.transition_seconds,
+        )
+        self.current_meditation_mix = float(meditation_curve[-1])
+        meditation_amount = self.current_meditation_mix
+
         metabolism_values = self.metabolism.advance(elapsed_seconds)
+
+        if meditation_amount > 0.0:
+            metabolism_values = self._meditation_rest_metabolism(
+                metabolism_values,
+                meditation_amount,
+            )
+
         self.current_metabolism_values = metabolism_values
 
         if metabolism_values is None:
@@ -7174,6 +7737,17 @@ class LivingBrownNoiseMixer:
             * brown_motion_spec.layer_amount
         )
 
+        # A ceremony does not replace Living Brown Noise. It moves the bed into
+        # a quieter, more restful supporting role. The transition is gradual
+        # and follows the same ceremony-presence curve used above.
+        rest_gain = 10.0 ** (
+            meditation_spec.brown_rest_gain_db / 20.0
+        )
+        brown_ceremony_gain = (
+            1.0 + (rest_gain - 1.0) * meditation_curve
+        )
+        stereo *= brown_ceremony_gain[:, np.newaxis]
+
         heartbeat = self.heartbeat.generate(frame_count)
         manual_heartbeat_position_spec = (
             self.heartbeat_spatial_state.get()
@@ -7245,11 +7819,22 @@ class LivingBrownNoiseMixer:
         stereo += spatial_heartbeat
 
 
+        # Recorded dream motifs and their featured sound effects are mutually
+        # exclusive with synthesized meditation performances. The motif engine
+        # is paused for the full ceremony and resumes afterward.
         stereo += self.dream_motif_3d.generate(
             frame_count,
-            enabled=modes.dream_motifs_enabled,
+            enabled=(
+                modes.dream_motifs_enabled
+                and not self.synthesized_meditation.active
+            ),
             metabolism_activity=self.current_metabolism_activity,
         )
+
+        # The meditation performance is deliberately allowed to become a
+        # foreground layer. Its own generator handles its beginning/middle/end
+        # arc and 3D bowl movement.
+        stereo += self.synthesized_meditation.render(frame_count)
 
 
         stereo *= 10.0 ** (
@@ -7375,6 +7960,7 @@ def build_mixer(
     heartbeat_spatial_spec: HeartbeatSpatialSpec,
     metabolism_spec: MetabolismSpec,
     dream_motif_spatial_spec: DreamMotifSpatialSpec,
+    synthesized_meditation_spec: SynthesizedMeditationSpec,
     seed_base: int,
 ) -> tuple[
     LivingBrownNoiseMixer,
@@ -7453,6 +8039,7 @@ def build_mixer(
         heartbeat_spatial_spec=heartbeat_spatial_spec,
         metabolism_spec=metabolism_spec,
         dream_motif_spatial_spec=dream_motif_spatial_spec,
+        synthesized_meditation_spec=synthesized_meditation_spec,
         sound_effects_directory=sound_effects_directory,
         mixer_spec=MixerSpec(),
     )
@@ -7503,6 +8090,7 @@ class ExportWorker(QThread):
         heartbeat_spatial_spec: HeartbeatSpatialSpec,
         metabolism_spec: MetabolismSpec,
         dream_motif_spatial_spec: DreamMotifSpatialSpec,
+        synthesized_meditation_spec: SynthesizedMeditationSpec,
     ) -> None:
         super().__init__()
         self.output_path = output_path
@@ -7521,6 +8109,7 @@ class ExportWorker(QThread):
         self.heartbeat_spatial_spec = heartbeat_spatial_spec
         self.metabolism_spec = metabolism_spec
         self.dream_motif_spatial_spec = dream_motif_spatial_spec
+        self.synthesized_meditation_spec = synthesized_meditation_spec
         self._cancel_requested = threading.Event()
 
     def request_cancel(self) -> None:
@@ -7562,6 +8151,9 @@ class ExportWorker(QThread):
                 heartbeat_spatial_spec=self.heartbeat_spatial_spec,
                 metabolism_spec=self.metabolism_spec,
                 dream_motif_spatial_spec=self.dream_motif_spatial_spec,
+                synthesized_meditation_spec=(
+                    self.synthesized_meditation_spec
+                ),
                 seed_base=seed_base,
             )
 
@@ -8797,6 +9389,204 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.dream_motif_checkbox)
         controls_layout.addWidget(self.stereo_checkbox)
         controls_layout.addWidget(self.correlation_checkbox)
+
+        # ------------------------------------------------------------------
+        # Synthesized meditation performances
+        # ------------------------------------------------------------------
+
+        self.meditation_expand_button = QToolButton()
+        self.meditation_expand_button.setText(
+            "Synthesized meditation performances"
+        )
+        self.meditation_expand_button.setCheckable(True)
+        self.meditation_expand_button.setChecked(
+            bool(
+                self.loaded_settings.get(
+                    "synthesized_meditation_panel_expanded",
+                    False,
+                )
+            )
+        )
+        self.meditation_expand_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.meditation_expand_button.setArrowType(
+            Qt.ArrowType.RightArrow
+        )
+        controls_layout.addWidget(self.meditation_expand_button)
+
+        self.meditation_panel = QWidget()
+        meditation_layout = QVBoxLayout(self.meditation_panel)
+        meditation_layout.setContentsMargins(24, 4, 0, 8)
+        meditation_layout.setSpacing(4)
+
+        meditation_spec = (
+            self.mixer.synthesized_meditation_state.get()
+        )
+
+        self.meditation_enabled_checkbox = QCheckBox(
+            "Enable automatic synthesized meditation performances"
+        )
+        self.meditation_enabled_checkbox.setChecked(
+            meditation_spec.enabled
+        )
+        meditation_layout.addWidget(
+            self.meditation_enabled_checkbox
+        )
+
+        meditation_form = QFormLayout()
+        meditation_layout.addLayout(meditation_form)
+
+        self.meditation_interval_min_control = FloatControl(
+            minimum=5.0,
+            maximum=240.0,
+            value=meditation_spec.interval_min_minutes,
+            step=1.0,
+            decimals=0,
+            suffix=" min",
+            on_change=lambda value: self._update_meditation(
+                interval_min_minutes=value
+            ),
+        )
+        meditation_form.addRow(
+            "Minimum rest between performances:",
+            self.meditation_interval_min_control,
+        )
+
+        self.meditation_interval_max_control = FloatControl(
+            minimum=5.0,
+            maximum=240.0,
+            value=meditation_spec.interval_max_minutes,
+            step=1.0,
+            decimals=0,
+            suffix=" min",
+            on_change=lambda value: self._update_meditation(
+                interval_max_minutes=value
+            ),
+        )
+        meditation_form.addRow(
+            "Maximum rest between performances:",
+            self.meditation_interval_max_control,
+        )
+
+        self.meditation_duration_control = FloatControl(
+            minimum=8.0,
+            maximum=60.0,
+            value=meditation_spec.ceremony_duration_minutes,
+            step=1.0,
+            decimals=0,
+            suffix=" min",
+            on_change=lambda value: self._update_meditation(
+                ceremony_duration_minutes=value
+            ),
+        )
+        meditation_form.addRow(
+            "Singing-bowl ceremony duration:",
+            self.meditation_duration_control,
+        )
+
+        self.meditation_level_control = FloatControl(
+            minimum=-24.0,
+            maximum=12.0,
+            value=meditation_spec.performance_level_db,
+            step=0.5,
+            decimals=1,
+            suffix=" dB",
+            on_change=lambda value: self._update_meditation(
+                performance_level_db=value
+            ),
+        )
+        meditation_form.addRow(
+            "Performance level:",
+            self.meditation_level_control,
+        )
+
+        self.meditation_intensity_control = FloatControl(
+            minimum=0.0,
+            maximum=1.0,
+            value=meditation_spec.intensity,
+            step=0.01,
+            decimals=2,
+            suffix="",
+            on_change=lambda value: self._update_meditation(
+                intensity=value
+            ),
+        )
+        meditation_form.addRow(
+            "Ceremony intensity:",
+            self.meditation_intensity_control,
+        )
+
+        self.meditation_spatiality_control = FloatControl(
+            minimum=0.0,
+            maximum=1.0,
+            value=meditation_spec.spatiality,
+            step=0.01,
+            decimals=2,
+            suffix="",
+            on_change=lambda value: self._update_meditation(
+                spatiality=value
+            ),
+        )
+        meditation_form.addRow(
+            "3D movement / proximity:",
+            self.meditation_spatiality_control,
+        )
+
+        self.meditation_rubbing_control = FloatControl(
+            minimum=0.0,
+            maximum=1.0,
+            value=meditation_spec.rubbing,
+            step=0.01,
+            decimals=2,
+            suffix="",
+            on_change=lambda value: self._update_meditation(
+                rubbing=value
+            ),
+        )
+        meditation_form.addRow(
+            "Rim-rubbing presence:",
+            self.meditation_rubbing_control,
+        )
+
+        self.meditation_brown_gain_control = FloatControl(
+            minimum=-18.0,
+            maximum=0.0,
+            value=meditation_spec.brown_rest_gain_db,
+            step=0.5,
+            decimals=1,
+            suffix=" dB",
+            on_change=lambda value: self._update_meditation(
+                brown_rest_gain_db=value
+            ),
+        )
+        meditation_form.addRow(
+            "Brown-noise reduction during ceremony:",
+            self.meditation_brown_gain_control,
+        )
+
+        meditation_buttons = QHBoxLayout()
+        self.start_singing_bowl_button = QPushButton(
+            "Start singing-bowl ceremony"
+        )
+        self.stop_meditation_button = QPushButton(
+            "Stop meditation performance"
+        )
+        meditation_buttons.addWidget(
+            self.start_singing_bowl_button
+        )
+        meditation_buttons.addWidget(
+            self.stop_meditation_button
+        )
+        meditation_layout.addLayout(meditation_buttons)
+
+        self.meditation_status_label = QLabel("")
+        self.meditation_status_label.setWordWrap(True)
+        meditation_layout.addWidget(
+            self.meditation_status_label
+        )
+
+        controls_layout.addWidget(self.meditation_panel)
 
         self.metabolism_expand_button = QToolButton()
         self.metabolism_expand_button.setText("Metabolism")
@@ -10128,6 +10918,20 @@ class MainWindow(QMainWindow):
         self.correlation_checkbox.toggled.connect(
             self._on_modes_changed
         )
+        self.meditation_expand_button.toggled.connect(
+            self._toggle_meditation_panel
+        )
+        self.meditation_enabled_checkbox.toggled.connect(
+            lambda checked: self._update_meditation(
+                enabled=bool(checked)
+            )
+        )
+        self.start_singing_bowl_button.clicked.connect(
+            self._start_singing_bowl_ceremony
+        )
+        self.stop_meditation_button.clicked.connect(
+            self._stop_synthesized_meditation
+        )
         self.metabolism_expand_button.toggled.connect(
             self._toggle_metabolism_panel
         )
@@ -10246,6 +11050,10 @@ class MainWindow(QMainWindow):
             self.heartbeat_spatial_expand_button.isChecked()
         )
         self._update_heartbeat_position_status()
+        self._toggle_meditation_panel(
+            self.meditation_expand_button.isChecked()
+        )
+        self._update_meditation_status()
         self._toggle_metabolism_panel(
             self.metabolism_expand_button.isChecked()
         )
@@ -11171,6 +11979,65 @@ class MainWindow(QMainWindow):
         )
 
 
+    def _toggle_meditation_panel(
+        self,
+        expanded: bool,
+    ) -> None:
+        self.meditation_panel.setVisible(expanded)
+        self.meditation_expand_button.setArrowType(
+            Qt.ArrowType.DownArrow
+            if expanded
+            else Qt.ArrowType.RightArrow
+        )
+        self._schedule_settings_save()
+
+    def _update_meditation(self, **changes) -> None:
+        self.mixer.synthesized_meditation_state.update(**changes)
+
+        # Keep paired interval controls visually normalized if the user crosses
+        # minimum and maximum.
+        spec = self.mixer.synthesized_meditation_state.get()
+        self.meditation_interval_min_control.set_value(
+            spec.interval_min_minutes,
+            notify=False,
+        )
+        self.meditation_interval_max_control.set_value(
+            spec.interval_max_minutes,
+            notify=False,
+        )
+
+        self._update_meditation_status()
+        self._schedule_settings_save()
+
+    def _start_singing_bowl_ceremony(self) -> None:
+        self.mixer.request_start_singing_bowl_ceremony()
+        self._write_conductor_log(
+            "MEDITATION_MANUAL",
+            "requested start: Tibetan singing bowls",
+        )
+
+    def _stop_synthesized_meditation(self) -> None:
+        self.mixer.request_stop_synthesized_meditation()
+        self._write_conductor_log(
+            "MEDITATION_MANUAL",
+            "requested stop",
+        )
+
+    def _update_meditation_status(self) -> None:
+        orchestrator = self.mixer.synthesized_meditation
+        spec = self.mixer.synthesized_meditation_state.get()
+
+        if orchestrator.active:
+            self.meditation_status_label.setText(
+                f"ACTIVE — {orchestrator.current_status}; "
+                f"brown bed {spec.brown_rest_gain_db:+.1f} dB; "
+                f"performance {spec.performance_level_db:+.1f} dB"
+            )
+        else:
+            self.meditation_status_label.setText(
+                orchestrator.current_status
+            )
+
     def _toggle_brown_motion_panel(
         self,
         expanded: bool,
@@ -11295,6 +12162,9 @@ class MainWindow(QMainWindow):
         dream_motif_spatial_spec = (
             self.mixer.dream_motif_spatial_state.get()
         )
+        synthesized_meditation_spec = (
+            self.mixer.synthesized_meditation_state.get()
+        )
         modes = self.mode_state.get()
 
         data = {
@@ -11344,6 +12214,12 @@ class MainWindow(QMainWindow):
             "metabolism": asdict(metabolism_spec),
             "dream_motif_spatial": asdict(
                 dream_motif_spatial_spec
+            ),
+            "synthesized_meditation": asdict(
+                synthesized_meditation_spec
+            ),
+            "synthesized_meditation_panel_expanded": (
+                self.meditation_expand_button.isChecked()
             ),
             "metabolism_panel_expanded": (
                 self.metabolism_expand_button.isChecked()
@@ -11461,6 +12337,9 @@ class MainWindow(QMainWindow):
             heartbeat_spatial_spec=heartbeat_spatial_spec,
             metabolism_spec=metabolism_spec,
             dream_motif_spatial_spec=dream_motif_spatial_spec,
+            synthesized_meditation_spec=(
+                self.mixer.synthesized_meditation_state.get()
+            ),
         )
 
         self.export_worker.progress_changed.connect(
@@ -11586,6 +12465,7 @@ class MainWindow(QMainWindow):
             self._log_conductor_snapshot()
 
         self._update_metabolism_status()
+        self._update_meditation_status()
         self.motif_3d_status_label.setText(
             self.mixer.dream_motif_3d.current_status
         )
@@ -11877,6 +12757,31 @@ def build_application() -> tuple[QApplication, MainWindow]:
     except Exception:
         dream_motif_spatial_spec = default_dream_motif_spatial
 
+    default_synthesized_meditation = SynthesizedMeditationSpec()
+    synthesized_meditation_data = loaded.get(
+        "synthesized_meditation",
+        {},
+    )
+    try:
+        synthesized_meditation_spec = SynthesizedMeditationSpec(
+            **{
+                field_name: synthesized_meditation_data.get(
+                    field_name,
+                    getattr(
+                        default_synthesized_meditation,
+                        field_name,
+                    ),
+                )
+                for field_name in asdict(
+                    default_synthesized_meditation
+                )
+            }
+        ).validated()
+    except Exception:
+        synthesized_meditation_spec = (
+            default_synthesized_meditation
+        )
+
     default_metabolism = MetabolismSpec()
     metabolism_data = dict(loaded.get("metabolism", {}))
     for field_name in ("brown_body_min", "brown_body_max"):
@@ -11982,6 +12887,9 @@ def build_application() -> tuple[QApplication, MainWindow]:
         heartbeat_spatial_spec=heartbeat_spatial_spec,
         metabolism_spec=metabolism_spec,
         dream_motif_spatial_spec=dream_motif_spatial_spec,
+        synthesized_meditation_spec=(
+            synthesized_meditation_spec
+        ),
         seed_base=1000,
     )
 

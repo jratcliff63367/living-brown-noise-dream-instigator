@@ -90,7 +90,7 @@
     "layer_enabled": true,
     "sphere_radius": 1.6
   },
-  "export_duration_minutes": 480,
+  "export_duration_minutes": 450,
   "heartbeat": {
     "prominence_evolution_max_seconds": 360.0,
     "prominence_evolution_min_seconds": 90.0,
@@ -174,5 +174,18 @@
     "natural_period_seconds": 2.5,
     "soft_limit": 1.35
   },
+  "synthesized_meditation": {
+    "brown_rest_gain_db": -4.5,
+    "ceremony_duration_minutes": 30.0,
+    "enabled": true,
+    "intensity": 0.62,
+    "interval_max_minutes": 120.0,
+    "interval_min_minutes": 45.0,
+    "performance_level_db": 0.0,
+    "rubbing": 0.78,
+    "spatiality": 0.88,
+    "transition_seconds": 12.0
+  },
+  "synthesized_meditation_panel_expanded": true,
   "version": 2
 }
