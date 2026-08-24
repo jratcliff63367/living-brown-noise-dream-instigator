@@ -23,6 +23,11 @@ from tibetan_singing_bowl import (
     BowlCeremonySpec,
     BowlCeremonyState,
 )
+from gong_ceremony import (
+    GongCeremonyController,
+    GongCeremonySpec,
+    GongCeremonyState,
+)
 from scipy import signal
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -6597,7 +6602,9 @@ class SynthesizedMeditationSpec:
     interval_min_minutes: float = 45.0
     interval_max_minutes: float = 120.0
 
-    # Current singing-bowl performance controls.
+    # Shared baseline duration/level controls for the current procedural
+    # meditation experiences. Individual engines retain their own technique
+    # and internal performance logic.
     ceremony_duration_minutes: float = 30.0
     performance_level_db: float = 0.0
     intensity: float = 0.62
@@ -6606,7 +6613,7 @@ class SynthesizedMeditationSpec:
 
     # The Living Brown Noise bed remains present, but becomes quieter and
     # deliberately restful while a synthesized meditation is foregrounded.
-    brown_rest_gain_db: float = -4.5
+    brown_rest_gain_db: float = -6.0
     transition_seconds: float = 12.0
 
     def validated(self) -> "SynthesizedMeditationSpec":
@@ -6681,19 +6688,19 @@ class SynthesizedMeditationState:
 
 class SynthesizedMeditationOrchestrator:
     """
-    Chooses and performs procedural meditation experiences.
+    Session-level conductor for procedural meditation experiences.
 
-    Only Tibetan singing bowls exist today, but selection is intentionally
-    registry-based. As gong, synthetic kirtan, drum-circle, and future systems
-    are added, they can become additional entries without restructuring the
-    Living Brown Noise mixer.
-
-    Automatic performances wait for a reasonably quiet metabolic moment once
-    their randomized rest interval has elapsed. Manual GUI requests bypass that
-    quiet-state gate so levels and integration can be tested immediately.
+    Core rules:
+      * each registered meditation experience may occur at most once in an
+        orchestrator run/export;
+      * the order is shuffled, so an export is not rigidly bowl-then-gong;
+      * export mode constrains waits so every registered experience can occur
+        once when the export is long enough to contain them;
+      * a due performance starts its own restful transition instead of waiting
+        indefinitely for metabolism to become quiet first;
+      * recorded dream motifs remain mutually exclusive with an active
+        synthesized meditation performance in LivingBrownNoiseMixer.
     """
-
-    QUIET_ACTIVITY_THRESHOLD = 0.38
 
     def __init__(
         self,
@@ -6709,6 +6716,10 @@ class SynthesizedMeditationOrchestrator:
         self.rng = np.random.default_rng(seed)
 
         initial = state.get()
+
+        # --------------------------------------------------------------
+        # Singing bowls
+        # --------------------------------------------------------------
         self.bowl_state = BowlCeremonyState(
             BowlCeremonySpec(
                 enabled=False,
@@ -6723,34 +6734,69 @@ class SynthesizedMeditationOrchestrator:
             self.bowl_state,
             seed=seed + 100,
         )
-
         self.bowl_sources = []
         for voice in self.bowl.voices:
-            position = voice.position
+            p = voice.position
             self.bowl_sources.append(
                 renderer.create_source(
-                    position=Vector3(
-                        float(position[0]),
-                        float(position[1]),
-                        float(position[2]),
-                    ),
+                    position=Vector3(float(p[0]), float(p[1]), float(p[2])),
                     spatial_blend=1.0,
                     distance_attenuation_enabled=True,
                 )
             )
 
-        # Future performance types belong here.
-        self.performance_registry = (
-            ("Tibetan singing bowls", self._start_singing_bowls),
+        # --------------------------------------------------------------
+        # Human-performance gong engine
+        # --------------------------------------------------------------
+        self.gong_state = GongCeremonyState(
+            GongCeremonySpec(
+                enabled=False,
+                duration_minutes=initial.ceremony_duration_minutes,
+                intensity=initial.intensity,
+                spatiality=min(1.0, initial.spatiality),
+                dramatic_gestures=0.72,
+                # Whale/friction synthesis is intentionally still disabled in
+                # this integration build. The current gong improvement is the
+                # human performer/controller around the trusted gong core.
+                friction_presence=0.0,
+                hand_magic=0.0,
+            )
         )
+        self.gong = GongCeremonyController(
+            self.sample_rate,
+            self.gong_state,
+            seed=seed + 500,
+        )
+        self.gong_sources = []
+        for voice in self.gong.voices:
+            p = voice.position
+            self.gong_sources.append(
+                renderer.create_source(
+                    position=Vector3(float(p[0]), float(p[1]), float(p[2])),
+                    spatial_blend=1.0,
+                    distance_attenuation_enabled=True,
+                )
+            )
+
+        self.performance_registry = {
+            "Tibetan singing bowls": self._start_singing_bowls,
+            "Gong ceremony": self._start_gong,
+        }
+        self.remaining_performances = list(self.performance_registry)
+        self.rng.shuffle(self.remaining_performances)
 
         self.active_name = ""
         self.current_status = "waiting"
         self.performance_count = 0
         self.next_performance_seconds = 0.0
 
+        self.elapsed_seconds = 0.0
+        self.export_mode = False
+        self.export_total_seconds = 0.0
+        self._event_journal = deque(maxlen=1024)
+
         self._command_lock = threading.Lock()
-        self._manual_start_requested = False
+        self._manual_start_requested: str | None = None
         self._manual_stop_requested = False
 
         self._reschedule(initial)
@@ -6763,51 +6809,130 @@ class SynthesizedMeditationOrchestrator:
     def _db_gain(db: float) -> float:
         return 10.0 ** (float(db) / 20.0)
 
+    @staticmethod
+    def _format_log_time(seconds: float) -> str:
+        total_ms = max(0, int(round(seconds * 1000.0)))
+        hours, remainder = divmod(total_ms, 3_600_000)
+        minutes, remainder = divmod(remainder, 60_000)
+        secs, millis = divmod(remainder, 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
+
+    def _journal(self, category: str, message: str) -> None:
+        self._event_journal.append(
+            (self.elapsed_seconds, str(category), str(message))
+        )
+
+    def drain_event_journal(self) -> list[tuple[float, str, str]]:
+        entries = list(self._event_journal)
+        self._event_journal.clear()
+        return entries
+
+    def configure_export(self, total_duration_seconds: float) -> None:
+        """Reset the no-repeat bag and constrain scheduling for this export."""
+        self.export_mode = True
+        self.export_total_seconds = max(0.0, float(total_duration_seconds))
+        self.elapsed_seconds = 0.0
+        self.remaining_performances = list(self.performance_registry)
+        self.rng.shuffle(self.remaining_performances)
+        self._reschedule(self.state.get())
+
+        required = (
+            len(self.remaining_performances)
+            * self.state.get().ceremony_duration_minutes
+            * 60.0
+        )
+        if self.export_total_seconds + 1.0e-9 < required:
+            self._journal(
+                "MEDITATION_WARNING",
+                f"export is {self.export_total_seconds / 60.0:.1f} min but "
+                f"{len(self.remaining_performances)} complete performances "
+                f"require at least {required / 60.0:.1f} min; later ceremony "
+                "may be truncated by export end",
+            )
+        else:
+            self._journal(
+                "MEDITATION_PLAN",
+                "unique-per-export order="
+                + " -> ".join(self.remaining_performances),
+            )
+
+    def _random_interval(self, spec: SynthesizedMeditationSpec) -> float:
+        low = spec.interval_min_minutes * 60.0
+        high = spec.interval_max_minutes * 60.0
+        if abs(high - low) < 1.0e-9:
+            return low
+        return float(
+            math.exp(self.rng.uniform(math.log(low), math.log(high)))
+        )
+
     def _reschedule(
         self,
         spec: SynthesizedMeditationSpec | None = None,
     ) -> None:
         spec = spec or self.state.get()
 
-        low = spec.interval_min_minutes * 60.0
-        high = spec.interval_max_minutes * 60.0
+        if not self.remaining_performances:
+            self.next_performance_seconds = math.inf
+            self.current_status = (
+                "all synthesized meditation experiences completed for this "
+                "run; repeats disabled"
+            )
+            return
 
-        if abs(high - low) < 1.0e-9:
-            self.next_performance_seconds = low
+        requested = self._random_interval(spec)
+
+        if not self.export_mode:
+            self.next_performance_seconds = requested
+            return
+
+        # Guarantee room for every still-unplayed experience when possible.
+        remaining_time = max(
+            0.0,
+            self.export_total_seconds - self.elapsed_seconds,
+        )
+        duration = spec.ceremony_duration_minutes * 60.0
+        required_performance_time = (
+            len(self.remaining_performances) * duration
+        )
+        slack = max(0.0, remaining_time - required_performance_time)
+
+        # Divide slack among the waits still available, including some tail
+        # after the final performance. This preserves irregularity without
+        # letting a random long wait push a unique experience beyond EOF.
+        safe_wait = slack / (len(self.remaining_performances) + 1)
+        if slack <= 0.0:
+            self.next_performance_seconds = 0.0
         else:
-            # Log-uniform timing gives the short and long ends of a wide
-            # interval range comparable opportunity.
+            lower = min(60.0, safe_wait * 0.30)
+            upper = max(lower, min(requested, safe_wait * 1.65))
             self.next_performance_seconds = float(
-                math.exp(
-                    self.rng.uniform(
-                        math.log(low),
-                        math.log(high),
-                    )
-                )
+                self.rng.uniform(lower, upper)
             )
 
     def request_start_singing_bowls(self) -> None:
         with self._command_lock:
-            self._manual_start_requested = True
+            self._manual_start_requested = "Tibetan singing bowls"
+            self._manual_stop_requested = False
+
+    def request_start_gong(self) -> None:
+        with self._command_lock:
+            self._manual_start_requested = "Gong ceremony"
             self._manual_stop_requested = False
 
     def request_stop(self) -> None:
         with self._command_lock:
             self._manual_stop_requested = True
-            self._manual_start_requested = False
+            self._manual_start_requested = None
 
-    def _consume_commands(self) -> tuple[bool, bool]:
+    def _consume_commands(self) -> tuple[str | None, bool]:
         with self._command_lock:
-            start = self._manual_start_requested
+            start_name = self._manual_start_requested
             stop = self._manual_stop_requested
-            self._manual_start_requested = False
+            self._manual_start_requested = None
             self._manual_stop_requested = False
-        return start, stop
+        return start_name, stop
 
-    def _sync_bowl_settings(
-        self,
-        spec: SynthesizedMeditationSpec,
-    ) -> None:
+    def _sync_bowl_settings(self, spec: SynthesizedMeditationSpec) -> None:
         self.bowl_state.update(
             duration_minutes=spec.ceremony_duration_minutes,
             intensity=spec.intensity,
@@ -6815,19 +6940,61 @@ class SynthesizedMeditationOrchestrator:
             rubbing=spec.rubbing,
         )
 
+    def _sync_gong_settings(self, spec: SynthesizedMeditationSpec) -> None:
+        self.gong_state.update(
+            duration_minutes=spec.ceremony_duration_minutes,
+            intensity=spec.intensity,
+            spatiality=min(1.0, spec.spatiality),
+        )
+
+    def _mark_started(self, name: str) -> None:
+        if name in self.remaining_performances:
+            self.remaining_performances.remove(name)
+        self.active_name = name
+        self.performance_count += 1
+        self.current_status = f"performing {name}"
+        self._journal(
+            "MEDITATION_START",
+            f"{name}; remaining unique experiences="
+            f"{', '.join(self.remaining_performances) or 'none'}",
+        )
+
     def _start_singing_bowls(self) -> None:
         spec = self.state.get()
         self._sync_bowl_settings(spec)
         self.bowl_state.update(enabled=True)
         self.bowl.restart()
-        self.active_name = "Tibetan singing bowls"
-        self.performance_count += 1
-        self.current_status = "performing Tibetan singing bowls"
+        self._mark_started("Tibetan singing bowls")
 
-    def _stop_active(self, *, reschedule: bool) -> None:
+    def _start_gong(self) -> None:
+        spec = self.state.get()
+        self._sync_gong_settings(spec)
+        self.gong_state.update(enabled=True)
+        self.gong.restart()
+        self._mark_started("Gong ceremony")
+
+    def _active_controller(self):
         if self.active_name == "Tibetan singing bowls":
+            return self.bowl
+        if self.active_name == "Gong ceremony":
+            return self.gong
+        return None
+
+    def _stop_active(self, *, reschedule: bool, completed: bool = False) -> None:
+        previous = self.active_name
+
+        if previous == "Tibetan singing bowls":
             self.bowl_state.update(enabled=False)
             self.bowl.stop()
+        elif previous == "Gong ceremony":
+            self.gong_state.update(enabled=False)
+            self.gong.stop()
+
+        if previous:
+            self._journal(
+                "MEDITATION_COMPLETE" if completed else "MEDITATION_STOP",
+                previous,
+            )
 
         self.active_name = ""
         self.current_status = "waiting"
@@ -6840,8 +7007,10 @@ class SynthesizedMeditationOrchestrator:
         elapsed_seconds: float,
         metabolism_activity: float,
     ) -> None:
+        del metabolism_activity  # ceremony itself now drives a rest transition
         spec = self.state.get()
         elapsed_seconds = max(0.0, float(elapsed_seconds))
+        self.elapsed_seconds += elapsed_seconds
 
         manual_start, manual_stop = self._consume_commands()
 
@@ -6852,18 +7021,31 @@ class SynthesizedMeditationOrchestrator:
         if manual_start:
             if self.active:
                 self._stop_active(reschedule=False)
-            self._start_singing_bowls()
+            starter = self.performance_registry.get(manual_start)
+            if starter is not None:
+                starter()
 
         if self.active:
-            self._sync_bowl_settings(spec)
-            self.bowl.advance(elapsed_seconds)
-
-            if self.bowl.complete:
-                self._stop_active(reschedule=True)
+            if self.active_name == "Tibetan singing bowls":
+                self._sync_bowl_settings(spec)
+                self.bowl.advance(elapsed_seconds)
+                controller = self.bowl
             else:
-                remaining = self.bowl.remaining_seconds
+                self._sync_gong_settings(spec)
+                self.gong.advance(elapsed_seconds)
+                controller = self.gong
+
+            if controller.complete:
+                self._stop_active(reschedule=True, completed=True)
+            else:
+                remaining = controller.remaining_seconds
+                gesture = (
+                    f"; gesture {self.gong.gesture}"
+                    if self.active_name == "Gong ceremony"
+                    else ""
+                )
                 self.current_status = (
-                    f"{self.active_name}: {self.bowl.phase}; "
+                    f"{self.active_name}: {controller.phase}{gesture}; "
                     f"{remaining / 60.0:.1f} min remaining"
                 )
             return
@@ -6872,60 +7054,71 @@ class SynthesizedMeditationOrchestrator:
             self.current_status = "automatic performances disabled"
             return
 
-        self.next_performance_seconds -= elapsed_seconds
+        if not self.remaining_performances:
+            self.current_status = (
+                "all synthesized meditation experiences completed for this "
+                "run; repeats disabled"
+            )
+            return
 
+        self.next_performance_seconds -= elapsed_seconds
         if self.next_performance_seconds > 0.0:
             self.current_status = (
-                "waiting; next opportunity in "
-                f"{self.next_performance_seconds / 60.0:.1f} min"
+                "waiting; next unique meditation in "
+                f"{self.next_performance_seconds / 60.0:.1f} min; "
+                f"remaining: {', '.join(self.remaining_performances)}"
             )
             return
 
-        if metabolism_activity > self.QUIET_ACTIVITY_THRESHOLD:
-            self.current_status = (
-                "performance due; waiting for a restful brown-noise state"
-            )
-            # Recheck frequently without scheduling an entirely new interval.
-            self.next_performance_seconds = 20.0
-            return
+        # Use the shuffled no-repeat bag. Once due, the ceremony starts and the
+        # LivingBrownNoiseMixer smoothly moves metabolism and brown level toward
+        # the dedicated meditation rest state.
+        name = self.remaining_performances[0]
+        self.performance_registry[name]()
 
-        if not self.performance_registry:
-            self.current_status = "no synthesized performances registered"
-            self._reschedule(spec)
-            return
-
-        index = int(
-            self.rng.integers(0, len(self.performance_registry))
-        )
-        _, starter = self.performance_registry[index]
-        starter()
+    def _render_spatial_voices(
+        self,
+        voices,
+        sources,
+        mono_blocks,
+    ) -> np.ndarray:
+        stereo = np.zeros((len(mono_blocks[0]), 2), dtype=np.float32)
+        for voice, source, mono in zip(voices, sources, mono_blocks):
+            p = voice.position
+            source.set_position(float(p[0]), float(p[1]), float(p[2]))
+            stereo += source.process_mono(mono)
+        return stereo
 
     def render(self, frame_count: int) -> np.ndarray:
-        if self.active_name != "Tibetan singing bowls":
+        if not self.active:
             return np.zeros((frame_count, 2), dtype=np.float32)
 
         spec = self.state.get()
-        mono_blocks = self.bowl.render_mono(frame_count)
-        stereo = np.zeros((frame_count, 2), dtype=np.float32)
 
-        for voice, source, mono in zip(
-            self.bowl.voices,
-            self.bowl_sources,
-            mono_blocks,
-        ):
-            position = voice.position
-            source.set_position(
-                float(position[0]),
-                float(position[1]),
-                float(position[2]),
+        if self.active_name == "Tibetan singing bowls":
+            mono_blocks = self.bowl.render_mono(frame_count)
+            stereo = self._render_spatial_voices(
+                self.bowl.voices,
+                self.bowl_sources,
+                mono_blocks,
             )
-            stereo += source.process_mono(mono)
+            stereo = 0.94 * np.tanh(stereo * 0.82)
 
-        # Retain the standalone ceremony's multi-bowl peak protection before
-        # applying the user-facing performance-level trim.
-        stereo = 0.94 * np.tanh(stereo * 0.82)
+        elif self.active_name == "Gong ceremony":
+            mono_blocks = self.gong.render_mono(frame_count)
+            stereo = self._render_spatial_voices(
+                self.gong.voices,
+                self.gong_sources,
+                mono_blocks,
+            )
+            # Keep the same conservative protection used in the standalone
+            # gong lab. The master limiter remains downstream as final safety.
+            stereo = 0.94 * np.tanh(stereo * 0.80)
+
+        else:
+            return np.zeros((frame_count, 2), dtype=np.float32)
+
         stereo *= self._db_gain(spec.performance_level_db)
-
         return stereo.astype(np.float32, copy=False)
 
 
@@ -7391,6 +7584,9 @@ class LivingBrownNoiseMixer:
     def request_start_singing_bowl_ceremony(self) -> None:
         self.synthesized_meditation.request_start_singing_bowls()
 
+    def request_start_gong_ceremony(self) -> None:
+        self.synthesized_meditation.request_start_gong()
+
     def request_stop_synthesized_meditation(self) -> None:
         self.synthesized_meditation.request_stop()
 
@@ -7398,9 +7594,9 @@ class LivingBrownNoiseMixer:
         modes = self.mode_state.get()
         elapsed_seconds = frame_count / self.sample_rate
 
-        # The scheduler uses the previous buffer's metabolic activity to decide
-        # whether an overdue automatic ceremony has reached a suitable quiet
-        # opening. Manual test starts bypass this gate.
+        # The meditation conductor schedules unique performances. Once due, a
+        # ceremony begins and the mixer itself transitions metabolism toward
+        # the dedicated restful ceremony state.
         self.synthesized_meditation.advance(
             elapsed_seconds,
             self.current_metabolism_activity,
@@ -8163,6 +8359,10 @@ class ExportWorker(QThread):
 
             frames_written = 0
             motif_engine = mixer.dream_motif_3d
+            meditation_engine = mixer.synthesized_meditation
+            meditation_engine.configure_export(
+                self.duration_minutes * 60.0
+            )
 
             # Encode the generated float stereo buffers directly to MP3.
             # This avoids creating a multi-gigabyte intermediate WAV file and
@@ -8245,6 +8445,13 @@ class ExportWorker(QThread):
                                 f"{motif_engine._format_log_time(timestamp)}  "
                                 f"{category:<26}  {message}\n"
                             )
+                        for timestamp, category, message in (
+                            meditation_engine.drain_event_journal()
+                        ):
+                            export_log.write(
+                                f"{meditation_engine._format_log_time(timestamp)}  "
+                                f"{category:<26}  {message}\n"
+                            )
 
                         # PyAV's planar float format is channels x samples.
                         # The mixer already produces float32 stereo, so no
@@ -8278,6 +8485,13 @@ class ExportWorker(QThread):
                     ):
                         export_log.write(
                             f"{motif_engine._format_log_time(timestamp)}  "
+                            f"{category:<26}  {message}\n"
+                        )
+                    for timestamp, category, message in (
+                        meditation_engine.drain_event_journal()
+                    ):
+                        export_log.write(
+                            f"{meditation_engine._format_log_time(timestamp)}  "
                             f"{category:<26}  {message}\n"
                         )
                     export_log.write("\nEND OF EXPORT\n")
@@ -9481,7 +9695,7 @@ class MainWindow(QMainWindow):
             ),
         )
         meditation_form.addRow(
-            "Singing-bowl ceremony duration:",
+            "Meditation ceremony duration:",
             self.meditation_duration_control,
         )
 
@@ -9569,11 +9783,17 @@ class MainWindow(QMainWindow):
         self.start_singing_bowl_button = QPushButton(
             "Start singing-bowl ceremony"
         )
+        self.start_gong_button = QPushButton(
+            "Start gong ceremony"
+        )
         self.stop_meditation_button = QPushButton(
             "Stop meditation performance"
         )
         meditation_buttons.addWidget(
             self.start_singing_bowl_button
+        )
+        meditation_buttons.addWidget(
+            self.start_gong_button
         )
         meditation_buttons.addWidget(
             self.stop_meditation_button
@@ -10929,6 +11149,9 @@ class MainWindow(QMainWindow):
         self.start_singing_bowl_button.clicked.connect(
             self._start_singing_bowl_ceremony
         )
+        self.start_gong_button.clicked.connect(
+            self._start_gong_ceremony
+        )
         self.stop_meditation_button.clicked.connect(
             self._stop_synthesized_meditation
         )
@@ -12014,6 +12237,13 @@ class MainWindow(QMainWindow):
         self._write_conductor_log(
             "MEDITATION_MANUAL",
             "requested start: Tibetan singing bowls",
+        )
+
+    def _start_gong_ceremony(self) -> None:
+        self.mixer.request_start_gong_ceremony()
+        self._write_conductor_log(
+            "MEDITATION_MANUAL",
+            "requested start: Gong ceremony",
         )
 
     def _stop_synthesized_meditation(self) -> None:
