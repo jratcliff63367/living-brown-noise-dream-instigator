@@ -175,7 +175,7 @@
     "soft_limit": 1.35
   },
   "synthesized_meditation": {
-    "brown_rest_gain_db": -4.5,
+    "brown_rest_gain_db": -6.5,
     "ceremony_duration_minutes": 30.0,
     "enabled": true,
     "intensity": 0.62,
