@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import math
@@ -6,597 +7,467 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+from nonlinear_resonant_body import ResonantBodySpec, StatefulModalNetwork
 from synthesized_sound_source import OrganicWanderer1D, SmoothedValue, db_to_linear
 
 
 @dataclass(frozen=True, slots=True)
 class GongSpec:
-    """
-    Procedural large-gong / tam-tam voice.
+    base_hz: float = 42.0
+    size: float = 1.0
+    decay_seconds: float = 46.0
+    strike_strength: float = 0.52
+    darkness: float = 0.56
+    cascade: float = 0.90
+    chaos: float = 0.72
+    bloom: float = 0.86
 
-    The generator is intentionally not a sample surrogate. It models:
-      * a broad, inharmonic modal body;
-      * nonlinear bloom after impact;
-      * slow inter-mode beating;
-      * surface/rim friction excitation;
-      * pressure/contact modulation capable of producing vocal, whale-like,
-        squealing, and metallic "impossible" tones.
-
-    The friction side is deliberately first-class rather than decorative.
-    """
-
-    base_hz: float = 58.0
-    size: float = 0.82
-    decay_seconds: float = 34.0
-    strike_strength: float = 0.58
-    bloom: float = 0.72
-    darkness: float = 0.64
-    chaos: float = 0.52
     friction_level: float = 0.0
-    friction_pressure: float = 0.46
-    friction_speed: float = 0.38
-    friction_brightness: float = 0.58
-    friction_instability: float = 0.62
-    hand_level: float = 0.0
-    hand_pressure: float = 0.55
-    hand_position: float = 0.68
-    output_gain_db: float = -13.0
+    friction_pressure: float = 0.52
+    friction_speed: float = 0.42
+    friction_brightness: float = 0.64
+    friction_instability: float = 0.72
 
-    def validated(self) -> "GongSpec":
-        if not 30.0 <= self.base_hz <= 220.0:
-            raise ValueError("base_hz must be between 30 and 220")
-        if not 0.0 <= self.size <= 1.0:
-            raise ValueError("size must be between 0 and 1")
-        if not 3.0 <= self.decay_seconds <= 90.0:
-            raise ValueError("decay_seconds must be between 3 and 90")
-        for name in (
-            "strike_strength",
-            "bloom",
-            "darkness",
-            "chaos",
-            "friction_level",
-            "friction_pressure",
-            "friction_speed",
-            "friction_brightness",
-            "friction_instability",
-            "hand_level",
-            "hand_pressure",
-            "hand_position",
-        ):
-            if not 0.0 <= getattr(self, name) <= 1.0:
-                raise ValueError(f"{name} must be between 0 and 1")
-        if not -48.0 <= self.output_gain_db <= 6.0:
-            raise ValueError("output_gain_db must be between -48 and +6")
+    hand_level: float = 0.0
+    hand_pressure: float = 0.62
+    hand_position: float = 0.70
+
+    output_gain_db: float = -8.5
+
+    def validated(self):
         return self
 
 
 class GongState:
-    def __init__(self, spec: GongSpec) -> None:
+    def __init__(self, spec: GongSpec):
         self._lock = threading.Lock()
         self._spec = spec.validated()
 
-    def get(self) -> GongSpec:
+    def get(self):
         with self._lock:
             return self._spec
 
-    def set(self, spec: GongSpec) -> None:
+    def update(self, **changes):
         with self._lock:
-            self._spec = spec.validated()
-
-    def update(self, **changes) -> None:
-        with self._lock:
-            self._spec = replace(
-                self._spec,
-                **changes,
-            ).validated()
-
-
-@dataclass(slots=True)
-class _Strike:
-    age_seconds: float
-    strength: float
-    phase: np.ndarray
-    pitch_scale: float
-    location: float
+            self._spec = replace(self._spec, **changes).validated()
 
 
 class ProceduralGongGenerator:
     """
-    Mono procedural gong with impact and friction techniques.
+    Third-generation gong model.
 
-    Friction is split into two families:
-      1. tool friction: a synthetic friction-mallet/driver path;
-      2. hand friction: palm/finger contact with nonlinear squeal/voice-like
-         emergent tones.
-
-    Both excite the same modal body, so friction sounds feel like they emerge
-    from the gong rather than being layered effects.
+    Key change from v2:
+    a strike creates a short dispersive metallic plate disturbance before the
+    sound resolves into the modal field. The modal network itself is also more
+    turbulent and less "sine-bank" clean.
     """
 
-    MODE_RATIOS = np.array(
-        [1.00, 1.48, 1.96, 2.63, 3.41, 4.37, 5.58, 7.12, 8.96, 11.40],
-        dtype=np.float64,
-    )
-    DETUNE = np.array(
-        [0.0, -0.015, 0.021, -0.032, 0.047, -0.058, 0.071, -0.082, 0.095, -0.11],
-        dtype=np.float64,
-    )
-    AMPS = np.array(
-        [1.0, 0.92, 0.78, 0.66, 0.54, 0.42, 0.31, 0.23, 0.16, 0.10],
-        dtype=np.float64,
-    )
-    DECAYS = np.array(
-        [1.00, 0.96, 0.90, 0.82, 0.74, 0.66, 0.57, 0.49, 0.41, 0.34],
-        dtype=np.float64,
-    )
-
-    def __init__(
-        self,
-        sample_rate: float,
-        state: GongState,
-        *,
-        seed: int = 904_101,
-    ) -> None:
+    def __init__(self, sample_rate, state, *, seed=904101):
         self.sample_rate = float(sample_rate)
         self.state = state
         self.rng = np.random.default_rng(seed)
-        self.strikes: list[_Strike] = []
 
-        self.output_gain = SmoothedValue(
+        self.gain = SmoothedValue(
             self.sample_rate,
             db_to_linear(state.get().output_gain_db),
-            0.18,
+            0.14,
         )
         self.friction_smoother = SmoothedValue(
             self.sample_rate,
             state.get().friction_level,
-            0.60,
+            0.45,
         )
         self.hand_smoother = SmoothedValue(
             self.sample_rate,
             state.get().hand_level,
-            0.42,
-        )
-
-        self.friction_phase = 0.0
-        self.hand_phase = 0.0
-        self.modal_phases = self.rng.uniform(
-            0.0,
-            2.0 * math.pi,
-            len(self.MODE_RATIOS),
+            0.35,
         )
 
         self.friction_wander = OrganicWanderer1D(
-            seed=seed + 10,
-            natural_period_seconds=7.0,
-            damping_ratio=0.60,
-            drive_strength=0.95,
-            drive_smoothing_seconds=2.0,
-        )
-        self.pressure_wander = OrganicWanderer1D(
-            seed=seed + 11,
-            natural_period_seconds=11.0,
-            damping_ratio=0.72,
-            drive_strength=0.82,
-            drive_smoothing_seconds=3.5,
+            seed=seed + 20,
+            natural_period_seconds=6.0,
+            damping_ratio=0.56,
+            drive_strength=1.0,
+            drive_smoothing_seconds=1.8,
         )
         self.hand_wander = OrganicWanderer1D(
-            seed=seed + 12,
-            natural_period_seconds=5.5,
-            damping_ratio=0.52,
+            seed=seed + 21,
+            natural_period_seconds=4.8,
+            damping_ratio=0.50,
             drive_strength=1.10,
-            drive_smoothing_seconds=1.5,
+            drive_smoothing_seconds=1.3,
         )
 
-        self.friction_energy = 0.0
-        self.hand_energy = 0.0
+        self.network = self._build_network(state.get(), seed)
+        self.impact_events = []
+        self.friction_phase = 0.0
+        self.hand_phase = 0.0
 
-    def strike(
-        self,
-        strength: float | None = None,
-        location: float | None = None,
-    ) -> None:
+    def _build_network(self, spec, seed):
+        rng = np.random.default_rng(seed + 1)
+
+        # Significantly denser field than v2.
+        low = np.geomspace(spec.base_hz, 340.0, 26)
+        mid = np.geomspace(120.0, 2200.0, 46)
+        high = np.geomspace(650.0, 6200.0, 34)
+
+        f = np.concatenate([low, mid, high])
+        fam = np.concatenate([
+            np.zeros(len(low), dtype=np.int32),
+            np.ones(len(mid), dtype=np.int32),
+            np.full(len(high), 2, dtype=np.int32),
+        ])
+
+        # Irregular plate geometry and intentional local clustering.
+        f *= np.exp(
+            rng.normal(
+                0.0,
+                0.013 + 0.024 * spec.chaos,
+                len(f),
+            )
+        )
+
+        # Add close splittings to many modes.
+        cluster = rng.random(len(f)) < 0.42
+        f[cluster] *= 1.0 + rng.normal(
+            0.0,
+            0.0022 + 0.0055 * spec.chaos,
+            int(cluster.sum()),
+        )
+
+        order = np.argsort(f)
+        f = f[order]
+        fam = fam[order]
+
+        x = np.log(f / f.min()) / np.log(f.max() / f.min())
+        decay = (
+            spec.decay_seconds
+            * (1.16 - 0.72 * x)
+            * np.exp(rng.normal(0.0, 0.33, len(f)))
+        )
+        decay = np.clip(decay, 2.5, 100.0)
+
+        radiation = (
+            0.55
+            + 0.95
+            * np.exp(
+                -0.5 * ((np.log(f) - np.log(720.0)) / 1.20) ** 2
+            )
+        )
+        radiation *= np.power(
+            f / max(35.0, spec.base_hz),
+            -0.24 * spec.darkness,
+        )
+        radiation *= rng.uniform(0.66, 1.34, len(f))
+
+        body_spec = ResonantBodySpec(
+            cascade_threshold=0.022 + 0.040 * (1.0 - spec.cascade),
+            cascade_rate=0.34 + 1.10 * spec.cascade,
+            diffusion_rate=0.05 + 0.13 * spec.chaos,
+            nonlinear_enter=0.20,
+            nonlinear_leave=0.095,
+            frequency_pull=0.0024 + 0.0058 * spec.chaos,
+            sideband_amount=0.14 + 0.34 * spec.chaos,
+            roughness_amount=0.10 + 0.18 * spec.chaos,
+            coherence_loss=0.10 + 0.22 * spec.chaos,
+            saturation=0.98,
+        )
+
+        return StatefulModalNetwork(
+            self.sample_rate,
+            f,
+            decay,
+            radiation,
+            fam,
+            spec=body_spec,
+            seed=seed + 2,
+        )
+
+    def _strike_weights(self, location, hardness):
+        f = self.network.frequencies
+
+        cutoff = 260.0 + 3400.0 * hardness
+        spectral = 1.0 / (
+            1.0 + (f / cutoff) ** (2.2 + 1.6 * (1.0 - hardness))
+        )
+
+        idx = np.arange(len(f), dtype=np.float64)
+        spatial = (
+            0.12
+            + np.sin(
+                math.pi * (
+                    0.42
+                    + 5.4 * location
+                    + 0.117 * idx
+                )
+            ) ** 2
+        )
+
+        family_gate = np.where(
+            self.network.family == 0,
+            1.0,
+            np.where(
+                self.network.family == 1,
+                0.34 + 0.52 * hardness,
+                0.05 + 0.25 * hardness,
+            ),
+        )
+
+        return spectral * spatial * family_gate + 1e-8
+
+    def strike(self, strength=None, location=None, *, hardness=None):
         spec = self.state.get()
+
         if strength is None:
             strength = spec.strike_strength
         if location is None:
-            location = float(self.rng.uniform(0.25, 0.82))
+            location = float(self.rng.uniform(0.22, 0.86))
+        if hardness is None:
+            hardness = float(
+                np.clip(
+                    self.rng.normal(
+                        0.24 + 0.18 * strength,
+                        0.07,
+                    ),
+                    0.10,
+                    0.56,
+                )
+            )
 
-        strength = float(np.clip(strength, 0.0, 1.4))
+        strength = float(np.clip(strength, 0.0, 1.2))
         location = float(np.clip(location, 0.0, 1.0))
+        hardness = float(np.clip(hardness, 0.0, 1.0))
 
-        pitch_scale = float(
-            np.clip(
-                self.rng.normal(1.0, 0.004 + 0.020 * spec.chaos),
-                0.94,
-                1.06,
-            )
-        )
-        phases = self.rng.uniform(
-            -0.35,
-            0.35,
-            len(self.MODE_RATIOS),
-        )
-        self.strikes.append(
-            _Strike(
-                age_seconds=0.0,
-                strength=strength,
-                phase=phases,
-                pitch_scale=pitch_scale,
-                location=location,
-            )
+        self.network.inject(
+            self._strike_weights(location, hardness),
+            0.10 + 1.05 * strength * strength,
+            phase_randomization=0.30 + 0.20 * hardness,
         )
 
-    def clear(self) -> None:
-        self.strikes.clear()
-        self.friction_energy = 0.0
-        self.hand_energy = 0.0
+        # Dispersive plate disturbance: very short broadband metallic event with
+        # several chirping/decaying bands. This is the "sheet of metal was
+        # actually struck" cue missing from v2.
+        self.impact_events.append({
+            "age": 0.0,
+            "strength": strength,
+            "hardness": hardness,
+            "seed_phase": self.rng.uniform(0, 2 * math.pi, 6),
+        })
 
-    def _frequencies(
-        self,
-        spec: GongSpec,
-        location: float,
-        pitch_scale: float,
-    ) -> np.ndarray:
-        location_shape = (location - 0.5) * 0.08
-        ratios = self.MODE_RATIOS * (
-            1.0
-            + spec.chaos * self.DETUNE
-            + location_shape * np.linspace(-0.25, 0.35, len(self.MODE_RATIOS))
-        )
-        return spec.base_hz * pitch_scale * ratios
+    def clear(self):
+        self.network.clear()
+        self.impact_events.clear()
 
-    def _render_strike(
-        self,
-        event: _Strike,
-        spec: GongSpec,
-        frame_count: int,
-    ) -> tuple[np.ndarray, float]:
-        t = (
-            np.arange(frame_count, dtype=np.float64) / self.sample_rate
-            + event.age_seconds
-        )
-        freqs = self._frequencies(
-            spec,
-            event.location,
-            event.pitch_scale,
-        )
-
-        output = np.zeros(frame_count, dtype=np.float64)
-
-        # Gong impact "blooms" instead of exposing all modes instantly.
-        bloom_times = np.linspace(
-            0.04 + 0.10 * (1.0 - spec.bloom),
-            0.18 + 0.55 * spec.bloom,
-            len(freqs),
-        )
-
-        darkness_curve = np.linspace(
-            1.15 + 0.45 * spec.darkness,
-            0.85 - 0.48 * spec.darkness,
-            len(freqs),
-        )
-
-        for i, freq in enumerate(freqs):
-            decay = max(
-                0.4,
-                spec.decay_seconds * self.DECAYS[i],
-            )
-            attack = 1.0 - np.exp(
-                -np.maximum(t, 0.0) / max(0.008, bloom_times[i])
-            )
-            envelope = attack * np.exp(-t / decay)
-
-            # Slow split-mode beating.
-            split_cents = (
-                1.0
-                + 12.0 * spec.chaos
-                * (0.25 + i / max(1, len(freqs) - 1))
-            )
-            split = freq * 2.0 ** (split_cents / 1200.0)
-
-            phase_a = 2.0 * math.pi * freq * t + event.phase[i]
-            phase_b = 2.0 * math.pi * split * t - 0.6 * event.phase[i]
-
-            amplitude = (
-                event.strength
-                * self.AMPS[i]
-                * darkness_curve[i]
-                * (0.88 + 0.22 * event.location)
-            )
-
-            split_mix = 0.10 + 0.28 * spec.chaos
-            output += amplitude * envelope * (
-                (1.0 - split_mix) * np.sin(phase_a)
-                + split_mix * np.sin(phase_b)
-            )
-
-        # Initial mallet/body contact: soft broad-band excitation, not a click.
-        contact_env = np.exp(-t / 0.030)
-        contact_noise = self.rng.standard_normal(frame_count)
-        output += (
-            contact_noise
-            * contact_env
-            * event.strength
-            * (0.010 + 0.020 * (1.0 - spec.darkness))
-        )
-
-        return output, event.age_seconds + frame_count / self.sample_rate
-
-    def _modal_surface(
-        self,
-        spec: GongSpec,
-        frame_count: int,
-        excitation: np.ndarray,
-        *,
-        bright_bias: float,
-        moving_position: float,
-    ) -> np.ndarray:
-        freqs = self._frequencies(
-            spec,
-            moving_position,
-            1.0,
-        )
-        n = np.arange(frame_count, dtype=np.float64)
-        output = np.zeros(frame_count, dtype=np.float64)
-
-        for i, freq in enumerate(freqs):
-            step = 2.0 * math.pi * freq / self.sample_rate
-            phases = self.modal_phases[i] + step * n
-            brightness = (
-                0.35
-                + 0.65 * bright_bias
-            ) ** (i / max(1, len(freqs) - 1))
-            weight = self.AMPS[i] * brightness
-
-            output += weight * np.sin(phases)
-            self.modal_phases[i] = float(
-                (phases[-1] + step) % (2.0 * math.pi)
-            )
-
-        output /= max(1.0, np.sqrt(len(freqs)))
-        return output * excitation
-
-    def _render_friction(
-        self,
-        spec: GongSpec,
-        frame_count: int,
-    ) -> np.ndarray:
-        level = self.friction_smoother.ramp(
-            spec.friction_level,
-            frame_count,
-        )
-        dt = frame_count / self.sample_rate
-
-        wander = self.friction_wander.advance(
-            dt * (0.4 + 2.8 * spec.friction_speed)
-        )
-        pressure_shape = self.pressure_wander.advance(dt)
-
-        target = float(
-            np.mean(level)
-            * (0.58 + 0.42 * spec.friction_pressure)
-            * (0.72 + 0.28 * (0.5 + 0.5 * pressure_shape))
-        )
-        catch = 0.25 + 1.6 * (1.0 - spec.friction_pressure)
-        self.friction_energy += (
-            target - self.friction_energy
-        ) * (1.0 - math.exp(-dt / catch))
-
-        if self.friction_energy < 1.0e-6:
+    def _render_plate_disturbance(self, frame_count):
+        if not self.impact_events:
             return np.zeros(frame_count, dtype=np.float64)
 
+        out = np.zeros(frame_count, dtype=np.float64)
+        retained = []
         n = np.arange(frame_count, dtype=np.float64)
-        speed_hz = 5.0 + 24.0 * spec.friction_speed
-        phase = (
-            self.friction_phase
-            + 2.0 * math.pi * speed_hz * n / self.sample_rate
-        )
+        dt_sample = 1.0 / self.sample_rate
 
-        # Stick-slip/contact pulsation. This excites the gong rather than being
-        # heard as a stand-alone oscillator.
-        contact = np.tanh(
-            (1.6 + 5.0 * spec.friction_pressure)
-            * np.sin(phase + 0.7 * wander)
-        )
-        self.friction_phase = float(
-            (phase[-1] + 2.0 * math.pi * speed_hz / self.sample_rate)
-            % (2.0 * math.pi)
-        )
+        for event in self.impact_events:
+            t = event["age"] + n * dt_sample
+            strength = event["strength"]
+            hardness = event["hardness"]
+            phases = event["seed_phase"]
 
-        contact *= self.friction_energy
-        contact *= (
-            0.82
-            + 0.18
-            * np.sin(
-                2.0 * math.pi
-                * (0.32 + 0.85 * spec.friction_instability)
-                * n
-                / self.sample_rate
-                + 1.4 * wander
+            env_fast = np.exp(-t / (0.030 + 0.030 * (1.0 - hardness)))
+            env_slow = np.exp(-t / (0.16 + 0.20 * (1.0 - hardness)))
+
+            # Dispersive chirps: high bands fall rapidly toward modal regions.
+            bands = (
+                (4200.0, 980.0),
+                (3000.0, 760.0),
+                (2200.0, 580.0),
+                (1500.0, 440.0),
+                (950.0, 320.0),
+                (620.0, 220.0),
             )
-        )
 
-        modal = self._modal_surface(
-            spec,
-            frame_count,
-            contact,
-            bright_bias=spec.friction_brightness,
-            moving_position=0.76 + 0.14 * wander,
-        )
+            metallic = np.zeros(frame_count, dtype=np.float64)
+            for i, (f0, f1) in enumerate(bands):
+                tau = 0.045 + 0.020 * i
+                f_inst = f1 + (f0 - f1) * np.exp(-t / tau)
+                # Approximate phase integral using local frequency.
+                phase = (
+                    phases[i]
+                    + 2 * math.pi * f_inst * t
+                )
+                metallic += (
+                    (0.42 / (1.0 + 0.22 * i))
+                    * np.sin(phase)
+                )
 
-        # Bright friction-driver whistle/shooting-star component.
-        squeal_hz = (
-            310.0
-            + 1550.0 * spec.friction_brightness
-            + 260.0 * wander * spec.friction_instability
-        )
-        squeal = np.sin(
-            2.0 * math.pi * squeal_hz * n / self.sample_rate
-            + 0.25 * np.sin(
-                2.0 * math.pi * 1.7 * n / self.sample_rate
+            noise = self.rng.standard_normal(frame_count)
+            out += strength * (
+                0.070 * env_fast * noise
+                + 0.034 * env_slow * metallic
             )
-        )
-        squeal *= (
-            self.friction_energy
-            * (0.015 + 0.080 * spec.friction_brightness)
-        )
 
-        rough = self.rng.standard_normal(frame_count)
-        rough *= (
-            self.friction_energy
-            * (0.002 + 0.012 * spec.friction_instability)
-        )
-
-        return modal * 0.54 + squeal + rough
-
-    def _render_hand(
-        self,
-        spec: GongSpec,
-        frame_count: int,
-    ) -> np.ndarray:
-        level = self.hand_smoother.ramp(
-            spec.hand_level,
-            frame_count,
-        )
-        dt = frame_count / self.sample_rate
-
-        wander = self.hand_wander.advance(dt)
-        target = float(
-            np.mean(level)
-            * (0.50 + 0.50 * spec.hand_pressure)
-        )
-        self.hand_energy += (
-            target - self.hand_energy
-        ) * (
-            1.0
-            - math.exp(
-                -dt / (0.18 + 0.9 * (1.0 - spec.hand_pressure))
-            )
-        )
-
-        if self.hand_energy < 1.0e-6:
-            return np.zeros(frame_count, dtype=np.float64)
-
-        n = np.arange(frame_count, dtype=np.float64)
-
-        # Hand/palm friction is intentionally expressive. The "voice-like"
-        # quality comes from a moving cluster of inharmonic carrier bands with
-        # pressure-dependent nonlinear modulation, not from a human vocal model.
-        position = float(
-            np.clip(
-                spec.hand_position + 0.10 * wander,
-                0.08,
-                0.95,
-            )
-        )
-        center = (
-            150.0
-            + 1250.0 * position
-            + 420.0 * wander * spec.hand_pressure
-        )
-        mod_hz = 0.8 + 4.0 * spec.hand_pressure
-        modulation = np.sin(
-            2.0 * math.pi * mod_hz * n / self.sample_rate
-            + 1.8 * wander
-        )
-
-        carriers = (
-            np.sin(
-                2.0 * math.pi
-                * (center + 65.0 * modulation)
-                * n
-                / self.sample_rate
-                + self.hand_phase
-            )
-            + 0.46
-            * np.sin(
-                2.0 * math.pi
-                * (center * 1.73 - 90.0 * modulation)
-                * n
-                / self.sample_rate
-                + 0.8
-            )
-            + 0.25
-            * np.sin(
-                2.0 * math.pi
-                * (center * 2.44 + 130.0 * modulation)
-                * n
-                / self.sample_rate
-                - 1.1
-            )
-        )
-        carriers = np.tanh(
-            carriers * (0.9 + 2.8 * spec.hand_pressure)
-        )
-
-        self.hand_phase = float(
-            (
-                self.hand_phase
-                + 2.0
-                * math.pi
-                * center
-                * frame_count
-                / self.sample_rate
-            )
-            % (2.0 * math.pi)
-        )
-
-        # Couple hand excitation back into the gong modes.
-        excitation = (
-            carriers
-            * self.hand_energy
-            * (0.22 + 0.52 * spec.hand_pressure)
-        )
-        modal = self._modal_surface(
-            spec,
-            frame_count,
-            excitation,
-            bright_bias=0.72,
-            moving_position=position,
-        )
-
-        # Airy skin/contact noise gives the impossible tones a physical source.
-        noise = self.rng.standard_normal(frame_count)
-        noise *= self.hand_energy * 0.010
-
-        return 0.46 * excitation + 0.48 * modal + noise
-
-    def generate(self, frame_count: int) -> np.ndarray:
-        spec = self.state.get()
-        frame_count = int(frame_count)
-        if frame_count <= 0:
-            return np.zeros(0, dtype=np.float32)
-
-        output = np.zeros(frame_count, dtype=np.float64)
-        retained: list[_Strike] = []
-
-        for event in self.strikes:
-            rendered, new_age = self._render_strike(
-                event,
-                spec,
-                frame_count,
-            )
-            output += rendered
-            event.age_seconds = new_age
-            if event.age_seconds < spec.decay_seconds * 7.0:
+            event["age"] += frame_count / self.sample_rate
+            if event["age"] < 0.8:
                 retained.append(event)
 
-        self.strikes = retained
+        self.impact_events = retained
+        return out
 
-        output += self._render_friction(spec, frame_count)
-        output += self._render_hand(spec, frame_count)
+    def _friction_drive(self, spec, frame_count):
+        level = self.friction_smoother.ramp(
+            spec.friction_level, frame_count
+        )
+        mean = float(np.mean(level))
+        if mean < 1e-6:
+            return np.zeros(frame_count, dtype=np.float64)
 
-        gain = self.output_gain.ramp(
+        dt = frame_count / self.sample_rate
+        wander = self.friction_wander.advance(dt)
+        pressure = np.clip(
+            spec.friction_pressure + 0.12 * wander, 0, 1
+        )
+        speed = np.clip(
+            spec.friction_speed + 0.10 * wander, 0, 1
+        )
+
+        f = self.network.frequencies
+        center = (
+            220.0
+            + 2500.0 * spec.friction_brightness
+            + 420.0 * wander
+        )
+        width = 0.70 + 0.90 * spec.friction_instability
+        weights = np.exp(
+            -0.5
+            * (
+                np.log2(np.maximum(f, 1.0) / max(35.0, center))
+                / width
+            ) ** 2
+        )
+        weights *= np.where(
+            self.network.family == 0, 0.30, 1.0
+        )
+
+        self.network.inject(
+            weights,
+            mean
+            * (0.018 + 0.13 * pressure)
+            * dt
+            * 60.0,
+            phase_randomization=0.03 + 0.06 * spec.friction_instability,
+        )
+
+        n = np.arange(frame_count, dtype=np.float64)
+        slip_hz = 8.0 + 38.0 * speed
+        phase = (
+            self.friction_phase
+            + 2 * math.pi * slip_hz * n / self.sample_rate
+        )
+        slip = np.tanh(
+            (1.4 + 6.0 * pressure) * np.sin(phase)
+        )
+        self.friction_phase = float(
+            (phase[-1] + 2 * math.pi * slip_hz / self.sample_rate)
+            % (2 * math.pi)
+        )
+        noise = self.rng.standard_normal(frame_count)
+        return mean * (
+            0.0025 * slip
+            + 0.0030 * spec.friction_instability * noise
+        )
+
+    def _hand_drive(self, spec, frame_count):
+        level = self.hand_smoother.ramp(
+            spec.hand_level, frame_count
+        )
+        mean = float(np.mean(level))
+        if mean < 1e-6:
+            return np.zeros(frame_count, dtype=np.float64)
+
+        dt = frame_count / self.sample_rate
+        wander = self.hand_wander.advance(dt)
+        pressure = np.clip(
+            spec.hand_pressure + 0.16 * wander, 0, 1
+        )
+        position = np.clip(
+            spec.hand_position + 0.12 * wander, 0.05, 0.98
+        )
+
+        center = (
+            110.0
+            + 1900.0 * position ** 1.55
+            + 380.0 * wander * pressure
+        )
+        f = self.network.frequencies
+        width = 0.48 + 0.70 * (1.0 - pressure)
+        weights = np.exp(
+            -0.5
+            * (
+                np.log2(np.maximum(f, 1.0) / max(35.0, center))
+                / width
+            ) ** 2
+        )
+        second = center * (1.68 + 0.30 * wander)
+        weights += 0.40 * np.exp(
+            -0.5
+            * (
+                np.log2(np.maximum(f, 1.0) / max(35.0, second))
+                / 0.64
+            ) ** 2
+        )
+
+        self.network.inject(
+            weights,
+            mean
+            * (0.020 + 0.15 * pressure)
+            * dt
+            * 60.0,
+            phase_randomization=0.02 + 0.04 * pressure,
+        )
+
+        n = np.arange(frame_count, dtype=np.float64)
+        carrier_hz = (
+            24.0
+            + 200.0 * position
+            + 105.0 * pressure
+            + 36.0 * wander
+        )
+        phase = (
+            self.hand_phase
+            + 2 * math.pi * carrier_hz * n / self.sample_rate
+        )
+        carrier = np.tanh(
+            (1.8 + 7.5 * pressure) * np.sin(phase)
+        )
+        self.hand_phase = float(
+            (phase[-1] + 2 * math.pi * carrier_hz / self.sample_rate)
+            % (2 * math.pi)
+        )
+        noise = self.rng.standard_normal(frame_count)
+        return mean * (0.0032 * carrier + 0.0022 * noise)
+
+    def generate(self, frame_count):
+        spec = self.state.get()
+        plate = self._render_plate_disturbance(frame_count)
+        friction = self._friction_drive(spec, frame_count)
+        hand = self._hand_drive(spec, frame_count)
+
+        body = self.network.render(
+            frame_count,
+            external_drive=(friction + hand),
+            external_drive_gain=1.0,
+        ).astype(np.float64)
+
+        # The impact disturbance leads, then folds into the persistent body.
+        out = body + plate
+
+        gain = self.gain.ramp(
             db_to_linear(spec.output_gain_db),
             frame_count,
         )
-        output *= gain
-
-        # Gong peaks can become huge when modal families align.
-        output = 0.94 * np.tanh(output * 0.70)
-
-        return output.astype(np.float32, copy=False)
+        out *= gain
+        out = 0.97 * np.tanh(out * 1.02)
+        return out.astype(np.float32, copy=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -608,35 +479,22 @@ class GongCeremonySpec:
     hand_magic: float = 0.88
     spatiality: float = 0.62
 
-    def validated(self) -> "GongCeremonySpec":
-        if not 8.0 <= self.duration_minutes <= 90.0:
-            raise ValueError("duration_minutes must be between 8 and 90")
-        for name in (
-            "intensity",
-            "friction_presence",
-            "hand_magic",
-            "spatiality",
-        ):
-            if not 0.0 <= getattr(self, name) <= 1.0:
-                raise ValueError(f"{name} must be between 0 and 1")
+    def validated(self):
         return self
 
 
 class GongCeremonyState:
-    def __init__(self, spec: GongCeremonySpec) -> None:
+    def __init__(self, spec):
         self._lock = threading.Lock()
         self._spec = spec.validated()
 
-    def get(self) -> GongCeremonySpec:
+    def get(self):
         with self._lock:
             return self._spec
 
-    def update(self, **changes) -> None:
+    def update(self, **changes):
         with self._lock:
-            self._spec = replace(
-                self._spec,
-                **changes,
-            ).validated()
+            self._spec = replace(self._spec, **changes).validated()
 
 
 @dataclass(frozen=True, slots=True)
@@ -646,6 +504,7 @@ class GongProfile:
     size: float
     decay_seconds: float
     darkness: float
+    cascade: float
     chaos: float
     output_gain_db: float
     x: float
@@ -664,31 +523,17 @@ class GongVoice:
     move_elapsed: float
     move_duration: float
     next_strike: float
-    friction_target: float = 0.0
-    hand_target: float = 0.0
     strikes: int = 0
 
 
 class GongCeremonyController:
-    """
-    Long-form professional-style gong bath.
-
-    Arc:
-      arrival -> grounding -> expansion -> immersion -> alchemy ->
-      integration -> closing -> silence
-
-    The performance alternates between enormous low-body blooms and smaller,
-    startling friction/hand gestures. The latter are intentionally sparse
-    enough to remain special.
-    """
-
     PHASES = (
         ("arrival", 0.00, 0.08),
-        ("grounding", 0.08, 0.22),
-        ("expansion", 0.22, 0.42),
-        ("immersion", 0.42, 0.66),
-        ("alchemy", 0.66, 0.78),
-        ("integration", 0.78, 0.90),
+        ("grounding", 0.08, 0.20),
+        ("expansion", 0.20, 0.40),
+        ("immersion", 0.40, 0.65),
+        ("alchemy", 0.65, 0.79),
+        ("integration", 0.79, 0.90),
         ("closing", 0.90, 0.97),
         ("final silence", 0.97, 1.00),
     )
@@ -696,71 +541,49 @@ class GongCeremonyController:
     PROFILES = (
         GongProfile(
             "Large tam-tam",
-            48.0, 1.00, 44.0, 0.78, 0.58, -14.0,
-            0.0, -0.35, -3.1,
+            42.0, 1.00, 48.0, 0.56, 0.92, 0.74, -8.5,
+            0.0, -0.30, -2.70,
         ),
         GongProfile(
             "Medium symphonic gong",
-            72.0, 0.72, 32.0, 0.58, 0.62, -15.0,
-            -1.15, 0.25, -2.4,
+            61.0, 0.76, 38.0, 0.48, 0.86, 0.68, -10.5,
+            -1.00, 0.18, -2.25,
         ),
         GongProfile(
             "Bright friction gong",
-            104.0, 0.48, 24.0, 0.38, 0.74, -16.0,
-            1.05, 0.55, -2.0,
+            82.0, 0.52, 30.0, 0.34, 0.78, 0.76, -12.0,
+            1.00, 0.48, -1.95,
         ),
     )
 
-    def __init__(
-        self,
-        sample_rate: float,
-        state: GongCeremonyState,
-        *,
-        seed: int = 904_500,
-    ) -> None:
+    def __init__(self, sample_rate, state, *, seed=904500):
         self.sample_rate = float(sample_rate)
         self.state = state
         self.rng = np.random.default_rng(seed)
 
-        self.voices: list[GongVoice] = []
+        self.voices = []
         for i, p in enumerate(self.PROFILES):
             gs = GongState(
                 GongSpec(
                     base_hz=p.base_hz,
                     size=p.size,
                     decay_seconds=p.decay_seconds,
-                    strike_strength=0.58,
-                    bloom=0.74,
                     darkness=p.darkness,
+                    cascade=p.cascade,
                     chaos=p.chaos,
-                    friction_level=0.0,
-                    friction_pressure=0.48,
-                    friction_speed=0.40,
-                    friction_brightness=0.58,
-                    friction_instability=0.62,
-                    hand_level=0.0,
-                    hand_pressure=0.56,
-                    hand_position=0.68,
                     output_gain_db=p.output_gain_db,
                 )
             )
-            gen = ProceduralGongGenerator(
-                self.sample_rate,
-                gs,
-                seed=seed + 100 + i * 29,
+            g = ProceduralGongGenerator(
+                self.sample_rate, gs, seed=seed + 100 + i * 37
             )
             home = np.array([p.x, p.y, p.z], dtype=np.float64)
             self.voices.append(
                 GongVoice(
-                    profile=p,
-                    state=gs,
-                    generator=gen,
-                    position=home.copy(),
-                    move_start=home.copy(),
-                    move_target=home.copy(),
-                    move_elapsed=0.0,
-                    move_duration=24.0,
-                    next_strike=2.0 + i * 1.8,
+                    p, gs, g,
+                    home.copy(), home.copy(), home.copy(),
+                    0.0, 28.0,
+                    2.0 + i * 2.0,
                 )
             )
 
@@ -770,285 +593,105 @@ class GongCeremonyController:
         self.performance_progress = 0.0
         self.running = False
         self.complete = False
-
-        self._opening_cue = False
+        self._opening = False
         self._closing_cues = set()
 
         self.energy_wander = OrganicWanderer1D(
             seed=seed + 50,
-            natural_period_seconds=44.0,
-            damping_ratio=0.66,
-            drive_strength=0.90,
-            drive_smoothing_seconds=13.0,
+            natural_period_seconds=40.0,
+            damping_ratio=0.64,
+            drive_strength=0.92,
+            drive_smoothing_seconds=12.0,
         )
         self.magic_wander = OrganicWanderer1D(
             seed=seed + 51,
-            natural_period_seconds=17.0,
-            damping_ratio=0.58,
-            drive_strength=1.05,
-            drive_smoothing_seconds=5.0,
+            natural_period_seconds=16.0,
+            damping_ratio=0.56,
+            drive_strength=1.04,
+            drive_smoothing_seconds=4.8,
         )
 
-    def restart(self) -> None:
+    def restart(self):
         self.elapsed_seconds = 0.0
         self.phase = "arrival"
         self.phase_progress = 0.0
         self.performance_progress = 0.0
         self.running = True
         self.complete = False
-        self._opening_cue = False
+        self._opening = False
         self._closing_cues.clear()
+        for i, v in enumerate(self.voices):
+            v.generator.clear()
+            v.state.update(friction_level=0.0, hand_level=0.0)
+            v.next_strike = 7.0 + i * 3.0
+            v.strikes = 0
 
-        for i, voice in enumerate(self.voices):
-            voice.generator.clear()
-            voice.state.update(
-                friction_level=0.0,
-                hand_level=0.0,
-            )
-            p = voice.profile
-            home = np.array([p.x, p.y, p.z], dtype=np.float64)
-            voice.position = home.copy()
-            voice.move_start = home.copy()
-            voice.move_target = home.copy()
-            voice.move_elapsed = 0.0
-            voice.move_duration = 24.0
-            voice.next_strike = 2.0 + i * 1.8
-            voice.friction_target = 0.0
-            voice.hand_target = 0.0
-            voice.strikes = 0
-
-    def stop(self) -> None:
+    def stop(self):
         self.running = False
-        for voice in self.voices:
-            voice.state.update(
-                friction_level=0.0,
-                hand_level=0.0,
-            )
+        for v in self.voices:
+            v.state.update(friction_level=0.0, hand_level=0.0)
 
-    def _phase_for_progress(
-        self,
-        progress: float,
-    ) -> tuple[str, float]:
+    def _phase_for_progress(self, progress):
         for name, start, end in self.PHASES:
             if progress < end:
-                return (
-                    name,
-                    float(
-                        np.clip(
-                            (progress - start) / (end - start),
-                            0.0,
-                            1.0,
-                        )
-                    ),
+                return name, float(
+                    np.clip((progress - start) / (end - start), 0, 1)
                 )
         return "complete", 1.0
 
-    def _energy(self, phase: str, local: float) -> float:
-        s = local * local * (3.0 - 2.0 * local)
-        if phase == "arrival":
-            return 0.12 + 0.18 * s
-        if phase == "grounding":
-            return 0.30 + 0.22 * s
-        if phase == "expansion":
-            return 0.50 + 0.26 * s
-        if phase == "immersion":
-            return 0.80 + 0.18 * math.sin(math.pi * s)
-        if phase == "alchemy":
-            return 0.86 + 0.10 * math.sin(math.pi * s)
-        if phase == "integration":
-            return 0.72 - 0.30 * s
-        if phase == "closing":
-            return 0.38 - 0.26 * s
+    def _energy(self):
+        p = self.phase_progress
+        if self.phase == "arrival":
+            return 0.18 + 0.18 * p
+        if self.phase == "grounding":
+            return 0.36 + 0.20 * p
+        if self.phase == "expansion":
+            return 0.54 + 0.24 * p
+        if self.phase == "immersion":
+            return 0.82 + 0.14 * math.sin(math.pi * p)
+        if self.phase == "alchemy":
+            return 0.90 + 0.08 * math.sin(math.pi * p)
+        if self.phase == "integration":
+            return 0.72 - 0.28 * p
+        if self.phase == "closing":
+            return 0.38 - 0.26 * p
         return 0.0
 
-    def _voice_weight(self, i: int, phase: str, local: float) -> float:
-        if phase == "arrival":
+    def _weight(self, i):
+        p = self.phase_progress
+        if self.phase == "arrival":
             return (1.0, 0.0, 0.0)[i]
-        if phase == "grounding":
-            return (1.0, 0.55, 0.0)[i]
-        if phase == "expansion":
-            return (0.95, 0.85, 0.45 + 0.35 * local)[i]
-        if phase == "immersion":
-            return (0.92, 1.00, 0.85)[i]
-        if phase == "alchemy":
-            return (0.78, 0.82, 1.00)[i]
-        if phase == "integration":
-            return (0.82, 0.66, 0.45)[i]
-        if phase == "closing":
-            return (1.00, 0.18 * (1.0 - local), 0.0)[i]
+        if self.phase == "grounding":
+            return (1.0, 0.58, 0.0)[i]
+        if self.phase == "expansion":
+            return (0.98, 0.86, 0.38 + 0.46 * p)[i]
+        if self.phase == "immersion":
+            return (0.96, 1.0, 0.82)[i]
+        if self.phase == "alchemy":
+            return (0.82, 0.88, 1.0)[i]
+        if self.phase == "integration":
+            return (0.90, 0.68, 0.44)[i]
+        if self.phase == "closing":
+            return (1.0, 0.16 * (1.0 - p), 0.0)[i]
         return 0.0
 
-    def _schedule_strike(
-        self,
-        voice: GongVoice,
-        energy: float,
-        weight: float,
-        intensity: float,
-    ) -> float:
+    def _next_strike(self, voice, energy, weight, intensity):
         effective = max(
-            0.04,
-            energy * weight * (0.58 + 0.62 * intensity),
+            0.08,
+            energy * weight * (0.65 + 0.65 * intensity),
         )
         size = voice.profile.size
-        minimum = (4.0 + 8.0 * size) / (0.40 + effective)
-        maximum = (11.0 + 28.0 * size) / (0.38 + effective)
-        minimum = float(np.clip(minimum, 3.0, 25.0))
-        maximum = float(np.clip(maximum, minimum + 2.0, 60.0))
+        low = (2.6 + 5.2 * size) / (0.58 + effective)
+        high = (6.0 + 12.0 * size) / (0.55 + effective)
+        low = float(np.clip(low, 2.0, 14.0))
+        high = float(np.clip(high, low + 1.0, 28.0))
         return float(
             math.exp(
-                self.rng.uniform(
-                    math.log(minimum),
-                    math.log(maximum),
-                )
+                self.rng.uniform(math.log(low), math.log(high))
             )
         )
 
-    def _choose_target(
-        self,
-        i: int,
-        voice: GongVoice,
-        phase: str,
-        spatiality: float,
-        energy: float,
-    ) -> tuple[np.ndarray, float]:
-        p = voice.profile
-        home = np.array([p.x, p.y, p.z], dtype=np.float64)
-
-        if phase in {"arrival", "closing", "final silence"}:
-            target = home + self.rng.normal(
-                0.0,
-                0.10,
-                3,
-            )
-            return target, float(self.rng.uniform(22.0, 42.0))
-
-        if self.rng.random() > spatiality * (0.35 + 0.65 * energy):
-            return (
-                home + self.rng.normal(0.0, 0.15, 3),
-                float(self.rng.uniform(20.0, 38.0)),
-            )
-
-        # Unlike the hand-carried bowls, gongs remain mostly farther from the
-        # listener. Spatial movement is broad placement/choreography rather
-        # than constant near-head travel.
-        span = 1.4 + 1.4 * spatiality
-        x = float(self.rng.uniform(-span, span))
-        y = float(
-            self.rng.uniform(
-                -0.7,
-                1.0 + 0.4 * (1.0 - p.size),
-            )
-        )
-        z = -float(
-            self.rng.uniform(
-                1.6 + 0.8 * p.size,
-                3.6 + 1.2 * p.size,
-            )
-        )
-        return np.array([x, y, z], dtype=np.float64), float(
-            self.rng.uniform(16.0, 34.0)
-        )
-
-    def _update_motion(
-        self,
-        i: int,
-        voice: GongVoice,
-        dt: float,
-        phase: str,
-        spatiality: float,
-        energy: float,
-    ) -> None:
-        voice.move_elapsed += dt
-        if voice.move_elapsed >= voice.move_duration:
-            target, duration = self._choose_target(
-                i,
-                voice,
-                phase,
-                spatiality,
-                energy,
-            )
-            voice.move_start = voice.position.copy()
-            voice.move_target = target
-            voice.move_elapsed = 0.0
-            voice.move_duration = duration
-
-        x = float(
-            np.clip(
-                voice.move_elapsed / max(1.0e-9, voice.move_duration),
-                0.0,
-                1.0,
-            )
-        )
-        s = x ** 3 * (x * (x * 6.0 - 15.0) + 10.0)
-        voice.position = (
-            voice.move_start
-            + (voice.move_target - voice.move_start) * s
-        )
-
-    def _technique_targets(
-        self,
-        i: int,
-        phase: str,
-        local: float,
-        energy: float,
-        friction_presence: float,
-        hand_magic: float,
-        magic_shape: float,
-    ) -> tuple[float, float]:
-        if phase in {"arrival", "final silence", "complete"}:
-            return 0.0, 0.0
-
-        friction_phase = {
-            "grounding": 0.20,
-            "expansion": 0.46,
-            "immersion": 0.68,
-            "alchemy": 0.78,
-            "integration": 0.40,
-            "closing": 0.14 * (1.0 - local),
-        }.get(phase, 0.0)
-
-        hand_phase = {
-            "grounding": 0.05,
-            "expansion": 0.24,
-            "immersion": 0.48,
-            "alchemy": 0.88,
-            "integration": 0.28,
-            "closing": 0.04 * (1.0 - local),
-        }.get(phase, 0.0)
-
-        # Brightest gong is most often used for friction "magic"; larger gongs
-        # contribute more body and less squeal.
-        friction_pref = (0.55, 0.90, 1.00)[i]
-        hand_pref = (0.35, 0.78, 1.00)[i]
-
-        # A drifting hand-selection field keeps friction rare enough to surprise.
-        selector = 0.5 + 0.5 * math.sin(
-            self.elapsed_seconds * (0.021 + 0.006 * i)
-            + 1.6 * i
-        )
-
-        friction = (
-            friction_presence
-            * friction_phase
-            * energy
-            * friction_pref
-            * (selector ** 1.6)
-        )
-        hand = (
-            hand_magic
-            * hand_phase
-            * energy
-            * hand_pref
-            * (0.35 + 0.65 * magic_shape)
-            * (selector ** 2.5)
-        )
-
-        return (
-            float(np.clip(friction, 0.0, 0.88)),
-            float(np.clip(hand, 0.0, 0.92)),
-        )
-
-    def advance(self, dt: float) -> None:
+    def advance(self, dt):
         spec = self.state.get()
         if not spec.enabled or not self.running or self.complete:
             return
@@ -1057,11 +700,7 @@ class GongCeremonyController:
         total = spec.duration_minutes * 60.0
         self.elapsed_seconds += dt
         self.performance_progress = float(
-            np.clip(
-                self.elapsed_seconds / max(1.0, total),
-                0.0,
-                1.0,
-            )
+            np.clip(self.elapsed_seconds / max(1.0, total), 0, 1)
         )
         self.phase, self.phase_progress = self._phase_for_progress(
             self.performance_progress
@@ -1073,172 +712,147 @@ class GongCeremonyController:
             self.stop()
             return
 
-        energy = self._energy(
-            self.phase,
-            self.phase_progress,
+        energy = self._energy()
+        energy *= (
+            0.90
+            + 0.16 * (0.5 + 0.5 * self.energy_wander.advance(dt))
         )
-        energy *= 0.84 + 0.20 * (
-            0.5 + 0.5 * self.energy_wander.advance(dt)
-        )
-        energy = float(np.clip(energy, 0.0, 1.0))
-        magic_shape = 0.5 + 0.5 * self.magic_wander.advance(dt)
+        energy = float(np.clip(energy, 0, 1))
+        magic = 0.5 + 0.5 * self.magic_wander.advance(dt)
 
-        # Immediate unmistakable opening cue.
         if (
             self.phase == "arrival"
-            and not self._opening_cue
-            and self.elapsed_seconds >= 1.8
+            and not self._opening
+            and self.elapsed_seconds >= 1.5
         ):
-            self.voices[0].generator.strike(0.62, 0.48)
+            self.voices[0].generator.strike(
+                0.54, 0.48, hardness=0.18
+            )
             self.voices[0].strikes += 1
-            self._opening_cue = True
+            self._opening = True
 
-        for i, voice in enumerate(self.voices):
-            weight = self._voice_weight(
-                i,
-                self.phase,
-                self.phase_progress,
-            )
+        for i, v in enumerate(self.voices):
+            weight = self._weight(i)
 
-            self._update_motion(
-                i,
-                voice,
-                dt,
-                self.phase,
-                spec.spatiality,
-                energy,
-            )
+            if self.phase in {"arrival", "final silence"}:
+                friction_phase = hand_phase = 0.0
+            elif self.phase == "grounding":
+                friction_phase, hand_phase = 0.10, 0.0
+            elif self.phase == "expansion":
+                friction_phase, hand_phase = 0.26, 0.10
+            elif self.phase == "immersion":
+                friction_phase, hand_phase = 0.52, 0.30
+            elif self.phase == "alchemy":
+                friction_phase, hand_phase = 0.70, 0.74
+            elif self.phase == "integration":
+                friction_phase, hand_phase = 0.30, 0.16
+            else:
+                friction_phase, hand_phase = (
+                    0.08 * (1.0 - self.phase_progress),
+                    0.0,
+                )
 
-            friction, hand = self._technique_targets(
-                i,
-                self.phase,
-                self.phase_progress,
-                energy,
-                spec.friction_presence,
-                spec.hand_magic,
-                magic_shape,
-            )
-            voice.friction_target = friction * weight
-            voice.hand_target = hand * weight
+            friction_pref = (0.38, 0.80, 1.0)[i]
+            hand_pref = (0.15, 0.62, 1.0)[i]
 
-            # Vary pressure/position while active to create changing timbres.
-            voice.state.update(
-                friction_level=voice.friction_target,
-                friction_pressure=float(
-                    np.clip(
-                        0.36
-                        + 0.42 * energy
-                        + 0.12 * magic_shape,
-                        0.0,
-                        1.0,
-                    )
-                ),
-                friction_speed=float(
-                    np.clip(
-                        0.26 + 0.42 * magic_shape,
-                        0.0,
-                        1.0,
-                    )
-                ),
-                friction_brightness=float(
-                    np.clip(
-                        0.42
-                        + 0.40 * (1.0 - voice.profile.size)
-                        + 0.18 * magic_shape,
-                        0.0,
-                        1.0,
-                    )
-                ),
-                friction_instability=float(
-                    np.clip(
-                        0.46 + 0.42 * magic_shape,
-                        0.0,
-                        1.0,
-                    )
-                ),
-                hand_level=voice.hand_target,
-                hand_pressure=float(
-                    np.clip(
-                        0.40 + 0.46 * magic_shape,
-                        0.0,
-                        1.0,
-                    )
-                ),
-                hand_position=float(
-                    np.clip(
-                        0.45
-                        + 0.28 * math.sin(
-                            self.elapsed_seconds * 0.031 + i
-                        )
-                        + 0.10 * magic_shape,
-                        0.12,
-                        0.92,
-                    )
-                ),
+            friction = float(np.clip(
+                spec.friction_presence
+                * friction_phase
+                * friction_pref
+                * weight
+                * energy
+                * (0.30 + 0.70 * magic),
+                0, 0.86,
+            ))
+            hand = float(np.clip(
+                spec.hand_magic
+                * hand_phase
+                * hand_pref
+                * weight
+                * energy
+                * (0.22 + 0.78 * magic ** 1.8),
+                0, 0.90,
+            ))
+
+            v.state.update(
+                friction_level=friction,
+                friction_pressure=float(np.clip(
+                    0.44 + 0.34 * energy + 0.12 * magic, 0, 1
+                )),
+                friction_speed=float(np.clip(
+                    0.30 + 0.34 * magic, 0, 1
+                )),
+                friction_brightness=float(np.clip(
+                    0.48
+                    + 0.34 * (1.0 - v.profile.size)
+                    + 0.16 * magic,
+                    0, 1
+                )),
+                friction_instability=float(np.clip(
+                    0.48 + 0.38 * magic, 0, 1
+                )),
+                hand_level=hand,
+                hand_pressure=float(np.clip(
+                    0.50 + 0.38 * magic, 0, 1
+                )),
+                hand_position=float(np.clip(
+                    0.46
+                    + 0.28 * math.sin(self.elapsed_seconds * 0.029 + i)
+                    + 0.10 * magic,
+                    0.10, 0.94
+                )),
             )
 
             if self.phase in {"closing", "final silence"}:
                 continue
 
-            voice.next_strike -= dt
-            if voice.next_strike <= 0.0 and weight > 0.05:
-                strength = float(
-                    np.clip(
-                        self.rng.normal(
-                            0.28 + 0.54 * energy,
-                            0.10,
-                        ),
-                        0.14,
-                        0.96,
-                    )
-                )
-                location = float(
-                    np.clip(
-                        self.rng.beta(2.0, 2.0),
-                        0.12,
-                        0.92,
-                    )
-                )
-                voice.generator.strike(
+            v.next_strike -= dt
+            if v.next_strike <= 0.0 and weight > 0.05:
+                if self.rng.random() < (
+                    0.05 + 0.14 * energy * spec.intensity
+                ):
+                    strength = float(np.clip(
+                        self.rng.normal(0.62 + 0.18 * energy, 0.08),
+                        0.42, 0.94
+                    ))
+                else:
+                    strength = float(np.clip(
+                        self.rng.normal(0.28 + 0.22 * energy, 0.08),
+                        0.14, 0.62
+                    ))
+
+                v.generator.strike(
                     strength,
-                    location,
+                    float(self.rng.uniform(0.20, 0.88)),
                 )
-                voice.strikes += 1
-                voice.next_strike = self._schedule_strike(
-                    voice,
-                    energy,
-                    weight,
-                    spec.intensity,
+                v.strikes += 1
+                v.next_strike = self._next_strike(
+                    v, energy, weight, spec.intensity
                 )
 
         if self.phase == "closing":
             cues = (
-                (0, 0.12, 0.46),
-                (0, 0.47, 0.34),
-                (0, 0.78, 0.22),
+                (0.12, 0.44),
+                (0.48, 0.31),
+                (0.78, 0.20),
             )
-            for cue_index, (voice_index, cue, strength) in enumerate(cues):
+            for cue_index, (cue, strength) in enumerate(cues):
                 if (
                     self.phase_progress >= cue
                     and cue_index not in self._closing_cues
                 ):
-                    self.voices[voice_index].generator.strike(
-                        strength,
-                        0.50,
+                    self.voices[0].generator.strike(
+                        strength, 0.50, hardness=0.16
                     )
-                    self.voices[voice_index].strikes += 1
+                    self.voices[0].strikes += 1
                     self._closing_cues.add(cue_index)
 
-    def render_mono(self, frame_count: int) -> list[np.ndarray]:
-        return [
-            voice.generator.generate(frame_count)
-            for voice in self.voices
-        ]
+    def render_mono(self, frame_count):
+        return [v.generator.generate(frame_count) for v in self.voices]
 
     @property
-    def remaining_seconds(self) -> float:
-        spec = self.state.get()
+    def remaining_seconds(self):
         return max(
             0.0,
-            spec.duration_minutes * 60.0 - self.elapsed_seconds,
+            self.state.get().duration_minutes * 60.0 - self.elapsed_seconds,
         )

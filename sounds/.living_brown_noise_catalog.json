@@ -1,0 +1,944 @@
+{
+  "files": {
+    "Grandeur - Rob Wallace/01 Track 1.mp3": {
+      "duration_seconds": 229.0938775510204,
+      "is_layered_event": false,
+      "modified_ns": 1785951509230736400,
+      "sample_rate": 44100,
+      "size_bytes": 687281
+    },
+    "Grandeur - Rob Wallace/02 Track 2.mp3": {
+      "duration_seconds": 258.690612244898,
+      "is_layered_event": false,
+      "modified_ns": 1785951509437432900,
+      "sample_rate": 44100,
+      "size_bytes": 4134031
+    },
+    "Grandeur - Rob Wallace/03 Track 3.mp3": {
+      "duration_seconds": 245.31591836734694,
+      "is_layered_event": false,
+      "modified_ns": 1785951509339455100,
+      "sample_rate": 44100,
+      "size_bytes": 3920527
+    },
+    "Grandeur - Rob Wallace/04 Track 4.mp3": {
+      "duration_seconds": 232.17632653061224,
+      "is_layered_event": false,
+      "modified_ns": 1785951509472433300,
+      "sample_rate": 44100,
+      "size_bytes": 3710776
+    },
+    "Grandeur - Rob Wallace/05 Track 5.mp3": {
+      "duration_seconds": 216.86857142857144,
+      "is_layered_event": false,
+      "modified_ns": 1785951509399461500,
+      "sample_rate": 44100,
+      "size_bytes": 3466414
+    },
+    "Grandeur - Rob Wallace/06 Track 6.mp3": {
+      "duration_seconds": 208.87510204081633,
+      "is_layered_event": false,
+      "modified_ns": 1785951509260735600,
+      "sample_rate": 44100,
+      "size_bytes": 3338812
+    },
+    "Grandeur - Rob Wallace/07 Track 7.mp3": {
+      "duration_seconds": 178.72979591836736,
+      "is_layered_event": false,
+      "modified_ns": 1785951509367426900,
+      "sample_rate": 44100,
+      "size_bytes": 2857594
+    },
+    "Grandeur - Rob Wallace/08 Track 8.mp3": {
+      "duration_seconds": 316.2383673469388,
+      "is_layered_event": false,
+      "modified_ns": 1313443050000000000,
+      "sample_rate": 44100,
+      "size_bytes": 948715
+    },
+    "Kaleidosonics - Rob Wallace/01 Track 1.mp3": {
+      "duration_seconds": 130.58612244897958,
+      "is_layered_event": false,
+      "modified_ns": 1785951508219586200,
+      "sample_rate": 44100,
+      "size_bytes": 2089063
+    },
+    "Kaleidosonics - Rob Wallace/02 Track 2.mp3": {
+      "duration_seconds": 335.69959183673467,
+      "is_layered_event": false,
+      "modified_ns": 1785951508532766400,
+      "sample_rate": 44100,
+      "size_bytes": 5363347
+    },
+    "Kaleidosonics - Rob Wallace/03 Track 3.mp3": {
+      "duration_seconds": 160.0,
+      "is_layered_event": false,
+      "modified_ns": 1785951508486386700,
+      "sample_rate": 44100,
+      "size_bytes": 2558605
+    },
+    "Kaleidosonics - Rob Wallace/04 Track 4.mp3": {
+      "duration_seconds": 198.66122448979593,
+      "is_layered_event": false,
+      "modified_ns": 1785951508367860400,
+      "sample_rate": 44100,
+      "size_bytes": 3175765
+    },
+    "Kaleidosonics - Rob Wallace/05 Track 5.mp3": {
+      "duration_seconds": 172.25142857142856,
+      "is_layered_event": false,
+      "modified_ns": 1785951508462413600,
+      "sample_rate": 44100,
+      "size_bytes": 2754178
+    },
+    "Kaleidosonics - Rob Wallace/06 Track 6.mp3": {
+      "duration_seconds": 250.12244897959184,
+      "is_layered_event": false,
+      "modified_ns": 1785951508436414000,
+      "sample_rate": 44100,
+      "size_bytes": 3997255
+    },
+    "Kaleidosonics - Rob Wallace/07 Track 7.mp3": {
+      "duration_seconds": 234.24,
+      "is_layered_event": false,
+      "modified_ns": 1785951508598805800,
+      "sample_rate": 44100,
+      "size_bytes": 3743719
+    },
+    "Kaleidosonics - Rob Wallace/08 Track 8.mp3": {
+      "duration_seconds": 190.32816326530613,
+      "is_layered_event": false,
+      "modified_ns": 1785951508279868900,
+      "sample_rate": 44100,
+      "size_bytes": 3042742
+    },
+    "Kaleidosonics - Rob Wallace/09 Track 9.mp3": {
+      "duration_seconds": 256.7314285714286,
+      "is_layered_event": false,
+      "modified_ns": 1785951508566806000,
+      "sample_rate": 44100,
+      "size_bytes": 4102756
+    },
+    "Kaleidosonics - Rob Wallace/10 Track 10.mp3": {
+      "duration_seconds": 198.0604081632653,
+      "is_layered_event": false,
+      "modified_ns": 1785951508626805900,
+      "sample_rate": 44100,
+      "size_bytes": 3166174
+    },
+    "Kaleidosonics - Rob Wallace/11 Track 11.mp3": {
+      "duration_seconds": 149.3942857142857,
+      "is_layered_event": false,
+      "modified_ns": 1785951508338861000,
+      "sample_rate": 44100,
+      "size_bytes": 2389303
+    },
+    "Kaleidosonics - Rob Wallace/12 Track 12.mp3": {
+      "duration_seconds": 227.2391836734694,
+      "is_layered_event": false,
+      "modified_ns": 1785951508401417400,
+      "sample_rate": 44100,
+      "size_bytes": 3631963
+    },
+    "Kaleidosonics - Rob Wallace/13 Track 13.mp3": {
+      "duration_seconds": 215.3534693877551,
+      "is_layered_event": false,
+      "modified_ns": 1785951508315860200,
+      "sample_rate": 44100,
+      "size_bytes": 3442228
+    },
+    "Kaleidosonics - Rob Wallace/14 Track 14.mp3": {
+      "duration_seconds": 206.83755102040817,
+      "is_layered_event": false,
+      "modified_ns": 1785951508250864200,
+      "sample_rate": 44100,
+      "size_bytes": 3306286
+    },
+    "SCARAB - Rob Wallace/01 Track 1.mp3": {
+      "duration_seconds": 206.60244897959183,
+      "is_layered_event": false,
+      "modified_ns": 1785951509057307500,
+      "sample_rate": 44100,
+      "size_bytes": 3302533
+    },
+    "SCARAB - Rob Wallace/02 Track 2.mp3": {
+      "duration_seconds": 236.04244897959182,
+      "is_layered_event": false,
+      "modified_ns": 1785951509215840600,
+      "sample_rate": 44100,
+      "size_bytes": 3772492
+    },
+    "SCARAB - Rob Wallace/03 Track 3.mp3": {
+      "duration_seconds": 202.08326530612246,
+      "is_layered_event": false,
+      "modified_ns": 1785951509130842800,
+      "sample_rate": 44100,
+      "size_bytes": 3230392
+    },
+    "SCARAB - Rob Wallace/04 Track 4.mp3": {
+      "duration_seconds": 100.33632653061224,
+      "is_layered_event": false,
+      "modified_ns": 1785951509026307100,
+      "sample_rate": 44100,
+      "size_bytes": 1606177
+    },
+    "SCARAB - Rob Wallace/05 Track 5.mp3": {
+      "duration_seconds": 376.7902040816327,
+      "is_layered_event": false,
+      "modified_ns": 1785951509181839500,
+      "sample_rate": 44100,
+      "size_bytes": 6019288
+    },
+    "SCARAB - Rob Wallace/06 Track 6.mp3": {
+      "duration_seconds": 121.67836734693877,
+      "is_layered_event": false,
+      "modified_ns": 1785951509101839600,
+      "sample_rate": 44100,
+      "size_bytes": 1946866
+    },
+    "SCARAB - Rob Wallace/07 Track 7.mp3": {
+      "duration_seconds": 150.465306122449,
+      "is_layered_event": false,
+      "modified_ns": 1785951509081807700,
+      "sample_rate": 44100,
+      "size_bytes": 2406400
+    },
+    "factory/371263__risto_alcinov__ventilation-walla-elevator-residential-hallway.wav": {
+      "duration_seconds": 498.291768707483,
+      "is_layered_event": false,
+      "modified_ns": 1785118037632310300,
+      "sample_rate": 44100,
+      "size_bytes": 144279378
+    },
+    "factory/384338__beethovenboy__warehouse_inside.wav": {
+      "duration_seconds": 25.33877551020408,
+      "is_layered_event": false,
+      "modified_ns": 1785117944007491000,
+      "sample_rate": 44100,
+      "size_bytes": 6705328
+    },
+    "factory/395135__soundhunterjulie__industrial-atmosphere-2.wav": {
+      "duration_seconds": 34.8,
+      "is_layered_event": false,
+      "modified_ns": 1785117937698795900,
+      "sample_rate": 44100,
+      "size_bytes": 13368866
+    },
+    "factory/476046__coltontbrown__bushwick_metal_workers.m4a": {
+      "duration_seconds": 86.20666666666666,
+      "is_layered_event": false,
+      "modified_ns": 1785110329697875300,
+      "sample_rate": 44100,
+      "size_bytes": 694661
+    },
+    "factory/476049__coltontbrown__nyc_subway.m4a": {
+      "duration_seconds": 291.8733786848073,
+      "is_layered_event": false,
+      "modified_ns": 1785110322243270700,
+      "sample_rate": 44100,
+      "size_bytes": 2350414
+    },
+    "factory/478092__newlocknew__hydro-hummer-granular-2-wet-rever.wav": {
+      "duration_seconds": 25.68126984126984,
+      "is_layered_event": false,
+      "modified_ns": 1785110319128988000,
+      "sample_rate": 44100,
+      "size_bytes": 4530394
+    },
+    "factory/49603404-vintage-factory-machine-327781.mp3": {
+      "duration_seconds": 9.795918367346939,
+      "is_layered_event": true,
+      "modified_ns": 1784609244687999600,
+      "sample_rate": 44100,
+      "size_bytes": 313469
+    },
+    "factory/496198__luminousfridge__spire-ambience-industrial.ogg": {
+      "duration_seconds": 18.275532879818595,
+      "is_layered_event": false,
+      "modified_ns": 1785110304634477700,
+      "sample_rate": 44100,
+      "size_bytes": 174306
+    },
+    "factory/509475__be_a_hero_not_a_patriot__room-tone-ventilation-hum-and-whizz-sparse-distant-people-voices-occasional-electronic-beeping-and-buzzing.wav": {
+      "duration_seconds": 180.91040816326532,
+      "is_layered_event": false,
+      "modified_ns": 1785110326861560800,
+      "sample_rate": 44100,
+      "size_bytes": 52102238
+    },
+    "factory/547409__ian_g__workshop-noise.wav": {
+      "duration_seconds": 28.133877551020408,
+      "is_layered_event": false,
+      "modified_ns": 1785110287225454400,
+      "sample_rate": 44100,
+      "size_bytes": 4962920
+    },
+    "factory/555358__moveawaypodcast__beneath-a-transformer-night-ambience.m4a": {
+      "duration_seconds": 186.75201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1785110279333327600,
+      "sample_rate": 44100,
+      "size_bytes": 1558781
+    },
+    "factory/571592__dibko__the-sound-of-the-factory-yard-and-surroundings.wav": {
+      "duration_seconds": 131.55990929705214,
+      "is_layered_event": false,
+      "modified_ns": 1785110284100933000,
+      "sample_rate": 44100,
+      "size_bytes": 23207470
+    },
+    "factory/637521__kyles__factory-ambience-industrial-pump-room-hum-with-pa-announcement-heavy-echo-and-pump-turn-on-start.flac": {
+      "duration_seconds": 99.27111111111111,
+      "is_layered_event": false,
+      "modified_ns": 1785110272068293000,
+      "sample_rate": 44100,
+      "size_bytes": 8605755
+    },
+    "factory/675161__craigsmith__s15-20-television-studio-production-set-walla.wav": {
+      "duration_seconds": 67.46541950113378,
+      "is_layered_event": false,
+      "modified_ns": 1785110271441308100,
+      "sample_rate": 44100,
+      "size_bytes": 9716386
+    },
+    "factory/699913__melchil__lift-at-vu-08.wav": {
+      "duration_seconds": 88.00943310657597,
+      "is_layered_event": false,
+      "modified_ns": 1785110276517369500,
+      "sample_rate": 44100,
+      "size_bytes": 15587970
+    },
+    "factory/718523__freekit__random-banging-clashing.wav": {
+      "duration_seconds": 22.397868480725624,
+      "is_layered_event": false,
+      "modified_ns": 1785110253976124500,
+      "sample_rate": 44100,
+      "size_bytes": 6450626
+    },
+    "factory/728241__soundslikeyukon__toilet-flush-in-room-302-of-valley-hotel.wav": {
+      "duration_seconds": 37.31612244897959,
+      "is_layered_event": false,
+      "modified_ns": 1785110261370031800,
+      "sample_rate": 44100,
+      "size_bytes": 13165714
+    },
+    "factory/751823__sadiquecat__noisy-vent-at-train-station-20240820-08h58.wav": {
+      "duration_seconds": 143.0431292517007,
+      "is_layered_event": false,
+      "modified_ns": 1785110281696858900,
+      "sample_rate": 44100,
+      "size_bytes": 41196882
+    },
+    "factory/765210__ryan_anceriz__factory-ambience.wav": {
+      "duration_seconds": 120.0,
+      "is_layered_event": false,
+      "modified_ns": 1785110226194786800,
+      "sample_rate": 44100,
+      "size_bytes": 34560690
+    },
+    "factory/790753__jws24__factory-ambience.wav": {
+      "duration_seconds": 75.3255328798186,
+      "is_layered_event": false,
+      "modified_ns": 1785110179451023600,
+      "sample_rate": 44100,
+      "size_bytes": 13394786
+    },
+    "factory/818839__rahora__ambient-workshop.wav": {
+      "duration_seconds": 137.4556009070295,
+      "is_layered_event": false,
+      "modified_ns": 1785110176078426800,
+      "sample_rate": 44100,
+      "size_bytes": 26392596
+    },
+    "factory/826439__wanderinginmymind__immunoanaylyzer-idling-noises.wav": {
+      "duration_seconds": 49.7124716553288,
+      "is_layered_event": false,
+      "modified_ns": 1785110165304084100,
+      "sample_rate": 44100,
+      "size_bytes": 8769358
+    },
+    "factory/831633__wattnotsounds__blackout-announcement-on-ship.aiff": {
+      "duration_seconds": 20.0,
+      "is_layered_event": false,
+      "modified_ns": 1785110159786325000,
+      "sample_rate": 44100,
+      "size_bytes": 5760054
+    },
+    "factory/839007__bassimat__fan-ventilator-engine-biennale-exhibition-venice-2025.wav": {
+      "duration_seconds": 13.1997052154195,
+      "is_layered_event": false,
+      "modified_ns": 1785110153150160200,
+      "sample_rate": 44100,
+      "size_bytes": 5072776
+    },
+    "factory/839963__disquiet__start-stop.mp3": {
+      "duration_seconds": 30.036009070294785,
+      "is_layered_event": false,
+      "modified_ns": 1785110147785535700,
+      "sample_rate": 44100,
+      "size_bytes": 988236
+    },
+    "factory/840429__drdock__baler-6.wav": {
+      "duration_seconds": 48.23467120181406,
+      "is_layered_event": false,
+      "modified_ns": 1785109865824158200,
+      "sample_rate": 44100,
+      "size_bytes": 4630630
+    },
+    "factory/848969__lfyaudio__air-vent-looped.wav": {
+      "duration_seconds": 129.0,
+      "is_layered_event": false,
+      "modified_ns": 1785109834658941600,
+      "sample_rate": 44100,
+      "size_bytes": 24818562
+    },
+    "factory/849417__subby-spaced__interacting-with-an-elevator.wav": {
+      "duration_seconds": 26.368004535147392,
+      "is_layered_event": false,
+      "modified_ns": 1785109815321887200,
+      "sample_rate": 44100,
+      "size_bytes": 5062734
+    },
+    "factory/863980__j_soundeffects__quiet-automotive-shop.wav": {
+      "duration_seconds": 89.25585034013605,
+      "is_layered_event": false,
+      "modified_ns": 1785109776297392100,
+      "sample_rate": 44100,
+      "size_bytes": 17143022
+    },
+    "factory/Large_industrial_air_#3-1785109356834.mp3": {
+      "duration_seconds": 10.0,
+      "is_layered_event": true,
+      "modified_ns": 1785109368121499300,
+      "sample_rate": 44100,
+      "size_bytes": 241389
+    },
+    "factory/Large_industrial_air_#4-1785109368174.mp3": {
+      "duration_seconds": 10.0,
+      "is_layered_event": true,
+      "modified_ns": 1785109380488102800,
+      "sample_rate": 44100,
+      "size_bytes": 241389
+    },
+    "factory/Old_industrial_eleva_#1-1785109525483.mp3": {
+      "duration_seconds": 10.0,
+      "is_layered_event": true,
+      "modified_ns": 1785109530568271100,
+      "sample_rate": 44100,
+      "size_bytes": 241389
+    },
+    "factory/Old_industrial_eleva_#2-1785109542994.mp3": {
+      "duration_seconds": 10.0,
+      "is_layered_event": true,
+      "modified_ns": 1785109547758794800,
+      "sample_rate": 44100,
+      "size_bytes": 241389
+    },
+    "factory/Old_industrial_eleva_#3-1785109564930.mp3": {
+      "duration_seconds": 10.0,
+      "is_layered_event": true,
+      "modified_ns": 1785109569757445300,
+      "sample_rate": 44100,
+      "size_bytes": 241389
+    },
+    "factory/Old_industrial_eleva_#4-1785109572951.mp3": {
+      "duration_seconds": 10.0,
+      "is_layered_event": true,
+      "modified_ns": 1785109578839418000,
+      "sample_rate": 44100,
+      "size_bytes": 241389
+    },
+    "factory/Vast_industrial_mach_#1-1785109158247.mp3": {
+      "duration_seconds": 3.0,
+      "is_layered_event": true,
+      "modified_ns": 1785109174823655800,
+      "sample_rate": 44100,
+      "size_bytes": 73197
+    },
+    "factory/Vast_industrial_mach_#2-1785109174784.mp3": {
+      "duration_seconds": 3.0,
+      "is_layered_event": true,
+      "modified_ns": 1785109180660590000,
+      "sample_rate": 44100,
+      "size_bytes": 73197
+    },
+    "factory/Vast_industrial_mach_#3-1785109180666.mp3": {
+      "duration_seconds": 3.0,
+      "is_layered_event": true,
+      "modified_ns": 1785109187241820100,
+      "sample_rate": 44100,
+      "size_bytes": 73197
+    },
+    "factory/Vast_industrial_mach_#4-1785109187215.mp3": {
+      "duration_seconds": 3.0,
+      "is_layered_event": true,
+      "modified_ns": 1785109192802389200,
+      "sample_rate": 44100,
+      "size_bytes": 73197
+    },
+    "factory/freesound_community-automotive-factory-general-atmosphere-1-54054.mp3": {
+      "duration_seconds": 69.86401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1784609167912617600,
+      "sample_rate": 44100,
+      "size_bytes": 1397280
+    },
+    "factory/freesound_community-automotive-factory-general-atmosphere-2-23970.mp3": {
+      "duration_seconds": 119.71201814058956,
+      "is_layered_event": false,
+      "modified_ns": 1784609142460034300,
+      "sample_rate": 44100,
+      "size_bytes": 2394240
+    },
+    "factory/freesound_community-bell-factory-break-88401.mp3": {
+      "duration_seconds": 5.76,
+      "is_layered_event": true,
+      "modified_ns": 1784609465827015900,
+      "sample_rate": 44100,
+      "size_bytes": 115200
+    },
+    "factory/freesound_community-designa-factory-sounds0003-89334.mp3": {
+      "duration_seconds": 5.616009070294784,
+      "is_layered_event": true,
+      "modified_ns": 1784609453635615000,
+      "sample_rate": 44100,
+      "size_bytes": 112320
+    },
+    "factory/freesound_community-factory-22439.mp3": {
+      "duration_seconds": 80.97600907029478,
+      "is_layered_event": false,
+      "modified_ns": 1784609205168728500,
+      "sample_rate": 44100,
+      "size_bytes": 1619520
+    },
+    "factory/freesound_community-horror-ambient-factory-2-22728.mp3": {
+      "duration_seconds": 106.56,
+      "is_layered_event": false,
+      "modified_ns": 1784609492044906700,
+      "sample_rate": 44100,
+      "size_bytes": 2131200
+    },
+    "factory/freesound_community-security-alarm-80493.mp3": {
+      "duration_seconds": 12.864013605442176,
+      "is_layered_event": false,
+      "modified_ns": 1784609533028163300,
+      "sample_rate": 44100,
+      "size_bytes": 257280
+    },
+    "factory/freesound_community-sewing-factory-ambiance-52140.mp3": {
+      "duration_seconds": 338.3760090702948,
+      "is_layered_event": false,
+      "modified_ns": 1784609227359583300,
+      "sample_rate": 44100,
+      "size_bytes": 6767520
+    },
+    "factory/freesound_community-soundscape-in-factory-and-metal-sticks-68448.mp3": {
+      "duration_seconds": 66.55201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1784609563159084300,
+      "sample_rate": 44100,
+      "size_bytes": 1331040
+    },
+    "factory/u_f1ee7vf7na-factory-ambience-131855.mp3": {
+      "duration_seconds": 39.41877551020408,
+      "is_layered_event": false,
+      "modified_ns": 1784609127259890800,
+      "sample_rate": 44100,
+      "size_bytes": 1261400
+    },
+    "factory/u_xg7ssi08yr-welding-torch-multiple-421345.mp3": {
+      "duration_seconds": 37.4334693877551,
+      "is_layered_event": false,
+      "modified_ns": 1784609575469757900,
+      "sample_rate": 44100,
+      "size_bytes": 1197871
+    },
+    "music/absolutesound-relaxing-background-music-565102.mp3": {
+      "duration_seconds": 112.27201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1786041797795972100,
+      "sample_rate": 44100,
+      "size_bytes": 3592704
+    },
+    "music/alex-morgan-classical-royal-english-music-545533.mp3": {
+      "duration_seconds": 181.68,
+      "is_layered_event": false,
+      "modified_ns": 1786042131082927500,
+      "sample_rate": 44100,
+      "size_bytes": 5813760
+    },
+    "music/andriig-nature-nature-music-566826.mp3": {
+      "duration_seconds": 148.56,
+      "is_layered_event": false,
+      "modified_ns": 1786042039706426800,
+      "sample_rate": 44100,
+      "size_bytes": 4753920
+    },
+    "music/bombinsound-background-music-560453.mp3": {
+      "duration_seconds": 97.64571428571429,
+      "is_layered_event": false,
+      "modified_ns": 1786041833225671800,
+      "sample_rate": 44100,
+      "size_bytes": 3124662
+    },
+    "music/desifreemusic-rivers-ethnic-spiritual-background-music-579170.mp3": {
+      "duration_seconds": 285.0,
+      "is_layered_event": false,
+      "modified_ns": 1786042146920712800,
+      "sample_rate": 44100,
+      "size_bytes": 9120000
+    },
+    "music/freemusicforvideo-soft-background-music-409193.mp3": {
+      "duration_seconds": 224.02612244897958,
+      "is_layered_event": false,
+      "modified_ns": 1786042019407677100,
+      "sample_rate": 44100,
+      "size_bytes": 7168835
+    },
+    "music/ikoliks_aj-background-music-320427.mp3": {
+      "duration_seconds": 143.43836734693878,
+      "is_layered_event": false,
+      "modified_ns": 1786041769511674600,
+      "sample_rate": 44100,
+      "size_bytes": 4590027
+    },
+    "music/monume-no-copyright-music-background-music-570672.mp3": {
+      "duration_seconds": 96.05224489795918,
+      "is_layered_event": false,
+      "modified_ns": 1786041848237866000,
+      "sample_rate": 44100,
+      "size_bytes": 3073671
+    },
+    "music/sigmamusicart-space-ambient-background-music-462074.mp3": {
+      "duration_seconds": 133.38122448979593,
+      "is_layered_event": false,
+      "modified_ns": 1786041972313833700,
+      "sample_rate": 44100,
+      "size_bytes": 4268199
+    },
+    "music/tape-echo-background-music-567733.mp3": {
+      "duration_seconds": 80.61387755102041,
+      "is_layered_event": false,
+      "modified_ns": 1786041816950551800,
+      "sample_rate": 44100,
+      "size_bytes": 2579644
+    },
+    "outdoors/862954__klankbeeld__wind-salt-marshes-uithuizerwad-netherlands-220-pm-250820_0032.flac": {
+      "duration_seconds": 240.0,
+      "is_layered_event": false,
+      "modified_ns": 1785435941054311400,
+      "sample_rate": 44100,
+      "size_bytes": 87755604
+    },
+    "outdoors/863047__freekit__room-static-high-wind.wav": {
+      "duration_seconds": 97.51977324263038,
+      "is_layered_event": false,
+      "modified_ns": 1785435802595447900,
+      "sample_rate": 44100,
+      "size_bytes": 28085738
+    },
+    "outdoors/863052__freekit__a-windy-garden-02.wav": {
+      "duration_seconds": 56.54090702947846,
+      "is_layered_event": false,
+      "modified_ns": 1785435770223074900,
+      "sample_rate": 44100,
+      "size_bytes": 16283822
+    },
+    "outdoors/863796__benson_arizona__20260624_1430_pittencrieff.mp3": {
+      "duration_seconds": 270.0,
+      "is_layered_event": false,
+      "modified_ns": 1785435756777916300,
+      "sample_rate": 44100,
+      "size_bytes": 10801920
+    },
+    "outdoors/863928__klankbeeld__echoing-square-s-hertogenbosch-netherlands-1239-am-250922_0039.flac": {
+      "duration_seconds": 376.6930612244898,
+      "is_layered_event": false,
+      "modified_ns": 1785435922404164700,
+      "sample_rate": 44100,
+      "size_bytes": 88070433
+    },
+    "outdoors/863990__lartti__night-in-finland.mp3": {
+      "duration_seconds": 2090.2155102040815,
+      "is_layered_event": false,
+      "modified_ns": 1785435891111443100,
+      "sample_rate": 44100,
+      "size_bytes": 83611688
+    },
+    "outdoors/864027__benson_arizona__20260624_1448_public_gardens.mp3": {
+      "duration_seconds": 225.0,
+      "is_layered_event": false,
+      "modified_ns": 1785435718590789800,
+      "sample_rate": 44100,
+      "size_bytes": 9001920
+    },
+    "outdoors/864478__klankbeeld__coastal-riverside-westerschlelde-vlissingen-netherlands-255-pm-260724_0144.ogg": {
+      "duration_seconds": 3600.0,
+      "is_layered_event": false,
+      "modified_ns": 1785436031561092700,
+      "sample_rate": 44100,
+      "size_bytes": 226824240
+    },
+    "outdoors/864826__kvgarlic__crickettrill-leaf-skidding-vtwo-july-5-2026.wav": {
+      "duration_seconds": 28.077709750566893,
+      "is_layered_event": false,
+      "modified_ns": 1785435704466226300,
+      "sample_rate": 44100,
+      "size_bytes": 8097584
+    },
+    "outdoors/864910__klankbeeld__summer-morning-village-bokhoven-netherlands-0859-am-260728_0145.flac": {
+      "duration_seconds": 90.14024943310658,
+      "is_layered_event": false,
+      "modified_ns": 1785435697374874800,
+      "sample_rate": 44100,
+      "size_bytes": 37750431
+    },
+    "outdoors/colorado-stream.mp3": {
+      "duration_seconds": 60.32544217687075,
+      "is_layered_event": false,
+      "modified_ns": 1786817493105620800,
+      "sample_rate": 44100,
+      "size_bytes": 1371706
+    },
+    "outdoors/with-rob-wallace-music.mp3": {
+      "duration_seconds": 1045.002448979592,
+      "is_layered_event": false,
+      "modified_ns": 1786906701859248600,
+      "sample_rate": 44100,
+      "size_bytes": 18991780
+    },
+    "school/720961__soundslikeyukon__boys-shooting-hoops-on-wood-floor.wav": {
+      "duration_seconds": 73.95362811791384,
+      "is_layered_event": false,
+      "modified_ns": 1785110281081827100,
+      "sample_rate": 44100,
+      "size_bytes": 26091468
+    },
+    "school/dobcommunications-vintage-interior-school-bell-ringing-376334.mp3": {
+      "duration_seconds": 5.276734693877551,
+      "is_layered_event": true,
+      "modified_ns": 1784608117429218200,
+      "sample_rate": 44100,
+      "size_bytes": 168855
+    },
+    "school/freesound_community-000813_0098-19549.mp3": {
+      "duration_seconds": 71.13600907029479,
+      "is_layered_event": false,
+      "modified_ns": 1784608195495160200,
+      "sample_rate": 44100,
+      "size_bytes": 1422720
+    },
+    "school/freesound_community-002937_museum-corridor-1-children39s-classroom-access-52588.mp3": {
+      "duration_seconds": 391.56,
+      "is_layered_event": false,
+      "modified_ns": 1784608147356374300,
+      "sample_rate": 44100,
+      "size_bytes": 7831200
+    },
+    "school/freesound_community-030264_classroom-ambience-69656.mp3": {
+      "duration_seconds": 37.48800453514739,
+      "is_layered_event": false,
+      "modified_ns": 1784608084745838500,
+      "sample_rate": 44100,
+      "size_bytes": 749760
+    },
+    "school/freesound_community-10_psani_kridou-80645.mp3": {
+      "duration_seconds": 3.8640136054421768,
+      "is_layered_event": true,
+      "modified_ns": 1784608332329475700,
+      "sample_rate": 44100,
+      "size_bytes": 77280
+    },
+    "school/freesound_community-amb-colegio-y-pajaros-20221.mp3": {
+      "duration_seconds": 106.10401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1784608371152107200,
+      "sample_rate": 44100,
+      "size_bytes": 3395328
+    },
+    "school/freesound_community-band-practice-67276.mp3": {
+      "duration_seconds": 22.416009070294784,
+      "is_layered_event": false,
+      "modified_ns": 1784608257132663500,
+      "sample_rate": 44100,
+      "size_bytes": 448320
+    },
+    "school/freesound_community-chalk_board_writing_classroom_natasha_martinez_031215-73702.mp3": {
+      "duration_seconds": 42.43201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1784608182903063300,
+      "sample_rate": 44100,
+      "size_bytes": 848640
+    },
+    "school/freesound_community-classrom-talk_01-72871.mp3": {
+      "duration_seconds": 21.47265306122449,
+      "is_layered_event": false,
+      "modified_ns": 1784608214369871100,
+      "sample_rate": 44100,
+      "size_bytes": 687124
+    },
+    "school/freesound_community-classroom-32941.mp3": {
+      "duration_seconds": 66.2880045351474,
+      "is_layered_event": false,
+      "modified_ns": 1784608018504046900,
+      "sample_rate": 44100,
+      "size_bytes": 1325760
+    },
+    "school/freesound_community-classroom-background-54177.mp3": {
+      "duration_seconds": 70.32,
+      "is_layered_event": false,
+      "modified_ns": 1784608034674597300,
+      "sample_rate": 44100,
+      "size_bytes": 1406400
+    },
+    "school/freesound_community-classroom-connected-18678.mp3": {
+      "duration_seconds": 320.85600907029476,
+      "is_layered_event": false,
+      "modified_ns": 1784608072039405900,
+      "sample_rate": 44100,
+      "size_bytes": 6417120
+    },
+    "school/freesound_community-classroom-sounds-98343.mp3": {
+      "duration_seconds": 13.464013605442178,
+      "is_layered_event": false,
+      "modified_ns": 1784608049371521300,
+      "sample_rate": 44100,
+      "size_bytes": 269280
+    },
+    "school/freesound_community-kids-in-classroom-6187.mp3": {
+      "duration_seconds": 10.464013605442178,
+      "is_layered_event": false,
+      "modified_ns": 1784608098282446400,
+      "sample_rate": 44100,
+      "size_bytes": 209280
+    },
+    "school/freesound_community-lecture-67765.mp3": {
+      "duration_seconds": 22.073469387755104,
+      "is_layered_event": false,
+      "modified_ns": 1784608268715362400,
+      "sample_rate": 44100,
+      "size_bytes": 706351
+    },
+    "school/freesound_community-maasai-village-classroom-18216.mp3": {
+      "duration_seconds": 299.76,
+      "is_layered_event": false,
+      "modified_ns": 1784608135520425300,
+      "sample_rate": 44100,
+      "size_bytes": 5995200
+    },
+    "school/freesound_community-schoolsounds-75400.mp3": {
+      "duration_seconds": 43.58401360544217,
+      "is_layered_event": false,
+      "modified_ns": 1784608240514965500,
+      "sample_rate": 44100,
+      "size_bytes": 871680
+    },
+    "school/freesound_community-scribbling-68130.mp3": {
+      "duration_seconds": 20.28,
+      "is_layered_event": false,
+      "modified_ns": 1784608286790694900,
+      "sample_rate": 44100,
+      "size_bytes": 405600
+    },
+    "school/freesound_community-writing-35471.mp3": {
+      "duration_seconds": 54.17795918367347,
+      "is_layered_event": false,
+      "modified_ns": 1784608163315005500,
+      "sample_rate": 44100,
+      "size_bytes": 1733694
+    },
+    "school/universfield-school-bell-199584.mp3": {
+      "duration_seconds": 3.7355102040816326,
+      "is_layered_event": true,
+      "modified_ns": 1784608227164089800,
+      "sample_rate": 44100,
+      "size_bytes": 119536
+    },
+    "storm/860885__reflektwave__building-the-thunder.wav": {
+      "duration_seconds": 72.14900226757369,
+      "is_layered_event": false,
+      "modified_ns": 1785435493859006900,
+      "sample_rate": 44100,
+      "size_bytes": 27705908
+    },
+    "storm/860993__thefeaturecreature__rain-sounds-under-wooden-balcony-with-stream.flac": {
+      "duration_seconds": 928.8990476190476,
+      "is_layered_event": false,
+      "modified_ns": 1785435901872334900,
+      "sample_rate": 44100,
+      "size_bytes": 248572312
+    },
+    "storm/861647__jrosin__binaural-thunderstorm-approaching-in-pirita-tallinn.flac": {
+      "duration_seconds": 1479.5225170068027,
+      "is_layered_event": false,
+      "modified_ns": 1785435917496868000,
+      "sample_rate": 44100,
+      "size_bytes": 249999865
+    },
+    "storm/861720__designerschoice__storm-samsung-galaxy-smartphone-cu_thunderstorm-really-heavy-rain-thunder-rolls-lightning-crashes_nicholas-judy_tdc.wav": {
+      "duration_seconds": 332.81902494331064,
+      "is_layered_event": false,
+      "modified_ns": 1785435707458920500,
+      "sample_rate": 44100,
+      "size_bytes": 127803832
+    },
+    "storm/862087__pasha_shishkov__3d-sound-its-raining-heavily-in-the-early-morning-with-thunderstorms.wav": {
+      "duration_seconds": 65.41666666666667,
+      "is_layered_event": false,
+      "modified_ns": 1785435555290890000,
+      "sample_rate": 44100,
+      "size_bytes": 75403906
+    },
+    "storm/863040__bobvoldar__thunderstorm-71826.wav": {
+      "duration_seconds": 3020.8845351473924,
+      "is_layered_event": false,
+      "modified_ns": 1785436287306703900,
+      "sample_rate": 44100,
+      "size_bytes": 580009914
+    },
+    "storm/863757__timkahn__thunder-and-crows.wav": {
+      "duration_seconds": 38.87562358276644,
+      "is_layered_event": false,
+      "modified_ns": 1785435382994969100,
+      "sample_rate": 44100,
+      "size_bytes": 11196958
+    },
+    "storm/863836__bobvoldar__thunderstorm-audio-72126.wav": {
+      "duration_seconds": 4269.436394557823,
+      "is_layered_event": false,
+      "modified_ns": 1785436593854109300,
+      "sample_rate": 44100,
+      "size_bytes": 819731870
+    },
+    "storm/863965__rahora__storm-approaching-the-city.flac": {
+      "duration_seconds": 48.43455782312925,
+      "is_layered_event": false,
+      "modified_ns": 1785435360749186500,
+      "sample_rate": 44100,
+      "size_bytes": 4811077
+    },
+    "storm/864002__soundslikeyukon__thunder-and-rain-in-whitehorse_02.wav": {
+      "duration_seconds": 120.71721088435375,
+      "is_layered_event": false,
+      "modified_ns": 1785435384628451400,
+      "sample_rate": 44100,
+      "size_bytes": 85178660
+    },
+    "storm/864802__newlocknew__rain_downpourgardenunder-the-treegrassleavesgreenhousevari-intensity.flac": {
+      "duration_seconds": 1320.776371882086,
+      "is_layered_event": false,
+      "modified_ns": 1785435317470648200,
+      "sample_rate": 44100,
+      "size_bytes": 156763454
+    },
+    "storm/864916__newlocknew__20260626_1108_thunder-fs-864809-benson_arizona.mp3": {
+      "duration_seconds": 718.8888888888889,
+      "is_layered_event": false,
+      "modified_ns": 1785435169850854600,
+      "sample_rate": 44100,
+      "size_bytes": 28757760
+    }
+  },
+  "layer_threshold_seconds": 10.0,
+  "version": 1
+}

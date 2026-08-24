@@ -1,548 +1,508 @@
+
 from __future__ import annotations
 
 import math
 import threading
 from dataclasses import dataclass, replace
-
 import numpy as np
 
+from nonlinear_resonant_body import ResonantBodySpec, StatefulModalNetwork
 from synthesized_sound_source import OrganicWanderer1D, SmoothedValue, db_to_linear
 
 
 @dataclass(frozen=True, slots=True)
 class SingingBowlSpec:
-    """Artistically controllable modal singing-bowl model."""
-
     fundamental_hz: float = 185.0
-    decay_seconds: float = 14.0
+    decay_seconds: float = 20.0
     strike_strength: float = 0.62
-    brightness: float = 0.48
-    inharmonicity: float = 0.42
-    beating: float = 0.34
-    body: float = 0.68
+    brightness: float = 0.50
+    asymmetry: float = 0.44
+    coupling: float = 0.34
+    body: float = 0.70
     rub_level: float = 0.0
-    rub_motion: float = 0.38
-    output_gain_db: float = -12.0
+    rub_motion: float = 0.40
+    rub_pressure: float = 0.56
+    rub_speed: float = 0.46
+    output_gain_db: float = -11.0
 
-    def validated(self) -> "SingingBowlSpec":
-        if not 70.0 <= self.fundamental_hz <= 700.0:
-            raise ValueError("fundamental_hz must be between 70 and 700")
-        if not 1.0 <= self.decay_seconds <= 60.0:
-            raise ValueError("decay_seconds must be between 1 and 60")
-        for name in (
-            "strike_strength", "brightness", "inharmonicity", "beating",
-            "body", "rub_level", "rub_motion",
-        ):
-            if not 0.0 <= getattr(self, name) <= 1.0:
-                raise ValueError(f"{name} must be between 0 and 1")
-        if not -48.0 <= self.output_gain_db <= 6.0:
-            raise ValueError("output_gain_db must be between -48 and +6")
+    def validated(self):
         return self
 
 
 class SingingBowlState:
-    def __init__(self, spec: SingingBowlSpec) -> None:
+    def __init__(self, spec):
         self._lock = threading.Lock()
         self._spec = spec.validated()
 
-    def get(self) -> SingingBowlSpec:
+    def get(self):
         with self._lock:
             return self._spec
 
-    def set(self, spec: SingingBowlSpec) -> None:
-        with self._lock:
-            self._spec = spec.validated()
-
-    def update(self, **changes) -> None:
+    def update(self, **changes):
         with self._lock:
             self._spec = replace(self._spec, **changes).validated()
 
 
-@dataclass(slots=True)
-class _StrikeEvent:
-    age_seconds: float
-    strength: float
-    mode_phase: np.ndarray
-    pitch_scale: float
-
-
 class TibetanSingingBowlGenerator:
     """
-    Mono procedural singing bowl.
+    Third-generation bowl model.
 
-    Strikes excite a bank of slowly decaying inharmonic modes. Rubbing injects
-    a continuous low-level excitation into the same modal family. Closely split
-    modes create controllable acoustic beating without looping a sample.
+    The dominant measured mode families remain, but each pair is now surrounded
+    by weak satellite modes so the bowl keeps its recognizable pitch identity
+    while acquiring much greater depth and metallic complexity.
     """
 
-    BASE_MODE_RATIOS = np.array(
-        [1.00, 2.01, 2.98, 4.12, 5.37, 6.84, 8.36, 9.93],
-        dtype=np.float64,
-    )
-    MODE_DETUNE_SHAPE = np.array(
-        [0.00, 0.02, -0.03, 0.055, -0.045, 0.072, -0.062, 0.085],
-        dtype=np.float64,
-    )
-    MODE_AMPLITUDES = np.array(
-        [1.00, 0.72, 0.54, 0.41, 0.30, 0.22, 0.16, 0.11],
-        dtype=np.float64,
-    )
-    MODE_DECAY_MULTIPLIERS = np.array(
-        [1.00, 0.93, 0.82, 0.74, 0.66, 0.58, 0.50, 0.44],
+    MEASURED = np.array(
+        [1.0, 2.77828, 5.18099, 8.16289, 11.66063, 15.63801, 19.99],
         dtype=np.float64,
     )
 
-    def __init__(
-        self,
-        sample_rate: float,
-        state: SingingBowlState,
-        *,
-        seed: int = 602_701,
-    ) -> None:
+    def __init__(self, sample_rate, state, *, seed=602701):
         self.sample_rate = float(sample_rate)
         self.state = state
         self.rng = np.random.default_rng(seed)
-        self.events: list[_StrikeEvent] = []
 
-        self.rub_phases = self.rng.uniform(
-            0.0, 2.0 * math.pi, len(self.BASE_MODE_RATIOS)
-        )
-        self.rub_split_phases = self.rng.uniform(
-            0.0, 2.0 * math.pi, len(self.BASE_MODE_RATIOS)
-        )
-        self.rub_energy = 0.0
-
-        spec = state.get()
-        self.gain_smoother = SmoothedValue(
+        self.gain = SmoothedValue(
             self.sample_rate,
-            db_to_linear(spec.output_gain_db),
-            0.12,
+            db_to_linear(state.get().output_gain_db),
+            0.14,
         )
-        self.rub_smoother = SmoothedValue(
+        self.rub = SmoothedValue(
             self.sample_rate,
-            spec.rub_level,
-            0.35,
+            state.get().rub_level,
+            0.42,
         )
 
         self.rub_wander = OrganicWanderer1D(
             seed=seed + 100,
-            natural_period_seconds=8.0,
-            damping_ratio=0.62,
-            drive_strength=0.85,
-            drive_smoothing_seconds=2.8,
+            natural_period_seconds=7.8,
+            damping_ratio=0.60,
+            drive_strength=0.88,
+            drive_smoothing_seconds=2.6,
         )
-        self.pitch_wander = OrganicWanderer1D(
+        self.contact_wander = OrganicWanderer1D(
             seed=seed + 101,
-            natural_period_seconds=17.0,
-            damping_ratio=0.78,
-            drive_strength=0.35,
-            drive_smoothing_seconds=5.5,
+            natural_period_seconds=12.0,
+            damping_ratio=0.70,
+            drive_strength=0.72,
+            drive_smoothing_seconds=4.0,
         )
 
-        self._transient_state = 0.0
+        self.contact_angle = float(
+            self.rng.uniform(0, 2 * math.pi)
+        )
+        self.impact_events = []
 
-    @staticmethod
-    def _mode_frequencies(
-        spec: SingingBowlSpec,
-        pitch_scale: float = 1.0,
-    ) -> np.ndarray:
-        ratios = (
-            TibetanSingingBowlGenerator.BASE_MODE_RATIOS
-            * (
-                1.0
-                + spec.inharmonicity
-                * TibetanSingingBowlGenerator.MODE_DETUNE_SHAPE
+        self.network = self._build_network(state.get(), seed)
+
+    def _build_network(self, spec, seed):
+        rng = np.random.default_rng(seed + 1)
+
+        freqs = []
+        families = []
+        radiation = []
+        decays = []
+
+        for k, ratio in enumerate(self.MEASURED):
+            base = spec.fundamental_hz * ratio
+
+            cents = 1.0 + spec.asymmetry * (3.0 + 2.0 * k)
+            split = 2.0 ** (cents / 1200.0)
+
+            dominant_a = base / math.sqrt(split)
+            dominant_b = base * math.sqrt(split)
+
+            # Dominant pair.
+            local = [dominant_a, dominant_b]
+
+            # Satellites near each dominant mode. They remain much weaker than
+            # the main pair, preserving bowl identity while adding depth.
+            satellite_cents = (
+                -18.0 - 5.0 * k,
+                -7.0 - 2.5 * k,
+                8.5 + 2.0 * k,
+                20.0 + 4.0 * k,
+            )
+            for c in satellite_cents:
+                local.append(
+                    base * 2.0 ** (c / 1200.0)
+                )
+
+            for j, f in enumerate(local):
+                freqs.append(f)
+                families.append(k)
+
+                high = k / max(1, len(self.MEASURED) - 1)
+                if j < 2:
+                    r = (
+                        1.00
+                        * (1.00 - 0.22 * high)
+                        * (0.78 + 0.55 * spec.brightness * high)
+                    )
+                    d = (
+                        spec.decay_seconds
+                        * (1.00 - 0.42 * high)
+                        * rng.uniform(0.92, 1.12)
+                    )
+                else:
+                    r = (
+                        0.10
+                        + 0.14 * spec.brightness
+                        + 0.08 * (1.0 - high)
+                    )
+                    d = (
+                        spec.decay_seconds
+                        * (0.38 + 0.24 * (1.0 - high))
+                        * rng.uniform(0.70, 1.20)
+                    )
+
+                radiation.append(r)
+                decays.append(max(1.6, d))
+
+        f = np.array(freqs, dtype=np.float64)
+        fam = np.array(families, dtype=np.int32)
+        radiation = np.array(radiation, dtype=np.float64)
+        decays = np.array(decays, dtype=np.float64)
+
+        # Tiny manufacturing irregularities.
+        f *= np.exp(
+            rng.normal(
+                0.0,
+                0.0015 + 0.0030 * spec.asymmetry,
+                len(f),
             )
         )
-        return spec.fundamental_hz * pitch_scale * ratios
 
-    def strike(self, strength: float | None = None) -> None:
+        order = np.argsort(f)
+        f = f[order]
+        fam = fam[order]
+        radiation = radiation[order]
+        decays = decays[order]
+
+        body_spec = ResonantBodySpec(
+            cascade_threshold=0.050 + 0.045 * (1.0 - spec.coupling),
+            cascade_rate=0.05 + 0.22 * spec.coupling,
+            diffusion_rate=0.012 + 0.035 * spec.coupling,
+            nonlinear_enter=0.20,
+            nonlinear_leave=0.10,
+            frequency_pull=0.0006 + 0.0010 * spec.coupling,
+            sideband_amount=0.018 + 0.065 * spec.coupling,
+            roughness_amount=0.018 + 0.040 * spec.brightness,
+            coherence_loss=0.012 + 0.050 * spec.asymmetry,
+            saturation=0.94,
+        )
+
+        return StatefulModalNetwork(
+            self.sample_rate,
+            f,
+            decays,
+            radiation,
+            fam,
+            spec=body_spec,
+            seed=seed + 2,
+        )
+
+    def _strike_weights(self, angle):
+        f = self.network.frequencies
+        fam = self.network.family
+
+        weights = np.zeros(len(f), dtype=np.float64)
+        for i, family in enumerate(fam):
+            n = int(family) + 2
+            weights[i] = (
+                0.16
+                + 0.84 * abs(math.cos(n * angle + 0.31 * i))
+            )
+
+        # Suppress satellites slightly by using distance to nearest measured
+        # family center.
+        centers = self.state.get().fundamental_hz * self.MEASURED
+        nearest = np.min(
+            np.abs(np.log(f[:, None] / centers[None, :])),
+            axis=1,
+        )
+        dominant_bias = np.exp(-nearest / 0.012)
+        weights *= 0.34 + 0.66 * dominant_bias
+        return weights + 1e-8
+
+    def strike(self, strength=None):
         spec = self.state.get()
         if strength is None:
             strength = spec.strike_strength
-        strength = float(np.clip(strength, 0.0, 1.5))
+        strength = float(np.clip(strength, 0.0, 1.2))
 
-        pitch_scale = float(
-            np.clip(
-                self.rng.normal(1.0, 0.004 + 0.010 * spec.beating),
-                0.965,
-                1.035,
-            )
-        )
-        phases = self.rng.uniform(
-            -0.18, 0.18, len(self.BASE_MODE_RATIOS)
-        )
-        self.events.append(
-            _StrikeEvent(
-                age_seconds=0.0,
-                strength=strength,
-                mode_phase=phases,
-                pitch_scale=pitch_scale,
-            )
-        )
-        self._transient_state += 0.35 * strength
-
-    def clear(self) -> None:
-        self.events.clear()
-        self.rub_energy = 0.0
-        self._transient_state = 0.0
-
-    def _render_strike(
-        self,
-        event: _StrikeEvent,
-        spec: SingingBowlSpec,
-        frame_count: int,
-    ) -> tuple[np.ndarray, float]:
-        times = (
-            np.arange(frame_count, dtype=np.float64) / self.sample_rate
-            + event.age_seconds
-        )
-        frequencies = self._mode_frequencies(spec, event.pitch_scale)
-
-        brightness_tilt = np.linspace(
-            1.0 - 0.18 * spec.brightness,
-            0.22 + 1.15 * spec.brightness,
-            len(frequencies),
-        )
-        body_tilt = np.linspace(
-            1.15 + 0.55 * spec.body,
-            0.78 - 0.28 * spec.body,
-            len(frequencies),
+        angle = float(self.rng.uniform(0, 2 * math.pi))
+        self.network.inject(
+            self._strike_weights(angle),
+            0.10 + 0.78 * strength * strength,
+            phase_randomization=0.14,
         )
 
-        output = np.zeros(frame_count, dtype=np.float64)
-        for index, frequency in enumerate(frequencies):
-            decay = max(
-                0.25,
-                spec.decay_seconds * self.MODE_DECAY_MULTIPLIERS[index],
-            )
-            envelope = np.exp(-times / decay)
-            amplitude = (
-                event.strength
-                * self.MODE_AMPLITUDES[index]
-                * brightness_tilt[index]
-                * body_tilt[index]
-            )
+        # Very subtle bronze contact smear: enough to prevent "pure oscillator"
+        # onset without making the bowl cymbal-like.
+        self.impact_events.append({
+            "age": 0.0,
+            "strength": strength,
+            "phase": self.rng.uniform(0, 2 * math.pi, 4),
+        })
 
-            split_cents = (
-                1.2
-                + 8.0 * spec.beating
-                * (0.35 + index / max(1, len(frequencies) - 1))
-            )
-            split_ratio = 2.0 ** (split_cents / 1200.0)
-            main = np.sin(
-                2.0 * math.pi * frequency * times
-                + event.mode_phase[index]
-            )
-            split = np.sin(
-                2.0 * math.pi * frequency * split_ratio * times
-                - 0.73 * event.mode_phase[index]
-            )
+    def clear(self):
+        self.network.clear()
+        self.impact_events.clear()
 
-            split_mix = 0.10 + 0.26 * spec.beating
-            output += (
-                amplitude
-                * envelope
-                * ((1.0 - split_mix) * main + split_mix * split)
-            )
-
-        return output, event.age_seconds + frame_count / self.sample_rate
-
-    def _render_rub(
-        self,
-        spec: SingingBowlSpec,
-        frame_count: int,
-    ) -> np.ndarray:
-        rub_level = self.rub_smoother.ramp(spec.rub_level, frame_count)
-        if float(np.max(rub_level)) <= 1.0e-6 and self.rub_energy < 1.0e-5:
+    def _render_impact(self, frame_count):
+        if not self.impact_events:
             return np.zeros(frame_count, dtype=np.float64)
 
-        elapsed = frame_count / self.sample_rate
+        n = np.arange(frame_count, dtype=np.float64)
+        t_step = 1.0 / self.sample_rate
+        out = np.zeros(frame_count, dtype=np.float64)
+        retained = []
+
+        for e in self.impact_events:
+            t = e["age"] + n * t_step
+            env = np.exp(-t / 0.045)
+            env2 = np.exp(-t / 0.13)
+
+            f0 = self.state.get().fundamental_hz
+            bands = (
+                2.4 * f0,
+                4.6 * f0,
+                7.8 * f0,
+                12.5 * f0,
+            )
+
+            metal = np.zeros(frame_count, dtype=np.float64)
+            for i, freq in enumerate(bands):
+                metal += (
+                    0.24 / (1 + 0.35 * i)
+                ) * np.sin(
+                    e["phase"][i]
+                    + 2 * math.pi * freq * t
+                )
+
+            noise = self.rng.standard_normal(frame_count)
+            out += e["strength"] * (
+                0.012 * env * noise
+                + 0.010 * env2 * metal
+            )
+
+            e["age"] += frame_count / self.sample_rate
+            if e["age"] < 0.45:
+                retained.append(e)
+
+        self.impact_events = retained
+        return out
+
+    def _rub_drive(self, spec, frame_count):
+        level = self.rub.ramp(spec.rub_level, frame_count)
+        mean = float(np.mean(level))
+        if mean < 1e-6:
+            return np.zeros(frame_count, dtype=np.float64)
+
+        dt = frame_count / self.sample_rate
         wander = self.rub_wander.advance(
-            elapsed * (0.35 + 2.2 * spec.rub_motion)
+            dt * (0.4 + 2.0 * spec.rub_motion)
         )
-        pitch_wander = self.pitch_wander.advance(elapsed)
+        contact = self.contact_wander.advance(dt)
 
-        target_energy = float(
-            np.mean(rub_level)
-            * (0.70 + 0.30 * (0.5 + 0.5 * wander))
+        turns = (
+            0.10
+            + 0.60 * spec.rub_speed
+            + 0.08 * wander
         )
-        catch_time = 1.4 - 1.0 * spec.rub_motion
-        amount = 1.0 - math.exp(-elapsed / max(0.12, catch_time))
-        self.rub_energy += (target_energy - self.rub_energy) * amount
+        self.contact_angle = (
+            self.contact_angle
+            + 2 * math.pi * turns * dt
+        ) % (2 * math.pi)
 
-        frequencies = self._mode_frequencies(
-            spec,
-            pitch_scale=1.0 + 0.0015 * pitch_wander,
+        f = self.network.frequencies
+        fam = self.network.family
+        weights = np.zeros(len(f), dtype=np.float64)
+        phase_target = np.zeros(len(f), dtype=np.float64)
+
+        for i, family in enumerate(fam):
+            n_order = int(family) + 2
+            tangent = 1.0 / n_order
+            order_tilt = math.exp(-0.36 * int(family))
+
+            weights[i] = (
+                tangent
+                * order_tilt
+                * (
+                    0.16
+                    + abs(
+                        math.sin(
+                            n_order * self.contact_angle + 0.29 * i
+                        )
+                    )
+                )
+            )
+            phase_target[i] = (
+                n_order * self.contact_angle + 0.31 * i
+            ) % (2 * math.pi)
+
+        pressure = float(np.clip(
+            spec.rub_pressure * (0.90 + 0.14 * contact),
+            0, 1
+        ))
+
+        self.network.inject(
+            weights,
+            mean
+            * (0.010 + 0.070 * pressure)
+            * dt
+            * 60.0,
+            phase_randomization=0.010,
+            phase_target=phase_target,
+            phase_lock=0.04 + 0.16 * pressure,
         )
-        sample_indices = np.arange(frame_count, dtype=np.float64)
-        output = np.zeros(frame_count, dtype=np.float64)
-        rub_mode_weights = np.array(
-            [1.0, 0.82, 0.62, 0.43, 0.30, 0.20, 0.13, 0.08],
-            dtype=np.float64,
+
+        # Quiet physical contact texture only.
+        n = np.arange(frame_count, dtype=np.float64)
+        slip_hz = 16.0 + 48.0 * spec.rub_speed + 5.0 * wander
+        slip = np.tanh(
+            (1.7 + 4.5 * pressure)
+            * np.sin(2 * math.pi * slip_hz * n / self.sample_rate)
         )
-        high_tilt = np.linspace(
-            0.75,
-            0.25 + 1.25 * spec.brightness,
-            len(frequencies),
-        )
-
-        for index, frequency in enumerate(frequencies):
-            phase_step = 2.0 * math.pi * frequency / self.sample_rate
-            phases = self.rub_phases[index] + phase_step * sample_indices
-
-            split_cents = 0.8 + 5.5 * spec.beating
-            split_frequency = frequency * (2.0 ** (split_cents / 1200.0))
-            split_step = 2.0 * math.pi * split_frequency / self.sample_rate
-            split_phases = (
-                self.rub_split_phases[index] + split_step * sample_indices
-            )
-
-            split_mix = 0.08 + 0.18 * spec.beating
-            component = (
-                (1.0 - split_mix) * np.sin(phases)
-                + split_mix * np.sin(split_phases)
-            )
-            output += (
-                self.rub_energy
-                * rub_mode_weights[index]
-                * high_tilt[index]
-                * component
-            )
-
-            self.rub_phases[index] = float(
-                (phases[-1] + phase_step) % (2.0 * math.pi)
-            )
-            self.rub_split_phases[index] = float(
-                (split_phases[-1] + split_step) % (2.0 * math.pi)
-            )
-
         noise = self.rng.standard_normal(frame_count)
-        kernel = np.ones(8, dtype=np.float64) / 8.0
-        roughness = noise - np.convolve(noise, kernel, mode="same")
-        output += (
-            roughness
-            * self.rub_energy
-            * (0.002 + 0.012 * spec.brightness)
+
+        return mean * (
+            0.0013 * slip + 0.0014 * noise
         )
-        return output
 
-    def generate(self, frame_count: int) -> np.ndarray:
+    def generate(self, frame_count):
         spec = self.state.get()
-        frame_count = int(frame_count)
-        if frame_count <= 0:
-            return np.zeros(0, dtype=np.float32)
+        rub = self._rub_drive(spec, frame_count)
+        body = self.network.render(
+            frame_count,
+            external_drive=rub,
+            external_drive_gain=1.0,
+        ).astype(np.float64)
+        impact = self._render_impact(frame_count)
 
-        output = np.zeros(frame_count, dtype=np.float64)
-        retained: list[_StrikeEvent] = []
-
-        for event in self.events:
-            rendered, new_age = self._render_strike(
-                event, spec, frame_count
-            )
-            output += rendered
-            event.age_seconds = new_age
-            if event.age_seconds < spec.decay_seconds * 6.0:
-                retained.append(event)
-        self.events = retained
-
-        output += self._render_rub(spec, frame_count)
-
-        transient = np.empty(frame_count, dtype=np.float64)
-        value = self._transient_state
-        decay = math.exp(-1.0 / (0.010 * self.sample_rate))
-        for i in range(frame_count):
-            transient[i] = value
-            value *= decay
-        self._transient_state = value
-
-        if float(np.max(np.abs(transient))) > 1.0e-8:
-            contact = self.rng.standard_normal(frame_count)
-            output += 0.055 * transient * contact
-
-        gain = self.gain_smoother.ramp(
+        out = body + impact
+        out *= self.gain.ramp(
             db_to_linear(spec.output_gain_db),
             frame_count,
         )
-        output *= gain
-        output = 0.92 * np.tanh(output * 0.72)
-        return output.astype(np.float32, copy=False)
-
+        out = 0.95 * np.tanh(out * 0.96)
+        return out.astype(np.float32, copy=False)
 
 
 @dataclass(frozen=True, slots=True)
 class BowlCeremonySpec:
-    """
-    High-level controls for a complete multi-bowl sound-bath performance.
-
-    duration_minutes:
-        Total arc including a quiet closing tail.
-
-    intensity:
-        Controls density and strike strength, not a rigid tempo.
-
-    spatiality:
-        Controls how boldly the practitioner moves bowls around the listener.
-
-    rubbing:
-        Controls how often rim-singing becomes the active technique.
-    """
-
     enabled: bool = False
     duration_minutes: float = 30.0
     intensity: float = 0.62
     spatiality: float = 0.88
     rubbing: float = 0.78
 
-    def validated(self) -> "BowlCeremonySpec":
-        if not 8.0 <= self.duration_minutes <= 90.0:
-            raise ValueError("duration_minutes must be between 8 and 90")
-        for name in ("intensity", "spatiality", "rubbing"):
-            if not 0.0 <= getattr(self, name) <= 1.0:
-                raise ValueError(f"{name} must be between 0 and 1")
+    def validated(self):
         return self
 
 
 class BowlCeremonyState:
-    def __init__(self, spec: BowlCeremonySpec) -> None:
+    def __init__(self, spec):
         self._lock = threading.Lock()
         self._spec = spec.validated()
 
-    def get(self) -> BowlCeremonySpec:
+    def get(self):
         with self._lock:
             return self._spec
 
-    def set(self, spec: BowlCeremonySpec) -> None:
+    def update(self, **changes):
         with self._lock:
-            self._spec = spec.validated()
-
-    def update(self, **changes) -> None:
-        with self._lock:
-            self._spec = replace(
-                self._spec,
-                **changes,
-            ).validated()
+            self._spec = replace(self._spec, **changes).validated()
 
 
 @dataclass(frozen=True, slots=True)
-class CeremonyBowlProfile:
+class BowlProfile:
     name: str
     fundamental_hz: float
     decay_seconds: float
     brightness: float
-    inharmonicity: float
-    beating: float
+    asymmetry: float
+    coupling: float
     body: float
     output_gain_db: float
     size_class: float
 
 
 @dataclass(slots=True)
-class CeremonyBowlVoice:
-    profile: CeremonyBowlProfile
+class BowlVoice:
+    profile: BowlProfile
     state: SingingBowlState
     generator: TibetanSingingBowlGenerator
-
     position: np.ndarray
-    move_start: np.ndarray
-    move_target: np.ndarray
-    move_elapsed: float
-    move_duration: float
-
-    next_strike_seconds: float = 1.0
-    rub_target: float = 0.0
+    next_strike_seconds: float
     current_rub: float = 0.0
-    active_weight: float = 0.0
     strikes: int = 0
 
 
 class BowlCeremonyController:
-    """
-    Complete beginning-middle-end procedural singing-bowl ceremony.
-
-    Four differently sized bowls share one evolving performance arc. The
-    controller deliberately behaves more like a practitioner than a sequencer:
-    long resonances overlap; one or two bowls may be rim-sung while other bowls
-    continue to ring; spatial gestures move sources around the listener's head
-    and body; density rises toward an immersive middle and then recedes into
-    progressively larger spaces and a final low-bowl closing.
-
-    No beat grid is used.
-    """
-
-    PHASE_ARRIVAL = "arrival"
-    PHASE_GROUNDING = "grounding"
-    PHASE_OPENING = "opening"
-    PHASE_IMMERSION = "immersion"
-    PHASE_INTEGRATION = "integration"
-    PHASE_CLOSING = "closing"
-    PHASE_SILENCE = "final silence"
-    PHASE_COMPLETE = "complete"
-
     PROFILES = (
-        CeremonyBowlProfile(
-            name="Large grounding bowl",
-            fundamental_hz=107.3,
-            decay_seconds=24.0,
-            brightness=0.26,
-            inharmonicity=0.46,
-            beating=0.30,
-            body=0.90,
-            output_gain_db=-13.5,
-            size_class=1.00,
+        BowlProfile(
+            "Large grounding bowl",
+            107.3, 31.0, 0.30, 0.42, 0.30, 0.92, -11.8, 1.00
         ),
-        CeremonyBowlProfile(
-            name="Low-mid bowl",
-            fundamental_hz=143.8,
-            decay_seconds=20.0,
-            brightness=0.38,
-            inharmonicity=0.43,
-            beating=0.38,
-            body=0.78,
-            output_gain_db=-14.5,
-            size_class=0.78,
+        BowlProfile(
+            "Low-mid bowl",
+            143.8, 26.0, 0.42, 0.44, 0.34, 0.80, -12.8, 0.78
         ),
-        CeremonyBowlProfile(
-            name="Middle singing bowl",
-            fundamental_hz=191.6,
-            decay_seconds=16.5,
-            brightness=0.52,
-            inharmonicity=0.40,
-            beating=0.46,
-            body=0.64,
-            output_gain_db=-15.0,
-            size_class=0.55,
+        BowlProfile(
+            "Middle singing bowl",
+            191.6, 22.0, 0.56, 0.48, 0.38, 0.66, -13.4, 0.55
         ),
-        CeremonyBowlProfile(
-            name="Small clear bowl",
-            fundamental_hz=286.7,
-            decay_seconds=12.5,
-            brightness=0.68,
-            inharmonicity=0.36,
-            beating=0.52,
-            body=0.46,
-            output_gain_db=-16.0,
-            size_class=0.32,
+        BowlProfile(
+            "Small clear bowl",
+            286.7, 17.0, 0.72, 0.52, 0.40, 0.48, -14.4, 0.32
         ),
     )
 
-    def __init__(
-        self,
-        sample_rate: float,
-        ceremony_state: BowlCeremonyState,
-        *,
-        seed: int = 602_900,
-    ) -> None:
+    def __init__(self, sample_rate, ceremony_state, *, seed=602900):
         self.sample_rate = float(sample_rate)
         self.ceremony_state = ceremony_state
         self.rng = np.random.default_rng(seed)
+        homes = (
+            np.array([0.0, -0.70, -2.45]),
+            np.array([-1.05, -0.22, -1.95]),
+            np.array([0.95, 0.20, -1.62]),
+            np.array([0.42, 0.78, -1.35]),
+        )
+
+        self.voices = []
+        for i, p in enumerate(self.PROFILES):
+            s = SingingBowlState(
+                SingingBowlSpec(
+                    fundamental_hz=p.fundamental_hz,
+                    decay_seconds=p.decay_seconds,
+                    brightness=p.brightness,
+                    asymmetry=p.asymmetry,
+                    coupling=p.coupling,
+                    body=p.body,
+                    output_gain_db=p.output_gain_db,
+                )
+            )
+            g = TibetanSingingBowlGenerator(
+                self.sample_rate, s, seed=seed + 100 + i * 31
+            )
+            self.voices.append(
+                BowlVoice(
+                    p, s, g, homes[i].astype(np.float64),
+                    1.8 + i * 1.5
+                )
+            )
 
         self.elapsed_seconds = 0.0
-        self.phase = self.PHASE_ARRIVAL
+        self.phase = "arrival"
         self.phase_progress = 0.0
         self.performance_progress = 0.0
         self.running = False
         self.complete = False
+        self._opening_large = False
+        self._opening_mid = False
+        self._closing_cues = set()
 
         self.dynamic_wander = OrganicWanderer1D(
             seed=seed + 40,
@@ -559,532 +519,233 @@ class BowlCeremonyController:
             drive_smoothing_seconds=17.0,
         )
 
-        self.voices: list[CeremonyBowlVoice] = []
-        for index, profile in enumerate(self.PROFILES):
-            spec = SingingBowlSpec(
-                fundamental_hz=profile.fundamental_hz,
-                decay_seconds=profile.decay_seconds,
-                strike_strength=0.60,
-                brightness=profile.brightness,
-                inharmonicity=profile.inharmonicity,
-                beating=profile.beating,
-                body=profile.body,
-                rub_level=0.0,
-                rub_motion=0.38 + 0.10 * (1.0 - profile.size_class),
-                output_gain_db=profile.output_gain_db,
-            )
-            state = SingingBowlState(spec)
-            generator = TibetanSingingBowlGenerator(
-                self.sample_rate,
-                state,
-                seed=seed + 100 + index * 17,
-            )
-
-            home = self._home_position(profile, index)
-            self.voices.append(
-                CeremonyBowlVoice(
-                    profile=profile,
-                    state=state,
-                    generator=generator,
-                    position=home.copy(),
-                    move_start=home.copy(),
-                    move_target=home.copy(),
-                    move_elapsed=0.0,
-                    move_duration=30.0,
-                    next_strike_seconds=2.0 + index * 1.2,
-                )
-            )
-
-    @staticmethod
-    def _smoothstep5(value: float) -> float:
-        value = float(np.clip(value, 0.0, 1.0))
-        return value ** 3 * (
-            value * (value * 6.0 - 15.0) + 10.0
-        )
-
-    @staticmethod
-    def _home_position(
-        profile: CeremonyBowlProfile,
-        index: int,
-    ) -> np.ndarray:
-        # Large bowls live lower in the body field; smaller bowls begin closer
-        # to chest/head height. All positions are listener-centered.
-        homes = (
-            np.array([0.0, -0.75, -2.80], dtype=np.float64),
-            np.array([-1.15, -0.25, -2.20], dtype=np.float64),
-            np.array([1.05, 0.25, -1.85], dtype=np.float64),
-            np.array([0.45, 0.85, -1.55], dtype=np.float64),
-        )
-        return homes[index].copy()
-
-    def restart(self) -> None:
-        for cue_index in range(3):
-            token = f"_closing_cue_{cue_index}"
-            if hasattr(self, token):
-                delattr(self, token)
-
+    def restart(self):
         self.elapsed_seconds = 0.0
-        self.phase = self.PHASE_ARRIVAL
+        self.phase = "arrival"
         self.phase_progress = 0.0
         self.performance_progress = 0.0
         self.running = True
         self.complete = False
+        self._opening_large = False
+        self._opening_mid = False
+        self._closing_cues.clear()
 
-        for index, voice in enumerate(self.voices):
-            voice.generator.clear()
-            voice.state.update(rub_level=0.0)
-            home = self._home_position(voice.profile, index)
-            voice.position = home.copy()
-            voice.move_start = home.copy()
-            voice.move_target = home.copy()
-            voice.move_elapsed = 0.0
-            voice.move_duration = 20.0
-            voice.next_strike_seconds = 1.8 + index * 1.3
-            voice.current_rub = 0.0
-            voice.rub_target = 0.0
-            voice.active_weight = 0.0
-            voice.strikes = 0
+        for i, v in enumerate(self.voices):
+            v.generator.clear()
+            v.state.update(rub_level=0.0)
+            v.next_strike_seconds = 8.0 + i * 3.0
+            v.current_rub = 0.0
+            v.strikes = 0
 
-    def stop(self) -> None:
+    def stop(self):
         self.running = False
-        for voice in self.voices:
-            voice.state.update(rub_level=0.0)
+        for v in self.voices:
+            v.state.update(rub_level=0.0)
 
-    def _phase_for_progress(
-        self,
-        progress: float,
-    ) -> tuple[str, float]:
-        # Last 4% is intentional silence after all playing has stopped.
-        boundaries = (
-            (0.00, 0.08, self.PHASE_ARRIVAL),
-            (0.08, 0.22, self.PHASE_GROUNDING),
-            (0.22, 0.42, self.PHASE_OPENING),
-            (0.42, 0.72, self.PHASE_IMMERSION),
-            (0.72, 0.88, self.PHASE_INTEGRATION),
-            (0.88, 0.96, self.PHASE_CLOSING),
-            (0.96, 1.00, self.PHASE_SILENCE),
+    def _phase_for_progress(self, p):
+        phases = (
+            ("arrival", 0.00, 0.08),
+            ("grounding", 0.08, 0.22),
+            ("opening", 0.22, 0.42),
+            ("immersion", 0.42, 0.72),
+            ("integration", 0.72, 0.88),
+            ("closing", 0.88, 0.96),
+            ("final silence", 0.96, 1.00),
         )
-        for start, end, phase in boundaries:
-            if progress < end:
-                local = (progress - start) / max(1.0e-9, end - start)
-                return phase, float(np.clip(local, 0.0, 1.0))
-        return self.PHASE_COMPLETE, 1.0
+        for name, start, end in phases:
+            if p < end:
+                return name, float(
+                    np.clip((p - start) / (end - start), 0, 1)
+                )
+        return "complete", 1.0
 
-    def _phase_energy(self, phase: str, local: float) -> float:
-        local_s = self._smoothstep5(local)
-
-        if phase == self.PHASE_ARRIVAL:
-            return 0.10 + 0.16 * local_s
-        if phase == self.PHASE_GROUNDING:
-            return 0.26 + 0.22 * local_s
-        if phase == self.PHASE_OPENING:
-            return 0.48 + 0.25 * local_s
-        if phase == self.PHASE_IMMERSION:
-            # Broad plateau rather than a single climax.
-            return 0.82 + 0.16 * math.sin(math.pi * local_s)
-        if phase == self.PHASE_INTEGRATION:
-            return 0.78 - 0.33 * local_s
-        if phase == self.PHASE_CLOSING:
-            return 0.42 - 0.30 * local_s
+    def _energy(self):
+        p = self.phase_progress
+        if self.phase == "arrival":
+            return 0.18 + 0.15 * p
+        if self.phase == "grounding":
+            return 0.34 + 0.18 * p
+        if self.phase == "opening":
+            return 0.50 + 0.24 * p
+        if self.phase == "immersion":
+            return 0.78 + 0.16 * math.sin(math.pi * p)
+        if self.phase == "integration":
+            return 0.68 - 0.28 * p
+        if self.phase == "closing":
+            return 0.36 - 0.24 * p
         return 0.0
 
-    def _voice_weight(
-        self,
-        index: int,
-        phase: str,
-        local: float,
-    ) -> float:
-        # The practitioner reveals bowls gradually and removes them gradually.
-        if phase == self.PHASE_ARRIVAL:
-            return (1.0, 0.0, 0.0, 0.0)[index]
-        if phase == self.PHASE_GROUNDING:
-            return (1.0, 0.70, 0.10, 0.0)[index]
-        if phase == self.PHASE_OPENING:
-            return (0.95, 0.85, 0.75, 0.30 + 0.45 * local)[index]
-        if phase == self.PHASE_IMMERSION:
-            return (0.88, 0.95, 1.00, 0.85)[index]
-        if phase == self.PHASE_INTEGRATION:
-            return (0.75, 0.65, 0.55, 0.45)[index]
-        if phase == self.PHASE_CLOSING:
-            return (1.0, 0.22 * (1.0 - local), 0.12 * (1.0 - local), 0.0)[index]
+    def _weight(self, i):
+        p = self.phase_progress
+        if self.phase == "arrival":
+            return (1.0, 0.0, 0.0, 0.0)[i]
+        if self.phase == "grounding":
+            return (1.0, 0.64, 0.08, 0.0)[i]
+        if self.phase == "opening":
+            return (0.96, 0.88, 0.62 + 0.24 * p, 0.22 + 0.50 * p)[i]
+        if self.phase == "immersion":
+            return (0.90, 1.0, 0.96, 0.82)[i]
+        if self.phase == "integration":
+            return (0.92, 0.74, 0.58, 0.38)[i]
+        if self.phase == "closing":
+            return (1.0, 0.18 * (1.0 - p), 0.08 * (1.0 - p), 0.0)[i]
         return 0.0
 
-    def _strike_interval(
-        self,
-        voice: CeremonyBowlVoice,
-        energy: float,
-        weight: float,
-        intensity: float,
-    ) -> float:
+    def _next_strike(self, voice, energy, weight, intensity):
         size = voice.profile.size_class
         effective = max(
-            0.03,
-            energy * weight * (0.55 + 0.65 * intensity),
+            0.05,
+            energy * weight * (0.60 + 0.65 * intensity),
         )
-
-        # Large bowls are naturally less frequent; small bowls may answer
-        # between larger resonances. Log-uniform spacing keeps it non-grid.
-        minimum = 3.5 + 5.5 * size
-        maximum = 10.0 + 26.0 * size
-        minimum /= 0.45 + effective
-        maximum /= 0.42 + effective
-
-        minimum = float(np.clip(minimum, 2.2, 22.0))
-        maximum = float(np.clip(max(maximum, minimum + 2.0), 6.0, 55.0))
-
+        low = (4.0 + 10.0 * size) / (0.42 + effective)
+        high = (10.0 + 26.0 * size) / (0.40 + effective)
+        low = float(np.clip(low, 3.5, 30.0))
+        high = float(np.clip(high, low + 2.0, 65.0))
         return float(
             math.exp(
-                self.rng.uniform(
-                    math.log(minimum),
-                    math.log(maximum),
-                )
+                self.rng.uniform(math.log(low), math.log(high))
             )
         )
 
-    def _strike_strength(
-        self,
-        voice: CeremonyBowlVoice,
-        energy: float,
-        intensity: float,
-        phase: str,
-        local: float,
-    ) -> float:
-        base = 0.26 + 0.50 * energy
-        base *= 0.78 + 0.32 * intensity
-
-        # Closing strikes get progressively lighter.
-        if phase == self.PHASE_CLOSING:
-            base *= 0.92 - 0.48 * local
-
-        # Big bowls tolerate slightly more physical energy.
-        base *= 0.92 + 0.16 * voice.profile.size_class
-
-        return float(
-            np.clip(
-                self.rng.normal(base, 0.08),
-                0.14,
-                0.96,
-            )
-        )
-
-    def _target_rub(
-        self,
-        index: int,
-        voice: CeremonyBowlVoice,
-        phase: str,
-        local: float,
-        energy: float,
-        rubbing: float,
-        rub_shape: float,
-    ) -> float:
-        if phase in {
-            self.PHASE_ARRIVAL,
-            self.PHASE_SILENCE,
-            self.PHASE_COMPLETE,
-        }:
-            return 0.0
-
-        if phase == self.PHASE_GROUNDING:
-            phase_amount = 0.30
-        elif phase == self.PHASE_OPENING:
-            phase_amount = 0.50
-        elif phase == self.PHASE_IMMERSION:
-            phase_amount = 0.72
-        elif phase == self.PHASE_INTEGRATION:
-            phase_amount = 0.44 * (1.0 - 0.45 * local)
-        else:
-            phase_amount = 0.24 * (1.0 - local)
-
-        # A single practitioner usually actively rims only one or two bowls
-        # while the rest continue ringing from previous excitation. The phase
-        # offsets cause that "active hand" to migrate among the set.
-        hand_cycle = 0.5 + 0.5 * math.sin(
-            self.elapsed_seconds * (0.032 + 0.004 * index)
-            + index * 1.75
-        )
-        selection = hand_cycle ** 2.4
-
-        # Medium bowls sing most readily; very large/small bowls are somewhat
-        # less often the sustained rubbed voice.
-        size_preference = (0.72, 1.00, 0.94, 0.68)[index]
-
-        return float(
-            np.clip(
-                rubbing
-                * phase_amount
-                * energy
-                * size_preference
-                * selection
-                * (0.62 + 0.38 * rub_shape),
-                0.0,
-                0.82,
-            )
-        )
-
-    def _choose_spatial_target(
-        self,
-        index: int,
-        voice: CeremonyBowlVoice,
-        phase: str,
-        energy: float,
-        spatiality: float,
-    ) -> tuple[np.ndarray, float]:
-        profile = voice.profile
-        home = self._home_position(profile, index)
-
-        # During arrival/closing, the performer largely returns bowls to
-        # stable stations. The middle of the ceremony is free to become much
-        # more intimate and mobile.
-        if phase in {
-            self.PHASE_ARRIVAL,
-            self.PHASE_CLOSING,
-            self.PHASE_SILENCE,
-        }:
-            jitter = np.array(
-                [
-                    self.rng.uniform(-0.20, 0.20),
-                    self.rng.uniform(-0.12, 0.12),
-                    self.rng.uniform(-0.18, 0.18),
-                ],
-                dtype=np.float64,
-            )
-            target = home + jitter * spatiality
-            duration = self.rng.uniform(24.0, 48.0)
-            return target, float(duration)
-
-        # A palette of human-like placements around the body/head. Smaller
-        # bowls are permitted closer head-level passes; large bowls spend more
-        # time chest/feet/front and generally remain farther away.
-        head_distance = 0.50 + 0.95 * profile.size_class
-        body_distance = 0.95 + 1.10 * profile.size_class
-        far_distance = 2.0 + 1.05 * profile.size_class
-
-        targets = [
-            np.array([-head_distance, 0.72, -0.58], dtype=np.float64),
-            np.array([ head_distance, 0.72, -0.58], dtype=np.float64),
-            np.array([0.0, 1.20, -0.72], dtype=np.float64),
-            np.array([-body_distance, 0.05, -1.05], dtype=np.float64),
-            np.array([ body_distance, 0.05, -1.05], dtype=np.float64),
-            np.array([0.0, -0.55, -far_distance], dtype=np.float64),
-            np.array([0.0, 0.20, -far_distance], dtype=np.float64),
-        ]
-
-        # Big bowls weight body/front positions. Small bowls weight head passes.
-        if profile.size_class > 0.80:
-            weights = np.array(
-                [0.04, 0.04, 0.02, 0.14, 0.14, 0.34, 0.28],
-                dtype=np.float64,
-            )
-        elif profile.size_class < 0.40:
-            weights = np.array(
-                [0.20, 0.20, 0.18, 0.10, 0.10, 0.08, 0.14],
-                dtype=np.float64,
-            )
-        else:
-            weights = np.array(
-                [0.13, 0.13, 0.10, 0.16, 0.16, 0.14, 0.18],
-                dtype=np.float64,
-            )
-
-        # Lower spatiality biases toward the home station.
-        if self.rng.random() > spatiality * (0.45 + 0.55 * energy):
-            return (
-                home
-                + self.rng.normal(0.0, 0.12, 3).astype(np.float64),
-                float(self.rng.uniform(24.0, 45.0)),
-            )
-
-        weights /= np.sum(weights)
-        target = targets[int(self.rng.choice(len(targets), p=weights))]
-
-        # A little asymmetry avoids obviously repeated coordinate destinations.
-        target = target + np.array(
-            [
-                self.rng.normal(0.0, 0.11),
-                self.rng.normal(0.0, 0.08),
-                self.rng.normal(0.0, 0.10),
-            ],
-            dtype=np.float64,
-        )
-
-        duration = self.rng.uniform(
-            13.0 + 8.0 * profile.size_class,
-            30.0 + 16.0 * profile.size_class,
-        )
-        return target, float(duration)
-
-    def _update_motion(
-        self,
-        index: int,
-        voice: CeremonyBowlVoice,
-        dt: float,
-        phase: str,
-        energy: float,
-        spatiality: float,
-    ) -> None:
-        voice.move_elapsed += dt
-
-        if voice.move_elapsed >= voice.move_duration:
-            target, duration = self._choose_spatial_target(
-                index,
-                voice,
-                phase,
-                energy,
-                spatiality,
-            )
-            voice.move_start = voice.position.copy()
-            voice.move_target = target
-            voice.move_elapsed = 0.0
-            voice.move_duration = duration
-
-        progress = self._smoothstep5(
-            voice.move_elapsed / max(1.0e-9, voice.move_duration)
-        )
-        voice.position = (
-            voice.move_start
-            + (voice.move_target - voice.move_start) * progress
-        )
-
-    def advance(self, elapsed_seconds: float) -> None:
+    def advance(self, dt):
         spec = self.ceremony_state.get()
         if not spec.enabled or not self.running or self.complete:
             return
 
-        dt = max(0.0, float(elapsed_seconds))
+        dt = max(0.0, float(dt))
         total = spec.duration_minutes * 60.0
         self.elapsed_seconds += dt
-
         self.performance_progress = float(
-            np.clip(self.elapsed_seconds / max(1.0, total), 0.0, 1.0)
+            np.clip(self.elapsed_seconds / max(1.0, total), 0, 1)
         )
         self.phase, self.phase_progress = self._phase_for_progress(
             self.performance_progress
         )
 
-        if self.phase == self.PHASE_COMPLETE:
+        if self.phase == "complete":
             self.complete = True
             self.running = False
-            for voice in self.voices:
-                voice.state.update(rub_level=0.0)
+            self.stop()
             return
 
-        energy = self._phase_energy(
-            self.phase,
-            self.phase_progress,
+        energy = self._energy()
+        energy *= (
+            0.90
+            + 0.16 * (0.5 + 0.5 * self.dynamic_wander.advance(dt))
         )
-
-        dynamic = 0.5 + 0.5 * self.dynamic_wander.advance(dt)
+        energy = float(np.clip(energy, 0, 1))
         rub_shape = 0.5 + 0.5 * self.rub_wander.advance(dt)
 
-        # Organic micro-variation rides on top of the deliberate long-form arc.
-        energy *= 0.82 + 0.22 * dynamic
-        energy = float(np.clip(energy, 0.0, 1.0))
+        if (
+            self.phase == "arrival"
+            and not self._opening_large
+            and self.elapsed_seconds >= 1.5
+        ):
+            self.voices[0].generator.strike(0.68)
+            self.voices[0].strikes += 1
+            self._opening_large = True
 
-        for index, voice in enumerate(self.voices):
-            weight = self._voice_weight(
-                index,
-                self.phase,
-                self.phase_progress,
-            )
-            voice.active_weight = weight
+        if (
+            self.phase == "arrival"
+            and not self._opening_mid
+            and self.elapsed_seconds >= 5.0
+        ):
+            self.voices[2].generator.strike(0.36)
+            self.voices[2].strikes += 1
+            self._opening_mid = True
 
-            self._update_motion(
-                index,
-                voice,
-                dt,
-                self.phase,
-                energy,
-                spec.spatiality,
-            )
+        for i, v in enumerate(self.voices):
+            weight = self._weight(i)
 
-            target_rub = self._target_rub(
-                index,
-                voice,
-                self.phase,
-                self.phase_progress,
-                energy,
-                spec.rubbing,
-                rub_shape,
-            )
-            voice.rub_target = target_rub
+            if self.phase in {"arrival", "final silence"}:
+                rub_phase = 0.0
+            elif self.phase == "grounding":
+                rub_phase = 0.18
+            elif self.phase == "opening":
+                rub_phase = 0.42
+            elif self.phase == "immersion":
+                rub_phase = 0.70
+            elif self.phase == "integration":
+                rub_phase = 0.40
+            else:
+                rub_phase = 0.10 * (1.0 - self.phase_progress)
 
-            # Rubbing fades in/out with hand-like inertia instead of switching.
-            rub_time = 2.5 if target_rub > voice.current_rub else 4.5
-            amount = 1.0 - math.exp(-dt / rub_time)
-            voice.current_rub += (
-                target_rub - voice.current_rub
-            ) * amount
-            voice.state.update(
-                rub_level=float(
-                    np.clip(voice.current_rub * weight, 0.0, 0.90)
+            rub_pref = (0.34, 0.92, 1.0, 0.66)[i]
+            target = float(np.clip(
+                spec.rubbing
+                * rub_phase
+                * rub_pref
+                * weight
+                * energy
+                * (0.34 + 0.66 * rub_shape),
+                0, 0.82
+            ))
+
+            v.current_rub += (
+                target - v.current_rub
+            ) * (
+                1.0
+                - math.exp(
+                    -dt / (1.0 if target > v.current_rub else 2.8)
                 )
             )
 
-            if self.phase in {
-                self.PHASE_CLOSING,
-                self.PHASE_SILENCE,
-                self.PHASE_COMPLETE,
-            }:
-                # Closing is deliberately performed by the three low-bowl
-                # cues below rather than by the ordinary stochastic scheduler.
+            v.state.update(
+                rub_level=v.current_rub,
+                rub_pressure=float(np.clip(
+                    0.44 + 0.30 * energy + 0.12 * rub_shape,
+                    0, 1
+                )),
+                rub_speed=float(np.clip(
+                    0.34
+                    + 0.30 * rub_shape
+                    + 0.08 * (1.0 - v.profile.size_class),
+                    0, 1
+                )),
+            )
+
+            if self.phase in {"closing", "final silence"}:
                 continue
 
-            voice.next_strike_seconds -= dt
-            if voice.next_strike_seconds <= 0.0:
-                if weight > 0.04:
-                    strength = self._strike_strength(
-                        voice,
-                        energy,
-                        spec.intensity,
-                        self.phase,
-                        self.phase_progress,
-                    )
-                    voice.generator.strike(strength)
-                    voice.strikes += 1
-
-                voice.next_strike_seconds = self._strike_interval(
-                    voice,
-                    energy,
-                    weight,
-                    spec.intensity,
+            v.next_strike_seconds -= dt
+            if (
+                v.next_strike_seconds <= 0.0
+                and weight > 0.05
+            ):
+                strength = float(np.clip(
+                    self.rng.normal(
+                        0.22 + 0.52 * energy, 0.09
+                    ),
+                    0.14, 0.90
+                ))
+                v.generator.strike(strength)
+                v.strikes += 1
+                v.next_strike_seconds = self._next_strike(
+                    v, energy, weight, spec.intensity
                 )
 
-        # A professional-feeling ending: increasingly sparse final low-bowl
-        # punctuation followed by true silence. The normal scheduler already
-        # favors the large bowl in closing; these timed cues make the endpoint
-        # deliberate rather than merely probabilistic.
-        if self.phase == self.PHASE_CLOSING:
-            large = self.voices[0]
-            cue_points = (0.10, 0.43, 0.73)
-            for cue_index, cue in enumerate(cue_points):
-                token = f"_closing_cue_{cue_index}"
+        if self.phase == "closing":
+            cues = (
+                (0.10, 0.46),
+                (0.43, 0.34),
+                (0.73, 0.24),
+            )
+            for cue_index, (cue, strength) in enumerate(cues):
                 if (
                     self.phase_progress >= cue
-                    and not hasattr(self, token)
+                    and cue_index not in self._closing_cues
                 ):
-                    setattr(self, token, True)
-                    large.generator.strike(
-                        (0.44, 0.34, 0.24)[cue_index]
-                    )
-                    large.strikes += 1
+                    self.voices[0].generator.strike(strength)
+                    self.voices[0].strikes += 1
+                    self._closing_cues.add(cue_index)
 
-    def render_mono(self, frame_count: int) -> list[np.ndarray]:
-        """
-        Generate one mono block for every bowl.
-
-        Spatial rendering remains outside this class so the same ceremony
-        engine can later be integrated into Living Brown Noise without GUI or
-        device dependencies.
-        """
-        return [
-            voice.generator.generate(frame_count)
-            for voice in self.voices
-        ]
+    def render_mono(self, frame_count):
+        return [v.generator.generate(frame_count) for v in self.voices]
 
     @property
-    def remaining_seconds(self) -> float:
-        spec = self.ceremony_state.get()
+    def remaining_seconds(self):
         return max(
             0.0,
-            spec.duration_minutes * 60.0 - self.elapsed_seconds,
+            self.ceremony_state.get().duration_minutes * 60.0
+            - self.elapsed_seconds,
         )

@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import sys
@@ -8,60 +9,36 @@ import sounddevice as sd
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QApplication,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QMainWindow,
-    QPushButton,
-    QSlider,
-    QVBoxLayout,
-    QWidget,
+    QApplication, QGroupBox, QHBoxLayout, QLabel, QMainWindow,
+    QPushButton, QSlider, QVBoxLayout, QWidget,
 )
 
 from steam_audio_renderer import DEFAULT_SAMPLE_RATE, SteamAudioRenderer, Vector3
-from gong_ceremony import (
-    GongCeremonyController,
-    GongCeremonySpec,
-    GongCeremonyState,
-)
+from gong_ceremony import GongCeremonyController, GongCeremonySpec, GongCeremonyState
 
 FRAME_SIZE = 1024
 
 
 class FloatSlider(QWidget):
-    def __init__(
-        self,
-        label,
-        minimum,
-        maximum,
-        value,
-        *,
-        decimals=2,
-        suffix="",
-        parent=None,
-    ):
-        super().__init__(parent)
+    def __init__(self, label, minimum, maximum, value, decimals=2, suffix=""):
+        super().__init__()
         self.minimum = float(minimum)
         self.maximum = float(maximum)
-        self.steps = 1000
         self.decimals = int(decimals)
         self.suffix = suffix
+        self.steps = 1000
         self.callbacks = []
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-
         self.name = QLabel(label)
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(0, self.steps)
         self.value_label = QLabel()
-        self.value_label.setMinimumWidth(95)
-
+        self.value_label.setMinimumWidth(90)
         layout.addWidget(self.name)
         layout.addWidget(self.slider, 1)
         layout.addWidget(self.value_label)
-
         self.slider.valueChanged.connect(self._changed)
         self.set_value(value)
 
@@ -70,30 +47,22 @@ class FloatSlider(QWidget):
         return self.minimum + f * (self.maximum - self.minimum)
 
     def set_value(self, value):
-        f = (
-            (float(value) - self.minimum)
-            / max(1.0e-9, self.maximum - self.minimum)
-        )
-        self.slider.setValue(
-            int(round(np.clip(f, 0.0, 1.0) * self.steps))
-        )
+        f = (float(value) - self.minimum) / max(1e-9, self.maximum - self.minimum)
+        self.slider.setValue(int(round(np.clip(f, 0.0, 1.0) * self.steps)))
 
     def _changed(self, _):
-        value = self.value()
-        self.value_label.setText(
-            f"{value:.{self.decimals}f}{self.suffix}"
-        )
-        for callback in self.callbacks:
-            callback(value)
+        v = self.value()
+        self.value_label.setText(f"{v:.{self.decimals}f}{self.suffix}")
+        for cb in self.callbacks:
+            cb(v)
 
     def on_change(self, callback):
         self.callbacks.append(callback)
 
 
-class GongAudioEngine:
+class Engine:
     def __init__(self):
         self.sample_rate = DEFAULT_SAMPLE_RATE
-
         self.state = GongCeremonyState(
             GongCeremonySpec(
                 enabled=False,
@@ -105,32 +74,24 @@ class GongAudioEngine:
             )
         )
         self.ceremony = GongCeremonyController(
-            self.sample_rate,
-            self.state,
+            self.sample_rate, self.state
         )
-
         self.renderer = SteamAudioRenderer(
             sample_rate=self.sample_rate,
             frame_size=FRAME_SIZE,
             validation_enabled=False,
             log_messages=False,
         )
-
         self.sources = []
         for voice in self.ceremony.voices:
             p = voice.position
             self.sources.append(
                 self.renderer.create_source(
-                    position=Vector3(
-                        float(p[0]),
-                        float(p[1]),
-                        float(p[2]),
-                    ),
+                    position=Vector3(float(p[0]), float(p[1]), float(p[2])),
                     spatial_blend=1.0,
                     distance_attenuation_enabled=True,
                 )
             )
-
         self.stream = None
         self.lock = threading.Lock()
         self.running = False
@@ -142,25 +103,18 @@ class GongAudioEngine:
         dt = frames / self.sample_rate
         self.ceremony.advance(dt)
         mono_blocks = self.ceremony.render_mono(frames)
-
         stereo = np.zeros((frames, 2), dtype=np.float32)
 
         for voice, source, mono in zip(
-            self.ceremony.voices,
-            self.sources,
-            mono_blocks,
+            self.ceremony.voices, self.sources, mono_blocks
         ):
             p = voice.position
-            source.set_position(
-                float(p[0]),
-                float(p[1]),
-                float(p[2]),
-            )
+            source.set_position(float(p[0]), float(p[1]), float(p[2]))
             stereo += source.process_mono(mono)
 
         outdata[:] = (
-            0.94 * np.tanh(stereo * 0.80)
-        ).astype(np.float32, copy=False)
+            0.95 * np.tanh(stereo * 0.78)
+        ).astype(np.float32)
 
     def start_audio(self):
         with self.lock:
@@ -201,202 +155,125 @@ class GongAudioEngine:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Procedural Gong Ceremony Lab")
-        self.resize(950, 850)
-
-        self.engine = GongAudioEngine()
+        self.setWindowTitle("Nonlinear Gong Ceremony Lab")
+        self.resize(1040, 920)
+        self.engine = Engine()
 
         root = QWidget()
         layout = QVBoxLayout(root)
         self.setCentralWidget(root)
 
         row = QHBoxLayout()
-        for text, callback in (
+        for text, cb in (
             ("Start Audio", self.engine.start_audio),
             ("Stop Audio", self.engine.stop_audio),
             ("Start / Restart Ceremony", self.engine.start_ceremony),
             ("Stop Ceremony", self.engine.stop_ceremony),
         ):
-            button = QPushButton(text)
-            button.clicked.connect(callback)
-            row.addWidget(button)
+            b = QPushButton(text)
+            b.clicked.connect(cb)
+            row.addWidget(b)
         layout.addLayout(row)
 
-        note = QLabel(
-            "The ceremony emphasizes what makes gong work fascinating: "
-            "huge low blooms, overlapping inharmonic fields, friction-mallet "
-            "tones, and especially sparse hand/palm/finger-style surface "
-            "excitation that can produce strange vocal, whale-like, squealing, "
-            "and metallic emergent sounds."
+        desc = QLabel(
+            "Third-generation gong body: 106 persistent irregular modes, dispersive metallic impact, "
+            "close-mode beating, accumulated resonance, upward energy cascade, "
+            "hysteresis, amplitude-dependent pitch pulling, nonlinear "
+            "intermodal/subharmonic spectral filling, and friction/hand contact "
+            "feeding the same resonant plate."
         )
-        note.setWordWrap(True)
-        layout.addWidget(note)
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
 
-        performance_group = QGroupBox("Ceremony performance")
-        performance_layout = QVBoxLayout(performance_group)
-        layout.addWidget(performance_group)
+        group = QGroupBox("Ceremony performance")
+        controls = QVBoxLayout(group)
+        layout.addWidget(group)
 
         spec = self.engine.state.get()
-
         self._slider(
-            performance_layout,
-            "Ceremony duration",
-            8.0,
-            60.0,
-            spec.duration_minutes,
-            decimals=1,
-            suffix=" min",
-            callback=lambda v: self.engine.state.update(
-                duration_minutes=v
-            ),
+            controls, "Ceremony duration", 8.0, 60.0, spec.duration_minutes,
+            decimals=1, suffix=" min",
+            callback=lambda v: self.engine.state.update(duration_minutes=v),
         )
         self._slider(
-            performance_layout,
-            "Performance intensity",
-            0.0,
-            1.0,
-            spec.intensity,
-            callback=lambda v: self.engine.state.update(
-                intensity=v
-            ),
+            controls, "Performance intensity", 0.0, 1.0, spec.intensity,
+            callback=lambda v: self.engine.state.update(intensity=v),
         )
         self._slider(
-            performance_layout,
-            "Friction-mallet presence",
-            0.0,
-            1.0,
-            spec.friction_presence,
-            callback=lambda v: self.engine.state.update(
-                friction_presence=v
-            ),
+            controls, "Friction-tool presence", 0.0, 1.0, spec.friction_presence,
+            callback=lambda v: self.engine.state.update(friction_presence=v),
         )
         self._slider(
-            performance_layout,
-            "Hand / rim magic",
-            0.0,
-            1.0,
-            spec.hand_magic,
-            callback=lambda v: self.engine.state.update(
-                hand_magic=v
-            ),
+            controls, "Hand / rim magic", 0.0, 1.0, spec.hand_magic,
+            callback=lambda v: self.engine.state.update(hand_magic=v),
         )
         self._slider(
-            performance_layout,
-            "3D spatial movement",
-            0.0,
-            1.0,
-            spec.spatiality,
-            callback=lambda v: self.engine.state.update(
-                spatiality=v
-            ),
+            controls, "3D spatial movement", 0.0, 1.0, spec.spatiality,
+            callback=lambda v: self.engine.state.update(spatiality=v),
         )
 
-        manual_group = QGroupBox("Manual gong tests")
-        manual_layout = QHBoxLayout(manual_group)
-        layout.addWidget(manual_group)
+        manual = QGroupBox("Manual resonance-building tests")
+        manual_row = QHBoxLayout(manual)
+        layout.addWidget(manual)
 
-        for index, voice in enumerate(self.engine.ceremony.voices):
-            button = QPushButton(f"Strike {voice.profile.name}")
-            button.clicked.connect(
-                lambda _checked=False, i=index:
-                    self.engine.ceremony.voices[i].generator.strike()
+        for i, voice in enumerate(self.engine.ceremony.voices):
+            b = QPushButton(f"Gentle tap — {voice.profile.name}")
+            b.clicked.connect(
+                lambda _checked=False, index=i:
+                    self.engine.ceremony.voices[index].generator.strike(
+                        0.34, 0.48, hardness=0.18
+                    )
             )
-            manual_layout.addWidget(button)
+            manual_row.addWidget(b)
 
-        friction_group = QGroupBox("Manual technique audition")
-        friction_layout = QVBoxLayout(friction_group)
-        layout.addWidget(friction_group)
+        big = QPushButton("Assertive large-gong strike")
+        big.clicked.connect(
+            lambda:
+                self.engine.ceremony.voices[0].generator.strike(
+                    0.78, 0.52, hardness=0.36
+                )
+        )
+        manual_row.addWidget(big)
 
-        self.friction_level = self._slider(
-            friction_layout,
-            "Bright gong friction",
-            0.0,
-            1.0,
-            0.0,
-            callback=lambda v:
-                self.engine.ceremony.voices[2].state.update(
-                    friction_level=v
-                ),
+        tech = QGroupBox("Manual friction / hand audition on bright gong")
+        tech_layout = QVBoxLayout(tech)
+        layout.addWidget(tech)
+
+        bright = self.engine.ceremony.voices[2].state
+        self._slider(
+            tech_layout, "Friction level", 0.0, 1.0, 0.0,
+            callback=lambda v: bright.update(friction_level=v),
         )
-        self.hand_level = self._slider(
-            friction_layout,
-            "Bright gong hand/rim excitation",
-            0.0,
-            1.0,
-            0.0,
-            callback=lambda v:
-                self.engine.ceremony.voices[2].state.update(
-                    hand_level=v
-                ),
+        self._slider(
+            tech_layout, "Friction pressure", 0.0, 1.0, 0.52,
+            callback=lambda v: bright.update(friction_pressure=v),
         )
-        self.hand_pressure = self._slider(
-            friction_layout,
-            "Hand pressure",
-            0.0,
-            1.0,
-            0.55,
-            callback=lambda v:
-                self.engine.ceremony.voices[2].state.update(
-                    hand_pressure=v
-                ),
+        self._slider(
+            tech_layout, "Friction speed", 0.0, 1.0, 0.42,
+            callback=lambda v: bright.update(friction_speed=v),
         )
-        self.hand_position = self._slider(
-            friction_layout,
-            "Hand position across surface/rim",
-            0.0,
-            1.0,
-            0.68,
-            callback=lambda v:
-                self.engine.ceremony.voices[2].state.update(
-                    hand_position=v
-                ),
+        self._slider(
+            tech_layout, "Friction brightness", 0.0, 1.0, 0.62,
+            callback=lambda v: bright.update(friction_brightness=v),
         )
-        self.friction_pressure = self._slider(
-            friction_layout,
-            "Friction pressure",
-            0.0,
-            1.0,
-            0.48,
-            callback=lambda v:
-                self.engine.ceremony.voices[2].state.update(
-                    friction_pressure=v
-                ),
+        self._slider(
+            tech_layout, "Friction instability", 0.0, 1.0, 0.68,
+            callback=lambda v: bright.update(friction_instability=v),
         )
-        self.friction_speed = self._slider(
-            friction_layout,
-            "Friction speed",
-            0.0,
-            1.0,
-            0.40,
-            callback=lambda v:
-                self.engine.ceremony.voices[2].state.update(
-                    friction_speed=v
-                ),
+        self._slider(
+            tech_layout, "Hand / rim excitation", 0.0, 1.0, 0.0,
+            callback=lambda v: bright.update(hand_level=v),
         )
-        self.friction_brightness = self._slider(
-            friction_layout,
-            "Friction brightness",
-            0.0,
-            1.0,
-            0.58,
-            callback=lambda v:
-                self.engine.ceremony.voices[2].state.update(
-                    friction_brightness=v
-                ),
+        self._slider(
+            tech_layout, "Hand pressure", 0.0, 1.0, 0.62,
+            callback=lambda v: bright.update(hand_pressure=v),
         )
-        self.friction_instability = self._slider(
-            friction_layout,
-            "Friction instability / squeal",
-            0.0,
-            1.0,
-            0.62,
-            callback=lambda v:
-                self.engine.ceremony.voices[2].state.update(
-                    friction_instability=v
-                ),
+        self._slider(
+            tech_layout, "Hand position", 0.0, 1.0, 0.70,
+            callback=lambda v: bright.update(hand_position=v),
         )
 
-        status_group = QGroupBox("Live performance state")
+        status_group = QGroupBox("Live resonant state")
         status_layout = QVBoxLayout(status_group)
         layout.addWidget(status_group)
 
@@ -413,29 +290,13 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     @staticmethod
-    def _slider(
-        layout,
-        label,
-        minimum,
-        maximum,
-        value,
-        *,
-        decimals=2,
-        suffix="",
-        callback=None,
-    ):
-        widget = FloatSlider(
-            label,
-            minimum,
-            maximum,
-            value,
-            decimals=decimals,
-            suffix=suffix,
-        )
+    def _slider(layout, label, minimum, maximum, value,
+                decimals=2, suffix="", callback=None):
+        w = FloatSlider(label, minimum, maximum, value, decimals, suffix)
         if callback:
-            widget.on_change(callback)
-        layout.addWidget(widget)
-        return widget
+            w.on_change(callback)
+        layout.addWidget(w)
+        return w
 
     @staticmethod
     def _time(seconds):
@@ -447,25 +308,23 @@ class MainWindow(QMainWindow):
         c = self.engine.ceremony
         lines = [
             f"Audio: {'RUNNING' if self.engine.running else 'STOPPED'}",
-            (
-                f"Ceremony: {'RUNNING' if c.running else 'STOPPED'}; "
-                f"phase={c.phase}; "
-                f"progress={100.0 * c.performance_progress:.1f}%; "
-                f"remaining={self._time(c.remaining_seconds)}"
-            ),
+            f"Ceremony: {'RUNNING' if c.running else 'STOPPED'}; "
+            f"phase={c.phase}; progress={100*c.performance_progress:.1f}%; "
+            f"remaining={self._time(c.remaining_seconds)}",
             "",
         ]
 
         for voice in c.voices:
+            net = voice.generator.network
+            fam = net.family_energy
             p = voice.position
-            spec = voice.state.get()
+            fam_text = "/".join(f"{x:.2f}" for x in fam[:3])
             lines.append(
-                f"{voice.profile.name}: "
-                f"{voice.profile.base_hz:.1f} Hz; "
-                f"friction={spec.friction_level:.2f}; "
-                f"hand={spec.hand_level:.2f}; "
-                f"strikes={voice.strikes}; "
-                f"pos=({p[0]:+.2f}, {p[1]:+.2f}, {p[2]:+.2f}) m"
+                f"{voice.profile.name}: E={net.total_energy:.3f}; "
+                f"body/metal/shimmer={fam_text}; "
+                f"nonlinear={'YES' if net.nonlinear_active else 'no'}; "
+                f"richness={net.richness:.2f}; strikes={voice.strikes}; "
+                f"pos=({p[0]:+.2f},{p[1]:+.2f},{p[2]:+.2f})m"
             )
 
         self.status.setText("\n".join(lines))
