@@ -130,6 +130,21 @@ class ProceduralGongGenerator:
         dtype=np.float64,
     )
 
+    # Real-time safety:
+    #
+    # The original recovery gong retained every strike for seven complete
+    # decay constants. On the 44-second large gong that meant a single strike
+    # remained in the callback for 308 seconds. A ceremony therefore grew
+    # progressively more expensive as old strike tails accumulated.
+    #
+    # Keep the perceptually important overlapping tails, but put a hard bound
+    # on callback work. When the bound is reached we retain the strikes with
+    # the strongest estimated remaining energy rather than blindly retaining
+    # the oldest history.
+    MAX_ACTIVE_STRIKES = 20
+    MODE_AUDIBILITY_FLOOR = 0.0015
+    CONTACT_NOISE_SECONDS = 0.22
+
     def __init__(
         self,
         sample_rate: float,
@@ -191,6 +206,32 @@ class ProceduralGongGenerator:
         self.friction_energy = 0.0
         self.hand_energy = 0.0
 
+    def _estimated_strike_energy(
+        self,
+        event: _Strike,
+        spec: GongSpec,
+    ) -> float:
+        """Cheap estimate used only to bound the real-time strike population."""
+        slowest_decay = max(0.4, spec.decay_seconds * self.DECAYS[0])
+        return float(
+            event.strength
+            * math.exp(-event.age_seconds / slowest_decay)
+        )
+
+    def _bound_active_strikes(self, spec: GongSpec) -> None:
+        if len(self.strikes) < self.MAX_ACTIVE_STRIKES:
+            return
+
+        # Preserve the tails that still carry the most energy. This is much
+        # less audible than simply deleting the oldest strike during a dense
+        # roll, while guaranteeing that callback cost cannot grow forever.
+        ranked = sorted(
+            self.strikes,
+            key=lambda event: self._estimated_strike_energy(event, spec),
+            reverse=True,
+        )
+        self.strikes = ranked[: self.MAX_ACTIVE_STRIKES - 1]
+
     def strike(
         self,
         strength: float | None = None,
@@ -217,6 +258,9 @@ class ProceduralGongGenerator:
             0.35,
             len(self.MODE_RATIOS),
         )
+
+        self._bound_active_strikes(spec)
+
         self.strikes.append(
             _Strike(
                 age_seconds=0.0,
@@ -252,9 +296,13 @@ class ProceduralGongGenerator:
         spec: GongSpec,
         frame_count: int,
     ) -> tuple[np.ndarray, float]:
+        block_start = event.age_seconds
+        block_seconds = frame_count / self.sample_rate
+        block_end = block_start + block_seconds
+
         t = (
             np.arange(frame_count, dtype=np.float64) / self.sample_rate
-            + event.age_seconds
+            + block_start
         )
         freqs = self._frequencies(
             spec,
@@ -282,6 +330,23 @@ class ProceduralGongGenerator:
                 0.4,
                 spec.decay_seconds * self.DECAYS[i],
             )
+
+            amplitude = (
+                event.strength
+                * self.AMPS[i]
+                * darkness_curve[i]
+                * (0.88 + 0.22 * event.location)
+            )
+
+            # Once a particular mode is below the conservative audibility
+            # floor for the entire block, do not spend trigonometric/exponential
+            # work on it. High gong modes disappear from CPU load much sooner
+            # than the slow low-frequency body.
+            if block_start > bloom_times[i]:
+                tail_at_start = amplitude * math.exp(-block_start / decay)
+                if tail_at_start < self.MODE_AUDIBILITY_FLOOR:
+                    continue
+
             attack = 1.0 - np.exp(
                 -np.maximum(t, 0.0) / max(0.008, bloom_times[i])
             )
@@ -298,30 +363,27 @@ class ProceduralGongGenerator:
             phase_a = 2.0 * math.pi * freq * t + event.phase[i]
             phase_b = 2.0 * math.pi * split * t - 0.6 * event.phase[i]
 
-            amplitude = (
-                event.strength
-                * self.AMPS[i]
-                * darkness_curve[i]
-                * (0.88 + 0.22 * event.location)
-            )
-
             split_mix = 0.10 + 0.28 * spec.chaos
             output += amplitude * envelope * (
                 (1.0 - split_mix) * np.sin(phase_a)
                 + split_mix * np.sin(phase_b)
             )
 
-        # Initial mallet/body contact: soft broad-band excitation, not a click.
-        contact_env = np.exp(-t / 0.030)
-        contact_noise = self.rng.standard_normal(frame_count)
-        output += (
-            contact_noise
-            * contact_env
-            * event.strength
-            * (0.010 + 0.020 * (1.0 - spec.darkness))
-        )
+        # Initial mallet/body contact exists only around the actual impact.
+        # The old code generated a fresh random-noise array for every historical
+        # strike on every callback, even minutes after its contact envelope was
+        # effectively zero.
+        if block_start < self.CONTACT_NOISE_SECONDS:
+            contact_env = np.exp(-t / 0.030)
+            contact_noise = self.rng.standard_normal(frame_count)
+            output += (
+                contact_noise
+                * contact_env
+                * event.strength
+                * (0.010 + 0.020 * (1.0 - spec.darkness))
+            )
 
-        return output, event.age_seconds + frame_count / self.sample_rate
+        return output, block_end
 
     def _modal_surface(
         self,
@@ -579,8 +641,22 @@ class ProceduralGongGenerator:
             )
             output += rendered
             event.age_seconds = new_age
-            if event.age_seconds < spec.decay_seconds * 7.0:
+
+            # Retain a tail only while its slowest family still has useful
+            # residual energy. The active-strike cap remains the final safety
+            # bound during unusually dense passages.
+            if (
+                self._estimated_strike_energy(event, spec)
+                >= self.MODE_AUDIBILITY_FLOOR
+            ):
                 retained.append(event)
+
+        if len(retained) > self.MAX_ACTIVE_STRIKES:
+            retained = sorted(
+                retained,
+                key=lambda event: self._estimated_strike_energy(event, spec),
+                reverse=True,
+            )[: self.MAX_ACTIVE_STRIKES]
 
         self.strikes = retained
 

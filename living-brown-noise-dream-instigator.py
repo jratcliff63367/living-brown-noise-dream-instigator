@@ -6827,11 +6827,119 @@ class SynthesizedMeditationOrchestrator:
         self._event_journal.clear()
         return entries
 
-    def configure_export(self, total_duration_seconds: float) -> None:
-        """Reset the no-repeat bag and constrain scheduling for this export."""
+    def configure_export(
+        self,
+        total_duration_seconds: float,
+        schedule_minutes: dict[str, float | None] | None = None,
+    ) -> None:
+        """
+        Configure the no-repeat meditation schedule for an offline export.
+
+        When explicit start times are supplied, each enabled ceremony is
+        scheduled exactly once at its requested offset from the beginning of
+        the export. "Off" is represented by None.
+
+        Overlap is intentionally not supported yet. If two requested ceremonies
+        would overlap, the later one is delayed until the earlier ceremony has
+        completed. The adjusted time is written to the export event log.
+        """
         self.export_mode = True
         self.export_total_seconds = max(0.0, float(total_duration_seconds))
         self.elapsed_seconds = 0.0
+        self._export_schedule: list[tuple[float, str]] = []
+
+        schedule_minutes = dict(schedule_minutes or {})
+        explicit = bool(schedule_minutes)
+
+        if explicit:
+            ceremony_seconds = (
+                self.state.get().ceremony_duration_minutes * 60.0
+            )
+            requested: list[tuple[float, str]] = []
+
+            for name in self.performance_registry:
+                raw_minutes = schedule_minutes.get(name)
+                if raw_minutes is None:
+                    continue
+
+                start_seconds = max(0.0, float(raw_minutes) * 60.0)
+                if start_seconds >= self.export_total_seconds:
+                    self._journal(
+                        "MEDITATION_WARNING",
+                        f"{name} scheduled at {raw_minutes:.1f} min, beyond "
+                        "the export duration; ceremony disabled for this export",
+                    )
+                    continue
+
+                requested.append((start_seconds, name))
+
+            requested.sort(key=lambda item: item[0])
+
+            # Prevent overlap while preserving requested order. This is
+            # deliberately deterministic and transparent in the log.
+            next_free = 0.0
+            adjusted: list[tuple[float, str]] = []
+            for requested_start, name in requested:
+                actual_start = max(requested_start, next_free)
+                if actual_start >= self.export_total_seconds:
+                    self._journal(
+                        "MEDITATION_WARNING",
+                        f"{name} could not fit after overlap adjustment and "
+                        "was disabled for this export",
+                    )
+                    continue
+
+                if actual_start > requested_start + 1.0e-6:
+                    self._journal(
+                        "MEDITATION_WARNING",
+                        f"{name} requested at "
+                        f"{requested_start / 60.0:.1f} min but delayed to "
+                        f"{actual_start / 60.0:.1f} min to prevent ceremony "
+                        "overlap",
+                    )
+
+                adjusted.append((actual_start, name))
+                next_free = actual_start + ceremony_seconds
+
+                if next_free > self.export_total_seconds:
+                    self._journal(
+                        "MEDITATION_WARNING",
+                        f"{name} begins at {actual_start / 60.0:.1f} min and "
+                        "will be truncated by export end",
+                    )
+
+            self._export_schedule = adjusted
+            self.remaining_performances = [
+                name for _, name in adjusted
+            ]
+
+            if adjusted:
+                self.next_performance_seconds = adjusted[0][0]
+                self.current_status = (
+                    "export schedule loaded; next meditation in "
+                    f"{self.next_performance_seconds / 60.0:.1f} min"
+                )
+                self._journal(
+                    "MEDITATION_PLAN",
+                    "explicit export schedule="
+                    + " -> ".join(
+                        f"{name}@{seconds / 60.0:.1f}min"
+                        for seconds, name in adjusted
+                    ),
+                )
+            else:
+                self.next_performance_seconds = math.inf
+                self.current_status = (
+                    "export schedule contains no enabled meditation ceremonies"
+                )
+                self._journal(
+                    "MEDITATION_PLAN",
+                    "explicit export schedule: all ceremonies off",
+                )
+            return
+
+        # Backward-compatible random no-repeat scheduling when no explicit
+        # schedule is supplied.
         self.remaining_performances = list(self.performance_registry)
         self.rng.shuffle(self.remaining_performances)
         self._reschedule(self.state.get())
@@ -6884,6 +6992,30 @@ class SynthesizedMeditationOrchestrator:
         if not self.export_mode:
             self.next_performance_seconds = requested
             return
+
+        # An explicit export schedule uses absolute offsets from file start.
+        export_schedule = getattr(self, "_export_schedule", None)
+        if export_schedule:
+            # Drop entries that have already played.
+            played = set(self.performance_registry) - set(
+                self.remaining_performances
+            )
+            pending = [
+                (seconds, name)
+                for seconds, name in export_schedule
+                if name not in played
+            ]
+            if pending:
+                target_seconds, target_name = pending[0]
+                self.next_performance_seconds = max(
+                    0.0,
+                    target_seconds - self.elapsed_seconds,
+                )
+                self.current_status = (
+                    f"waiting for scheduled {target_name} at "
+                    f"{target_seconds / 60.0:.1f} min"
+                )
+                return
 
         # Guarantee room for every still-unplayed experience when possible.
         remaining_time = max(
@@ -7933,15 +8065,39 @@ class LivingBrownNoiseMixer:
             * brown_motion_spec.layer_amount
         )
 
-        # A ceremony does not replace Living Brown Noise. It moves the bed into
-        # a quieter, more restful supporting role. The transition is gradual
-        # and follows the same ceremony-presence curve used above.
+        # Tibetan bowls remain additive to Living Brown Noise: the configured
+        # reduction simply moves the bed into a supporting role.
+        #
+        # A gong ceremony is different. It owns the acoustic space. We still
+        # make the transition gracefully: during the first half of the existing
+        # meditation transition the brown bed fades to the user's configured
+        # reduction target; during the second half it fades from that reduced
+        # level all the way to digital silence. The same curve reverses cleanly
+        # when the gong ceremony ends.
         rest_gain = 10.0 ** (
             meditation_spec.brown_rest_gain_db / 20.0
         )
-        brown_ceremony_gain = (
-            1.0 + (rest_gain - 1.0) * meditation_curve
-        )
+
+        if self.synthesized_meditation.active_name == "Gong ceremony":
+            gong_progress = np.clip(meditation_curve, 0.0, 1.0)
+            first_half = np.clip(gong_progress * 2.0, 0.0, 1.0)
+            second_half = np.clip(
+                (gong_progress - 0.5) * 2.0,
+                0.0,
+                1.0,
+            )
+
+            brown_to_rest = (
+                1.0 + (rest_gain - 1.0) * first_half
+            )
+            brown_ceremony_gain = (
+                brown_to_rest * (1.0 - second_half)
+            )
+        else:
+            brown_ceremony_gain = (
+                1.0 + (rest_gain - 1.0) * meditation_curve
+            )
+
         stereo *= brown_ceremony_gain[:, np.newaxis]
 
         heartbeat = self.heartbeat.generate(frame_count)
@@ -8287,6 +8443,7 @@ class ExportWorker(QThread):
         metabolism_spec: MetabolismSpec,
         dream_motif_spatial_spec: DreamMotifSpatialSpec,
         synthesized_meditation_spec: SynthesizedMeditationSpec,
+        export_ceremony_schedule: dict[str, float | None] | None = None,
     ) -> None:
         super().__init__()
         self.output_path = output_path
@@ -8306,6 +8463,9 @@ class ExportWorker(QThread):
         self.metabolism_spec = metabolism_spec
         self.dream_motif_spatial_spec = dream_motif_spatial_spec
         self.synthesized_meditation_spec = synthesized_meditation_spec
+        self.export_ceremony_schedule = dict(
+            export_ceremony_schedule or {}
+        )
         self._cancel_requested = threading.Event()
 
     def request_cancel(self) -> None:
@@ -8361,7 +8521,8 @@ class ExportWorker(QThread):
             motif_engine = mixer.dream_motif_3d
             meditation_engine = mixer.synthesized_meditation
             meditation_engine.configure_export(
-                self.duration_minutes * 60.0
+                self.duration_minutes * 60.0,
+                schedule_minutes=self.export_ceremony_schedule,
             )
 
             # Encode the generated float stereo buffers directly to MP3.
@@ -10978,6 +11139,109 @@ class MainWindow(QMainWindow):
         duration_row.addWidget(self.export_duration_label)
         export_layout.addLayout(duration_row)
 
+        # --------------------------------------------------------------
+        # Export ceremony scheduling
+        # --------------------------------------------------------------
+        self.export_ceremony_expand_button = QToolButton()
+        self.export_ceremony_expand_button.setText(
+            "Ceremony scheduling"
+        )
+        self.export_ceremony_expand_button.setCheckable(True)
+        self.export_ceremony_expand_button.setChecked(
+            bool(
+                self.loaded_settings.get(
+                    "export_ceremony_schedule_expanded",
+                    False,
+                )
+            )
+        )
+        self.export_ceremony_expand_button.setArrowType(
+            Qt.ArrowType.DownArrow
+            if self.export_ceremony_expand_button.isChecked()
+            else Qt.ArrowType.RightArrow
+        )
+        self.export_ceremony_expand_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        export_layout.addWidget(self.export_ceremony_expand_button)
+
+        self.export_ceremony_panel = QWidget()
+        export_ceremony_form = QFormLayout(
+            self.export_ceremony_panel
+        )
+        export_ceremony_form.setContentsMargins(18, 0, 0, 0)
+
+        def _make_export_ceremony_slider(
+            setting_name: str,
+            default_value: int,
+        ) -> tuple[QSlider, QLabel]:
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(-1, self.export_duration_slider.value())
+            slider.setSingleStep(5)
+            slider.setPageStep(15)
+            slider.setValue(
+                int(
+                    self.loaded_settings.get(
+                        setting_name,
+                        default_value,
+                    )
+                )
+            )
+            label = QLabel("")
+            label.setMinimumWidth(90)
+            return slider, label
+
+        self.export_gong_start_slider, self.export_gong_start_label = (
+            _make_export_ceremony_slider(
+                "export_gong_start_minutes",
+                -1,
+            )
+        )
+        gong_schedule_row = QHBoxLayout()
+        gong_schedule_row.addWidget(
+            self.export_gong_start_slider,
+            1,
+        )
+        gong_schedule_row.addWidget(
+            self.export_gong_start_label,
+        )
+        export_ceremony_form.addRow(
+            "Gong ceremony:",
+            gong_schedule_row,
+        )
+
+        self.export_bowls_start_slider, self.export_bowls_start_label = (
+            _make_export_ceremony_slider(
+                "export_bowls_start_minutes",
+                -1,
+            )
+        )
+        bowls_schedule_row = QHBoxLayout()
+        bowls_schedule_row.addWidget(
+            self.export_bowls_start_slider,
+            1,
+        )
+        bowls_schedule_row.addWidget(
+            self.export_bowls_start_label,
+        )
+        export_ceremony_form.addRow(
+            "Singing bowls:",
+            bowls_schedule_row,
+        )
+
+        schedule_note = QLabel(
+            "Off disables that ceremony for the export. Start times are "
+            "minutes from the beginning of the file. Each ceremony plays "
+            "at most once; overlapping schedules are delayed automatically."
+        )
+        schedule_note.setWordWrap(True)
+        export_ceremony_form.addRow("", schedule_note)
+
+        self.export_ceremony_panel.setVisible(
+            self.export_ceremony_expand_button.isChecked()
+        )
+        export_layout.addWidget(self.export_ceremony_panel)
+
         export_buttons = QHBoxLayout()
         self.export_button = QPushButton("Export audio…")
         self.cancel_export_button = QPushButton("Cancel export")
@@ -11226,6 +11490,21 @@ class MainWindow(QMainWindow):
         self.cancel_export_button.clicked.connect(self._cancel_export)
         self.export_duration_slider.valueChanged.connect(
             self._on_export_duration_changed
+        )
+        self.export_ceremony_expand_button.toggled.connect(
+            self._toggle_export_ceremony_schedule
+        )
+        self.export_gong_start_slider.valueChanged.connect(
+            lambda value: self._on_export_ceremony_start_changed(
+                self.export_gong_start_label,
+                value,
+            )
+        )
+        self.export_bowls_start_slider.valueChanged.connect(
+            lambda value: self._on_export_ceremony_start_changed(
+                self.export_bowls_start_label,
+                value,
+            )
         )
 
         self.timer = QTimer(self)
@@ -12484,6 +12763,15 @@ class MainWindow(QMainWindow):
             "export_duration_minutes": (
                 self.export_duration_slider.value()
             ),
+            "export_ceremony_schedule_expanded": (
+                self.export_ceremony_expand_button.isChecked()
+            ),
+            "export_gong_start_minutes": (
+                self.export_gong_start_slider.value()
+            ),
+            "export_bowls_start_minutes": (
+                self.export_bowls_start_slider.value()
+            ),
         }
 
         try:
@@ -12504,10 +12792,57 @@ class MainWindow(QMainWindow):
 
         return f"{hours} h {remainder} min"
 
+    def _format_export_ceremony_start(self, minutes: int) -> str:
+        if minutes < 0:
+            return "Off"
+        return self._format_duration(minutes)
+
+    def _on_export_ceremony_start_changed(
+        self,
+        label: QLabel,
+        minutes: int,
+    ) -> None:
+        label.setText(
+            self._format_export_ceremony_start(minutes)
+        )
+        self._schedule_settings_save()
+
+    def _toggle_export_ceremony_schedule(
+        self,
+        expanded: bool,
+    ) -> None:
+        self.export_ceremony_panel.setVisible(bool(expanded))
+        self.export_ceremony_expand_button.setArrowType(
+            Qt.ArrowType.DownArrow
+            if expanded
+            else Qt.ArrowType.RightArrow
+        )
+        self._schedule_settings_save()
+
     def _on_export_duration_changed(self, minutes: int) -> None:
         self.export_duration_label.setText(
             self._format_duration(minutes)
         )
+
+        # Ceremony start sliders always cover exactly the current export.
+        # Values that are now beyond EOF are clamped to the new end time.
+        for slider, label in (
+            (
+                self.export_gong_start_slider,
+                self.export_gong_start_label,
+            ),
+            (
+                self.export_bowls_start_slider,
+                self.export_bowls_start_label,
+            ),
+        ):
+            slider.setMaximum(minutes)
+            label.setText(
+                self._format_export_ceremony_start(
+                    slider.value()
+                )
+            )
+
         self._schedule_settings_save()
 
     def _start_export(self) -> None:
@@ -12570,6 +12905,22 @@ class MainWindow(QMainWindow):
             synthesized_meditation_spec=(
                 self.mixer.synthesized_meditation_state.get()
             ),
+            export_ceremony_schedule={
+                "Gong ceremony": (
+                    None
+                    if self.export_gong_start_slider.value() < 0
+                    else float(
+                        self.export_gong_start_slider.value()
+                    )
+                ),
+                "Tibetan singing bowls": (
+                    None
+                    if self.export_bowls_start_slider.value() < 0
+                    else float(
+                        self.export_bowls_start_slider.value()
+                    )
+                ),
+            },
         )
 
         self.export_worker.progress_changed.connect(
