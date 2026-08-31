@@ -56,6 +56,9 @@ from PySide6.QtWidgets import (
 # steam_audio_renderer.py, and the sounds directory belong beside the script.
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 SOUND_EFFECTS_DIRECTORY = SCRIPT_DIRECTORY / "sounds"
+CEREMONIES_DIRECTORY = SCRIPT_DIRECTORY / "ceremonies"
+SINGING_BOWLS_RECORDING_PATH = CEREMONIES_DIRECTORY / "singing-bowls.mp3"
+GONG_CEREMONY_RECORDING_PATH = CEREMONIES_DIRECTORY / "gong-ceremony.mp3"
 EXPORT_DIRECTORY = SCRIPT_DIRECTORY / "exports"
 CONDUCTOR_LOG_PATH = SCRIPT_DIRECTORY / "conductor-log.txt"
 
@@ -6598,6 +6601,12 @@ class SynthesizedMeditationSpec:
 
     enabled: bool = True
 
+    # Experimental reference mode. When enabled, the ceremony scheduler and
+    # brown-noise transition logic remain unchanged, but the two synthesized
+    # instruments are replaced by the complete stereo MP3 recordings in the
+    # ceremonies directory.
+    use_recorded_ceremonies: bool = False
+
     # Rest time between complete performances.
     interval_min_minutes: float = 45.0
     interval_max_minutes: float = 120.0
@@ -6614,11 +6623,21 @@ class SynthesizedMeditationSpec:
     # The Living Brown Noise bed remains present, but becomes quieter and
     # deliberately restful while a synthesized meditation is foregrounded.
     brown_rest_gain_db: float = -6.0
+
+    # Gong ceremonies can independently choose how much brown noise survives
+    # after the transition. None preserves the previous behavior: the gong
+    # owns the audio space and the brown bed reaches digital silence. A numeric
+    # value is the final brown-bed gain in dB relative to the normal bed.
+    gong_brown_gain_db: float | None = None
     transition_seconds: float = 12.0
 
     def validated(self) -> "SynthesizedMeditationSpec":
         if not isinstance(self.enabled, bool):
             raise ValueError("enabled must be boolean")
+        if not isinstance(self.use_recorded_ceremonies, bool):
+            raise ValueError(
+                "use_recorded_ceremonies must be boolean"
+            )
         if not 5.0 <= self.interval_min_minutes <= 480.0:
             raise ValueError(
                 "interval_min_minutes must be between 5 and 480"
@@ -6646,6 +6665,11 @@ class SynthesizedMeditationSpec:
             raise ValueError(
                 "brown_rest_gain_db must be between -18 and 0"
             )
+        if self.gong_brown_gain_db is not None:
+            if not -48.0 <= float(self.gong_brown_gain_db) <= 0.0:
+                raise ValueError(
+                    "gong_brown_gain_db must be None or between -48 and 0"
+                )
         if not 1.0 <= self.transition_seconds <= 60.0:
             raise ValueError(
                 "transition_seconds must be between 1 and 60"
@@ -6684,6 +6708,241 @@ class SynthesizedMeditationState:
             self._spec = SynthesizedMeditationSpec(
                 **values
             ).validated()
+
+
+class CeremonyRecordingPlayer:
+    """
+    Incremental stereo MP3 playback for long meditation recordings.
+
+    The ceremony files can be an hour or more, so they are deliberately not
+    decoded into one giant numpy array. PyAV/FFmpeg decodes only enough audio
+    to satisfy the current mixer request. This is deterministic for offline
+    export and keeps memory use bounded.
+
+    Recorded files are kept in their original stereo field. They are not passed
+    through the procedural instrument's Steam Audio sources.
+    """
+
+    def __init__(self, sample_rate: int) -> None:
+        self.sample_rate = int(sample_rate)
+        self.path: Path | None = None
+        self.container = None
+        self.stream = None
+        self.resampler = None
+        self.decoder = None
+
+        self._chunks = deque()
+        self._chunk_offset = 0
+        self._queued_frames = 0
+        self._eof = True
+
+        self.duration_seconds = 0.0
+        self.elapsed_samples = 0
+
+    @staticmethod
+    def probe_duration_seconds(path: Path) -> float:
+        path = Path(path)
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"Ceremony recording not found: {path}"
+            )
+
+        container = av.open(str(path))
+        try:
+            if container.duration is not None:
+                return max(
+                    0.0,
+                    float(container.duration) / float(av.time_base),
+                )
+
+            audio_streams = [
+                stream
+                for stream in container.streams
+                if stream.type == "audio"
+            ]
+            if audio_streams:
+                stream = audio_streams[0]
+                if (
+                    stream.duration is not None
+                    and stream.time_base is not None
+                ):
+                    return max(
+                        0.0,
+                        float(stream.duration * stream.time_base),
+                    )
+        finally:
+            container.close()
+
+        return 0.0
+
+    @property
+    def complete(self) -> bool:
+        return self._eof and self._queued_frames <= 0
+
+    @property
+    def elapsed_seconds(self) -> float:
+        return self.elapsed_samples / self.sample_rate
+
+    @property
+    def remaining_seconds(self) -> float:
+        if self.duration_seconds <= 0.0:
+            return 0.0
+        return max(
+            0.0,
+            self.duration_seconds - self.elapsed_seconds,
+        )
+
+    @property
+    def phase(self) -> str:
+        return "MP3 reference playback"
+
+    def start(self, path: Path) -> None:
+        self.stop()
+
+        path = Path(path)
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"Ceremony recording not found: {path}"
+            )
+
+        self.path = path
+        self.duration_seconds = self.probe_duration_seconds(path)
+        self.elapsed_samples = 0
+
+        self.container = av.open(str(path))
+        audio_streams = [
+            stream
+            for stream in self.container.streams
+            if stream.type == "audio"
+        ]
+        if not audio_streams:
+            self.stop()
+            raise ValueError(
+                f"Ceremony recording contains no audio stream: {path}"
+            )
+
+        self.stream = audio_streams[0]
+        self.resampler = av.audio.resampler.AudioResampler(
+            format="fltp",
+            layout="stereo",
+            rate=self.sample_rate,
+        )
+        self.decoder = self.container.decode(self.stream)
+
+        self._chunks.clear()
+        self._chunk_offset = 0
+        self._queued_frames = 0
+        self._eof = False
+
+    def stop(self) -> None:
+        if self.container is not None:
+            try:
+                self.container.close()
+            except Exception:
+                pass
+
+        self.container = None
+        self.stream = None
+        self.resampler = None
+        self.decoder = None
+        self.path = None
+
+        self._chunks.clear()
+        self._chunk_offset = 0
+        self._queued_frames = 0
+        self._eof = True
+
+    def _queue_converted(self, converted_frame) -> None:
+        array = converted_frame.to_ndarray()
+
+        # fltp is channels x frames.
+        if array.ndim == 1:
+            array = array[np.newaxis, :]
+
+        if array.shape[0] == 1:
+            array = np.repeat(array, 2, axis=0)
+        elif array.shape[0] > 2:
+            array = array[:2]
+
+        stereo = np.ascontiguousarray(
+            array.T,
+            dtype=np.float32,
+        )
+        if len(stereo) <= 0:
+            return
+
+        self._chunks.append(stereo)
+        self._queued_frames += len(stereo)
+
+    def _decode_more(self) -> None:
+        if self._eof or self.decoder is None:
+            return
+
+        try:
+            frame = next(self.decoder)
+        except StopIteration:
+            flushed = self.resampler.resample(None)
+            if flushed is not None:
+                if not isinstance(flushed, list):
+                    flushed = [flushed]
+                for converted in flushed:
+                    self._queue_converted(converted)
+
+            self._eof = True
+            if self.container is not None:
+                self.container.close()
+            self.container = None
+            self.decoder = None
+            self.stream = None
+            self.resampler = None
+            return
+
+        converted_frames = self.resampler.resample(frame)
+        if converted_frames is None:
+            return
+        if not isinstance(converted_frames, list):
+            converted_frames = [converted_frames]
+        for converted in converted_frames:
+            self._queue_converted(converted)
+
+    def _ensure_frames(self, frame_count: int) -> None:
+        while (
+            self._queued_frames < frame_count
+            and not self._eof
+        ):
+            self._decode_more()
+
+    def render(self, frame_count: int) -> np.ndarray:
+        frame_count = max(0, int(frame_count))
+        output = np.zeros(
+            (frame_count, 2),
+            dtype=np.float32,
+        )
+        if frame_count <= 0 or self.complete:
+            return output
+
+        self._ensure_frames(frame_count)
+
+        written = 0
+        while written < frame_count and self._chunks:
+            chunk = self._chunks[0]
+            available = len(chunk) - self._chunk_offset
+            take = min(frame_count - written, available)
+
+            output[written:written + take] = chunk[
+                self._chunk_offset:self._chunk_offset + take
+            ]
+
+            written += take
+            self._chunk_offset += take
+            self._queued_frames -= take
+
+            if self._chunk_offset >= len(chunk):
+                self._chunks.popleft()
+                self._chunk_offset = 0
+
+        self.elapsed_samples += written
+        return output
 
 
 class SynthesizedMeditationOrchestrator:
@@ -6778,6 +7037,16 @@ class SynthesizedMeditationOrchestrator:
                 )
             )
 
+        self.recording_paths = {
+            "Tibetan singing bowls": SINGING_BOWLS_RECORDING_PATH,
+            "Gong ceremony": GONG_CEREMONY_RECORDING_PATH,
+        }
+        self.recording_player = CeremonyRecordingPlayer(
+            int(self.sample_rate)
+        )
+        self.active_uses_recording = False
+        self._recording_duration_cache: dict[str, float] = {}
+
         self.performance_registry = {
             "Tibetan singing bowls": self._start_singing_bowls,
             "Gong ceremony": self._start_gong,
@@ -6827,6 +7096,28 @@ class SynthesizedMeditationOrchestrator:
         self._event_journal.clear()
         return entries
 
+    def _recording_duration_seconds(self, name: str) -> float:
+        cached = self._recording_duration_cache.get(name)
+        if cached is not None:
+            return cached
+
+        path = self.recording_paths[name]
+        duration = CeremonyRecordingPlayer.probe_duration_seconds(path)
+        self._recording_duration_cache[name] = duration
+        return duration
+
+    def _performance_duration_seconds(
+        self,
+        name: str,
+        spec: SynthesizedMeditationSpec | None = None,
+    ) -> float:
+        spec = spec or self.state.get()
+        if spec.use_recorded_ceremonies:
+            duration = self._recording_duration_seconds(name)
+            if duration > 0.0:
+                return duration
+        return spec.ceremony_duration_minutes * 60.0
+
     def configure_export(
         self,
         total_duration_seconds: float,
@@ -6852,9 +7143,7 @@ class SynthesizedMeditationOrchestrator:
         explicit = bool(schedule_minutes)
 
         if explicit:
-            ceremony_seconds = (
-                self.state.get().ceremony_duration_minutes * 60.0
-            )
+            spec = self.state.get()
             requested: list[tuple[float, str]] = []
 
             for name in self.performance_registry:
@@ -6899,7 +7188,11 @@ class SynthesizedMeditationOrchestrator:
                     )
 
                 adjusted.append((actual_start, name))
-                next_free = actual_start + ceremony_seconds
+                performance_seconds = self._performance_duration_seconds(
+                    name,
+                    spec,
+                )
+                next_free = actual_start + performance_seconds
 
                 if next_free > self.export_total_seconds:
                     self._journal(
@@ -6944,10 +7237,13 @@ class SynthesizedMeditationOrchestrator:
         self.rng.shuffle(self.remaining_performances)
         self._reschedule(self.state.get())
 
-        required = (
-            len(self.remaining_performances)
-            * self.state.get().ceremony_duration_minutes
-            * 60.0
+        export_spec = self.state.get()
+        required = sum(
+            self._performance_duration_seconds(
+                name,
+                export_spec,
+            )
+            for name in self.remaining_performances
         )
         if self.export_total_seconds + 1.0e-9 < required:
             self._journal(
@@ -7022,9 +7318,9 @@ class SynthesizedMeditationOrchestrator:
             0.0,
             self.export_total_seconds - self.elapsed_seconds,
         )
-        duration = spec.ceremony_duration_minutes * 60.0
-        required_performance_time = (
-            len(self.remaining_performances) * duration
+        required_performance_time = sum(
+            self._performance_duration_seconds(name, spec)
+            for name in self.remaining_performances
         )
         slack = max(0.0, remaining_time - required_performance_time)
 
@@ -7091,8 +7387,29 @@ class SynthesizedMeditationOrchestrator:
             f"{', '.join(self.remaining_performances) or 'none'}",
         )
 
+    def _start_recorded_performance(
+        self,
+        name: str,
+    ) -> None:
+        path = self.recording_paths[name]
+        self.recording_player.start(path)
+        self.active_uses_recording = True
+        self._mark_started(name)
+        self._journal(
+            "MEDITATION_SOURCE",
+            f"{name}; MP3={path.name}; "
+            f"duration={self.recording_player.duration_seconds / 60.0:.2f} min",
+        )
+
     def _start_singing_bowls(self) -> None:
         spec = self.state.get()
+        if spec.use_recorded_ceremonies:
+            self._start_recorded_performance(
+                "Tibetan singing bowls"
+            )
+            return
+
+        self.active_uses_recording = False
         self._sync_bowl_settings(spec)
         self.bowl_state.update(enabled=True)
         self.bowl.restart()
@@ -7100,6 +7417,11 @@ class SynthesizedMeditationOrchestrator:
 
     def _start_gong(self) -> None:
         spec = self.state.get()
+        if spec.use_recorded_ceremonies:
+            self._start_recorded_performance("Gong ceremony")
+            return
+
+        self.active_uses_recording = False
         self._sync_gong_settings(spec)
         self.gong_state.update(enabled=True)
         self.gong.restart()
@@ -7115,7 +7437,9 @@ class SynthesizedMeditationOrchestrator:
     def _stop_active(self, *, reschedule: bool, completed: bool = False) -> None:
         previous = self.active_name
 
-        if previous == "Tibetan singing bowls":
+        if self.active_uses_recording:
+            self.recording_player.stop()
+        elif previous == "Tibetan singing bowls":
             self.bowl_state.update(enabled=False)
             self.bowl.stop()
         elif previous == "Gong ceremony":
@@ -7129,6 +7453,7 @@ class SynthesizedMeditationOrchestrator:
             )
 
         self.active_name = ""
+        self.active_uses_recording = False
         self.current_status = "waiting"
 
         if reschedule:
@@ -7158,6 +7483,26 @@ class SynthesizedMeditationOrchestrator:
                 starter()
 
         if self.active:
+            if self.active_uses_recording:
+                if self.recording_player.complete:
+                    self._stop_active(
+                        reschedule=True,
+                        completed=True,
+                    )
+                else:
+                    remaining = self.recording_player.remaining_seconds
+                    source_name = (
+                        self.recording_player.path.name
+                        if self.recording_player.path is not None
+                        else "recording"
+                    )
+                    self.current_status = (
+                        f"{self.active_name}: MP3 reference "
+                        f"({source_name}); "
+                        f"{remaining / 60.0:.1f} min remaining"
+                    )
+                return
+
             if self.active_name == "Tibetan singing bowls":
                 self._sync_bowl_settings(spec)
                 self.bowl.advance(elapsed_seconds)
@@ -7226,6 +7571,11 @@ class SynthesizedMeditationOrchestrator:
             return np.zeros((frame_count, 2), dtype=np.float32)
 
         spec = self.state.get()
+
+        if self.active_uses_recording:
+            stereo = self.recording_player.render(frame_count)
+            stereo *= self._db_gain(spec.performance_level_db)
+            return stereo.astype(np.float32, copy=False)
 
         if self.active_name == "Tibetan singing bowls":
             mono_blocks = self.bowl.render_mono(frame_count)
@@ -8068,12 +8418,11 @@ class LivingBrownNoiseMixer:
         # Tibetan bowls remain additive to Living Brown Noise: the configured
         # reduction simply moves the bed into a supporting role.
         #
-        # A gong ceremony is different. It owns the acoustic space. We still
-        # make the transition gracefully: during the first half of the existing
-        # meditation transition the brown bed fades to the user's configured
-        # reduction target; during the second half it fades from that reduced
-        # level all the way to digital silence. The same curve reverses cleanly
-        # when the gong ceremony ends.
+        # Gong ceremonies have their own brown-bed floor. None means the legacy
+        # behavior (full fade to digital silence). Otherwise the user-selected
+        # dB value is the final brown level. We preserve the familiar two-stage
+        # shape: first reach the ordinary ceremony rest level, then continue to
+        # the gong-specific floor. The same curve reverses cleanly at the end.
         rest_gain = 10.0 ** (
             meditation_spec.brown_rest_gain_db / 20.0
         )
@@ -8087,11 +8436,19 @@ class LivingBrownNoiseMixer:
                 1.0,
             )
 
+            if meditation_spec.gong_brown_gain_db is None:
+                gong_floor_gain = 0.0
+            else:
+                gong_floor_gain = 10.0 ** (
+                    float(meditation_spec.gong_brown_gain_db) / 20.0
+                )
+
             brown_to_rest = (
                 1.0 + (rest_gain - 1.0) * first_half
             )
             brown_ceremony_gain = (
-                brown_to_rest * (1.0 - second_half)
+                brown_to_rest
+                + (gong_floor_gain - rest_gain) * second_half
             )
         else:
             brown_ceremony_gain = (
@@ -8490,6 +8847,21 @@ class ExportWorker(QThread):
                 // STEAM_SPATIAL_FRAME_SIZE
                 * STEAM_SPATIAL_FRAME_SIZE
             )
+
+            if self.synthesized_meditation_spec.use_recorded_ceremonies:
+                scheduled_recordings = {
+                    "Tibetan singing bowls": SINGING_BOWLS_RECORDING_PATH,
+                    "Gong ceremony": GONG_CEREMONY_RECORDING_PATH,
+                }
+                for name, path in scheduled_recordings.items():
+                    if (
+                        self.export_ceremony_schedule.get(name)
+                        is not None
+                        and not path.is_file()
+                    ):
+                        raise FileNotFoundError(
+                            f"Scheduled {name} MP3 not found: {path}"
+                        )
 
             seed_base = int(time.time_ns() & 0x7FFFFFFF)
             mixer, _, _, _, _, _, _, _, _ = build_mixer(
@@ -9766,12 +10138,12 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.correlation_checkbox)
 
         # ------------------------------------------------------------------
-        # Synthesized meditation performances
+        # Meditation performances
         # ------------------------------------------------------------------
 
         self.meditation_expand_button = QToolButton()
         self.meditation_expand_button.setText(
-            "Synthesized meditation performances"
+            "Meditation performances"
         )
         self.meditation_expand_button.setCheckable(True)
         self.meditation_expand_button.setChecked(
@@ -9800,13 +10172,27 @@ class MainWindow(QMainWindow):
         )
 
         self.meditation_enabled_checkbox = QCheckBox(
-            "Enable automatic synthesized meditation performances"
+            "Enable automatic meditation performances"
         )
         self.meditation_enabled_checkbox.setChecked(
             meditation_spec.enabled
         )
         meditation_layout.addWidget(
             self.meditation_enabled_checkbox
+        )
+
+        self.meditation_recorded_checkbox = QCheckBox(
+            "Use MP3 ceremony recordings instead of synthesized ceremonies"
+        )
+        self.meditation_recorded_checkbox.setChecked(
+            meditation_spec.use_recorded_ceremonies
+        )
+        self.meditation_recorded_checkbox.setToolTip(
+            "Uses ceremonies/singing-bowls.mp3 and "
+            "ceremonies/gong-ceremony.mp3 in full."
+        )
+        meditation_layout.addWidget(
+            self.meditation_recorded_checkbox
         )
 
         meditation_form = QFormLayout()
@@ -9938,6 +10324,54 @@ class MainWindow(QMainWindow):
         meditation_form.addRow(
             "Brown-noise reduction during ceremony:",
             self.meditation_brown_gain_control,
+        )
+
+        # Gong-only brown-noise floor. The far-left position is a true Off
+        # state (digital silence), matching the behavior before this control
+        # existed. All other positions are the final brown-bed level in dB.
+        gong_brown_widget = QWidget()
+        gong_brown_layout = QHBoxLayout(gong_brown_widget)
+        gong_brown_layout.setContentsMargins(0, 0, 0, 0)
+        self.gong_brown_gain_slider = QSlider(Qt.Orientation.Horizontal)
+        self.gong_brown_gain_slider.setRange(-49, 0)
+        initial_gong_value = (
+            -49
+            if meditation_spec.gong_brown_gain_db is None
+            else int(round(meditation_spec.gong_brown_gain_db))
+        )
+        self.gong_brown_gain_slider.setValue(initial_gong_value)
+        self.gong_brown_gain_label = QLabel()
+        self.gong_brown_gain_label.setMinimumWidth(72)
+        gong_brown_layout.addWidget(self.gong_brown_gain_slider, 1)
+        gong_brown_layout.addWidget(self.gong_brown_gain_label)
+
+        def update_gong_brown_gain(raw_value: int) -> None:
+            if raw_value <= -49:
+                self.gong_brown_gain_label.setText("Off")
+                self._update_meditation(gong_brown_gain_db=None)
+            else:
+                self.gong_brown_gain_label.setText(f"{raw_value:+d} dB")
+                self._update_meditation(
+                    gong_brown_gain_db=float(raw_value)
+                )
+
+        self.gong_brown_gain_slider.valueChanged.connect(
+            update_gong_brown_gain
+        )
+        if initial_gong_value <= -49:
+            self.gong_brown_gain_label.setText("Off")
+        else:
+            self.gong_brown_gain_label.setText(
+                f"{initial_gong_value:+d} dB"
+            )
+        self.gong_brown_gain_slider.setToolTip(
+            "Final Living Brown Noise level during a gong ceremony. "
+            "Far left = Off (digital silence, previous behavior). "
+            "Move right to retain progressively more brown noise."
+        )
+        meditation_form.addRow(
+            "Gong brown-noise floor:",
+            gong_brown_widget,
         )
 
         meditation_buttons = QHBoxLayout()
@@ -11410,6 +11844,11 @@ class MainWindow(QMainWindow):
                 enabled=bool(checked)
             )
         )
+        self.meditation_recorded_checkbox.toggled.connect(
+            lambda checked: self._update_meditation(
+                use_recorded_ceremonies=bool(checked)
+            )
+        )
         self.start_singing_bowl_button.clicked.connect(
             self._start_singing_bowl_ceremony
         )
@@ -12536,15 +12975,33 @@ class MainWindow(QMainWindow):
         orchestrator = self.mixer.synthesized_meditation
         spec = self.mixer.synthesized_meditation_state.get()
 
+        source_mode = (
+            "MP3 recordings"
+            if spec.use_recorded_ceremonies
+            else "synthesized"
+        )
+
         if orchestrator.active:
+            if orchestrator.active_name == "Gong ceremony":
+                gong_brown_text = (
+                    "Off"
+                    if spec.gong_brown_gain_db is None
+                    else f"{spec.gong_brown_gain_db:+.1f} dB"
+                )
+                brown_text = f"gong brown floor {gong_brown_text}"
+            else:
+                brown_text = (
+                    f"brown bed {spec.brown_rest_gain_db:+.1f} dB"
+                )
             self.meditation_status_label.setText(
                 f"ACTIVE — {orchestrator.current_status}; "
-                f"brown bed {spec.brown_rest_gain_db:+.1f} dB; "
+                f"source {source_mode}; "
+                f"{brown_text}; "
                 f"performance {spec.performance_level_db:+.1f} dB"
             )
         else:
             self.meditation_status_label.setText(
-                orchestrator.current_status
+                f"{orchestrator.current_status}; source {source_mode}"
             )
 
     def _toggle_brown_motion_panel(
