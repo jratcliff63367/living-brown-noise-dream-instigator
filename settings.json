@@ -90,10 +90,10 @@
     "layer_enabled": true,
     "sphere_radius": 1.35
   },
-  "export_bowls_start_minutes": 15,
+  "export_bowls_start_minutes": 5,
   "export_ceremony_schedule_expanded": true,
   "export_duration_minutes": 480,
-  "export_gong_start_minutes": 90,
+  "export_gong_start_minutes": 20,
   "heartbeat": {
     "prominence_evolution_max_seconds": 360.0,
     "prominence_evolution_min_seconds": 90.0,
@@ -111,6 +111,19 @@
     "vertical": -0.25
   },
   "heartbeat_spatial_panel_expanded": false,
+  "meditation": {
+    "brown_coupling_percent": 76.0,
+    "brown_greatest_attenuation_db": -24.0,
+    "brown_least_attenuation_db": -6.0,
+    "enabled": true,
+    "interval_max_minutes": 30.0,
+    "interval_min_minutes": 5.0,
+    "performance_level_db": 4.0,
+    "spatial_far_meters": 8.0,
+    "spatial_near_meters": 4.25,
+    "transition_seconds": 12.0
+  },
+  "meditation_panel_expanded": false,
   "metabolism": {
     "breath_gain_max_db": 5.5,
     "breath_gain_min_db": 0.9,
@@ -177,20 +190,5 @@
     "natural_period_seconds": 2.5,
     "soft_limit": 1.35
   },
-  "synthesized_meditation": {
-    "brown_rest_gain_db": -8.5,
-    "ceremony_duration_minutes": 30.0,
-    "enabled": true,
-    "gong_brown_gain_db": -14.0,
-    "intensity": 0.62,
-    "interval_max_minutes": 120.0,
-    "interval_min_minutes": 45.0,
-    "performance_level_db": 9.0,
-    "rubbing": 0.78,
-    "spatiality": 0.88,
-    "transition_seconds": 12.0,
-    "use_recorded_ceremonies": true
-  },
-  "synthesized_meditation_panel_expanded": false,
   "version": 2
 }
