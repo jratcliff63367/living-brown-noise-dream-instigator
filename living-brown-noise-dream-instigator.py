@@ -8504,15 +8504,21 @@ class LivingBrownNoiseMixer:
         heartbeat_level = 10.0 ** (
             effective_heartbeat_level_db / 20.0
         )
+        # The heartbeat is part of the underlying Living Brown Noise
+        # physiological bed, so it must follow the same ceremony attenuation
+        # as the brown-noise field. This keeps it from becoming unnaturally
+        # prominent when a ceremony reduces or removes the brown bed.
         active_heartbeat = (
             heartbeat
             * heartbeat_curve
             * heartbeat_level
+            * brown_ceremony_gain
         )
 
         self.current_heartbeat = float(
             self.heartbeat.current_envelope
             * heartbeat_curve[-1]
+            * brown_ceremony_gain[-1]
         )
         self.current_heart_interval = (
             self.heartbeat.current_interval_seconds
