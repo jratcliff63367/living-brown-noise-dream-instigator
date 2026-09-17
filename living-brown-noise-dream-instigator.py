@@ -47,8 +47,6 @@ from PySide6.QtWidgets import (
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 SOUND_EFFECTS_DIRECTORY = SCRIPT_DIRECTORY / "sounds"
 CEREMONIES_DIRECTORY = SCRIPT_DIRECTORY / "ceremonies"
-SINGING_BOWLS_RECORDING_PATH = CEREMONIES_DIRECTORY / "singing-bowls.mp3"
-GONG_CEREMONY_RECORDING_PATH = CEREMONIES_DIRECTORY / "gong-ceremony.mp3"
 EXPORT_DIRECTORY = SCRIPT_DIRECTORY / "exports"
 CONDUCTOR_LOG_PATH = SCRIPT_DIRECTORY / "conductor-log.txt"
 
@@ -6594,6 +6592,7 @@ class MeditationSpec:
     brown_coupling_percent: float = 40.0
     spatial_near_meters: float = 2.0
     spatial_far_meters: float = 3.0
+    presence_cycle_minutes: float = 6.0
     transition_seconds: float = 12.0
 
     def validated(self) -> "MeditationSpec":
@@ -6610,6 +6609,7 @@ class MeditationSpec:
             # Never enter its near-field amplification region for recordings.
             "spatial_near_meters": (2.0, 8.0),
             "spatial_far_meters": (2.0, 8.0),
+            "presence_cycle_minutes": (2.0, 30.0),
             "transition_seconds": (1.0, 60.0),
         }
         for name, (low, high) in bounds.items():
@@ -6662,6 +6662,7 @@ class MeditationSpec:
             "brown_coupling_percent": (0.0, 100.0),
             "spatial_near_meters": (2.0, 8.0),
             "spatial_far_meters": (2.0, 8.0),
+            "presence_cycle_minutes": (2.0, 30.0),
             "transition_seconds": (1.0, 60.0),
         }
         for name, (low, high) in limits.items():
@@ -6711,14 +6712,27 @@ class MeditationState:
 
 
 class MeditationFieldMotion:
-    """Slow coupled field, using the existing SmoothRandomJourney primitive.
+    """Meditation presence arc plus subtle independent spatial drift.
 
-    Each coordinate has a separate RNG and unequal segment durations. Cosine
-    easing joins irregular targets at zero slope; this is not a periodic LFO.
-    Called once per Steam Audio frame in BOTH live playback and export.
+    The radial motion is deliberately staged rather than purely wandering:
+    the performance establishes at distance, slowly approaches, dwells in a
+    more immediate presence, then recedes back into the brown-noise field.
+    Small radial drift and independent azimuth/elevation travel remain layered
+    on top so the path never feels like a mechanical automation envelope.
+
+    Brown-noise attenuation keeps its own organic journey and may be partially
+    coupled to the final source proximity. Called once per Steam Audio frame in
+    both realtime playback and offline export.
     """
 
     STEREO_HALF_WIDTH_DEGREES = 24.0
+    _PHASES = ("distant", "approach", "present", "retreat")
+    _PHASE_FRACTIONS = {
+        "distant": 0.20,
+        "approach": 0.30,
+        "present": 0.20,
+        "retreat": 0.30,
+    }
 
     def __init__(self, spec: MeditationSpec, seed: int) -> None:
         def journey(offset, initial, low, high, tmin, tmax, beta=1.4):
@@ -6729,37 +6743,89 @@ class MeditationFieldMotion:
                 beta_a=beta, beta_b=beta,
             )
 
-        self.radial = journey(11, 0.35, 0.0, 1.0, 100.0, 260.0)
+        self.rng = np.random.default_rng(seed + 7)
         self.brown = journey(23, 0.45, 0.0, 1.0, 90.0, 240.0)
+        self.radial_drift = journey(11, 0.50, 0.0, 1.0, 70.0, 180.0, 1.8)
         self.azimuth = journey(37, 0.0, -115.0, 115.0, 210.0, 480.0, 2.0)
         self.elevation = journey(53, 4.0, -10.0, 16.0, 180.0, 400.0, 2.0)
+
         self.near = spec.spatial_near_meters
         self.far = spec.spatial_far_meters
         self.least_db = spec.brown_least_attenuation_db
         self.greatest_db = spec.brown_greatest_attenuation_db
         self.coupling = spec.brown_coupling_percent / 100.0
+
+        # Always begin at the far end so a newly started ceremony can emerge
+        # from the brown-noise sea instead of appearing at an arbitrary radius.
+        self.presence_phase_index = 0
+        self.presence_phase = self._PHASES[self.presence_phase_index]
+        self.presence_elapsed = 0.0
+        self.presence_start = 1.0
+        self.presence_target = 1.0
+        self.presence_base = 1.0
+        self.presence_duration = self._phase_duration(spec, self.presence_phase)
+        self.current_radial_state = 1.0
+
         self.independent_state = self.brown.current_value
-        self.proximity_state = 1.0 - self.radial.current_value
+        self.proximity_state = 0.0
         self.current_brown_db = self._brown_db()
         self.current_distance = self._distance()
         self.current_azimuth = self.azimuth.current_value
         self.current_elevation = self.elevation.current_value
         self.current_position = self._position(0.0)
 
+    def _phase_duration(self, spec: MeditationSpec, phase: str) -> float:
+        cycle = max(120.0, float(spec.presence_cycle_minutes) * 60.0)
+        nominal = cycle * self._PHASE_FRACTIONS[phase]
+        # Modest per-phase irregularity prevents a recognizable repeating arc
+        # while preserving the user's overall cycle-tempo control.
+        return max(20.0, nominal * float(self.rng.uniform(0.86, 1.16)))
+
+    @staticmethod
+    def _smoothstep5(value: float) -> float:
+        value = float(np.clip(value, 0.0, 1.0))
+        return value ** 3 * (value * (value * 6.0 - 15.0) + 10.0)
+
+    def _begin_next_presence_phase(self, spec: MeditationSpec) -> None:
+        self.presence_phase_index = (self.presence_phase_index + 1) % len(self._PHASES)
+        self.presence_phase = self._PHASES[self.presence_phase_index]
+        self.presence_elapsed = 0.0
+        self.presence_start = self.presence_base
+        if self.presence_phase == "approach":
+            self.presence_target = 0.06
+        elif self.presence_phase == "present":
+            self.presence_target = 0.06
+        else:
+            self.presence_target = 1.0
+        self.presence_duration = self._phase_duration(spec, self.presence_phase)
+
+    def _advance_presence(self, seconds: float, spec: MeditationSpec) -> None:
+        remaining = max(0.0, float(seconds))
+        while remaining > 0.0:
+            available = max(1.0e-9, self.presence_duration - self.presence_elapsed)
+            step = min(remaining, available)
+            self.presence_elapsed += step
+            remaining -= step
+            progress = self._smoothstep5(self.presence_elapsed / self.presence_duration)
+            self.presence_base = (
+                self.presence_start
+                + (self.presence_target - self.presence_start) * progress
+            )
+            if self.presence_elapsed >= self.presence_duration - 1.0e-9:
+                self.presence_base = self.presence_target
+                self._begin_next_presence_phase(spec)
+
     def _distance(self) -> float:
-        # Log distance: the existing -6 dB/octave attenuation then changes
-        # smoothly in dB as the normalized radial state moves.
         return math.exp(
             math.log(self.near)
-            + self.radial.current_value * math.log(self.far / self.near)
+            + self.current_radial_state * math.log(self.far / self.near)
         )
 
     def _brown_db(self) -> float:
         if abs(self.far - self.near) < 1.0e-9:
-            # A fixed distance provides no changing prominence cue.
             self.proximity_state = 0.5
         else:
-            self.proximity_state = 1.0 - self.radial.current_value
+            self.proximity_state = 1.0 - self.current_radial_state
         amount = (
             (1.0 - self.coupling) * self.independent_state
             + self.coupling * self.proximity_state
@@ -6785,18 +6851,31 @@ class MeditationFieldMotion:
     def advance(self, seconds: float, spec: MeditationSpec) -> tuple[float, float]:
         start_db = self.current_brown_db
         seconds = max(0.0, float(seconds))
-        self.radial.advance(seconds)
+
+        self._advance_presence(seconds, spec)
+        drift = self.radial_drift.advance(seconds)
         self.independent_state = self.brown.advance(seconds)
         self.current_azimuth = self.azimuth.advance(seconds)
         self.current_elevation = self.elevation.advance(seconds)
+
+        # The staged arrival/departure supplies the large radial narrative. A
+        # small independent wander (about +/- 4% of the normalized distance
+        # range) keeps the source alive even while it dwells near or far.
+        drift_offset = (drift - 0.5) * 0.08
+        self.current_radial_state = float(np.clip(
+            self.presence_base + drift_offset, 0.0, 1.0
+        ))
+
         # Slider edits settle gradually rather than teleporting the source or
-        # stepping its gain. With unchanged settings this is a no-op.
+        # stepping its gain. The presence-cycle slider affects newly-entered
+        # phases; it intentionally does not time-warp a phase already underway.
         blend = 1.0 - math.exp(-seconds / 3.0)
         self.near += (spec.spatial_near_meters - self.near) * blend
         self.far += (spec.spatial_far_meters - self.far) * blend
         self.least_db += (spec.brown_least_attenuation_db - self.least_db) * blend
         self.greatest_db += (spec.brown_greatest_attenuation_db - self.greatest_db) * blend
         self.coupling += (spec.brown_coupling_percent / 100.0 - self.coupling) * blend
+
         self.current_distance = self._distance()
         self.current_position = self._position(0.0)
         self.current_brown_db = self._brown_db()
@@ -7130,12 +7209,13 @@ class CeremonyRecordingPlayer:
 
 
 class MeditationOrchestrator:
-    """Recorded performances, shared spatial field, and no-repeat scheduling.
+    """Recorded performances, shared spatial field, and repeating interval scheduling.
 
     This is not an instrument synthesizer or a phrase-library conductor.
-    A recording plays once, through EOF. It has the same balance/distance rules
-    irrespective of the display label. Export offsets remain EXPORT ONLY;
-    live sessions retain their random waits and immediate audition buttons.
+    A recording plays through EOF, then the normal randomized interval system
+    schedules another performance. A shuffled bag prevents immediate repetition
+    and refills indefinitely so long realtime sessions and exports keep receiving
+    ceremonies. Manual selection from the ceremony dropdown remains immediate.
     """
 
     def __init__(self, *, sample_rate: float, renderer: SteamAudioRenderer,
@@ -7144,13 +7224,15 @@ class MeditationOrchestrator:
         self.renderer = renderer
         self.state = state
         self.rng = np.random.default_rng(seed)
-        self.recording_paths = {
-            "Tibetan singing bowls": SINGING_BOWLS_RECORDING_PATH,
-            "Gong ceremony": GONG_CEREMONY_RECORDING_PATH,
-        }
+        self.recording_paths = self._scan_recordings()
         self.performance_registry = tuple(self.recording_paths)
-        self.remaining_performances = list(self.performance_registry)
-        self.rng.shuffle(self.remaining_performances)
+        if not self.performance_registry:
+            STARTUP_LOGGER.warning(
+                "No meditation MP3 files found in %s", CEREMONIES_DIRECTORY
+            )
+        self.remaining_performances = []
+        self._last_automatic_name: str | None = None
+        self._refill_performance_bag()
         self.recording_player = CeremonyRecordingPlayer(self.sample_rate)
         self.field = MeditationFieldMotion(state.get(), seed + 900)
         left, right = self.field.stereo_positions()
@@ -7165,8 +7247,6 @@ class MeditationOrchestrator:
         self.elapsed_samples = 0
         self.export_mode = False
         self.export_total_seconds = 0.0
-        self._explicit_export_schedule = False
-        self._export_schedule: list[tuple[float, str]] = []
         self._duration_cache: dict[str, float] = {}
         self._next_start_sample = math.inf
         self._event_journal = deque(maxlen=2048)
@@ -7184,6 +7264,7 @@ class MeditationOrchestrator:
         self._audio_mix = 0.0
         self._level_db = state.get().performance_level_db
         self.current_brown_gain_db = 0.0
+        self.current_presence_gain_db = -8.0
         self.blocks_motifs = False
         self._last_status_sample = -self.sample_rate
         self._last_field_log_sample = -30 * self.sample_rate
@@ -7192,6 +7273,35 @@ class MeditationOrchestrator:
         self.cancel_event = None
         self._closed = False
         self._reschedule()
+
+    @staticmethod
+    def _display_name_for_path(path: Path) -> str:
+        special_names = {
+            "singing-bowls": "Tibetan singing bowls",
+            "gong-ceremony": "Gong ceremony",
+        }
+        stem = path.stem
+        return special_names.get(stem.lower(), stem.replace("_", " ").replace("-", " ").strip().title())
+
+    @classmethod
+    def _scan_recordings(cls) -> dict[str, Path]:
+        """Return every MP3 in the ceremonies folder as an automatic candidate."""
+        CEREMONIES_DIRECTORY.mkdir(parents=True, exist_ok=True)
+        paths = sorted(
+            (path for path in CEREMONIES_DIRECTORY.iterdir()
+             if path.is_file() and path.suffix.lower() == ".mp3"),
+            key=lambda path: path.name.lower(),
+        )
+        recordings: dict[str, Path] = {}
+        for path in paths:
+            base_name = cls._display_name_for_path(path)
+            name = base_name
+            suffix = 2
+            while name in recordings:
+                name = f"{base_name} ({suffix})"
+                suffix += 1
+            recordings[name] = path
+        return recordings
 
     @property
     def elapsed_seconds(self) -> float:
@@ -7237,68 +7347,53 @@ class MeditationOrchestrator:
             self._duration_cache[name] = duration
         return self._duration_cache[name]
 
-    def configure_export(self, total_duration_seconds: float,
-                         schedule_minutes: dict[str, float | None] | None = None) -> None:
+    def _refill_performance_bag(self, avoid_name: str | None = None) -> None:
+        """Refill the shuffled ceremony bag, avoiding an immediate repeat."""
+        self.remaining_performances = list(self.performance_registry)
+        self.rng.shuffle(self.remaining_performances)
+        if (
+            avoid_name is not None
+            and len(self.remaining_performances) > 1
+            and self.remaining_performances[0] == avoid_name
+        ):
+            # Preserve the random order as much as possible while guaranteeing
+            # that a bag boundary never repeats the ceremony that just ended.
+            swap_index = next(
+                i for i, name in enumerate(self.remaining_performances[1:], 1)
+                if name != avoid_name
+            )
+            self.remaining_performances[0], self.remaining_performances[swap_index] = (
+                self.remaining_performances[swap_index], self.remaining_performances[0]
+            )
+
+    def configure_export(self, total_duration_seconds: float) -> None:
+        """Prepare offline export using the same randomized timing as live playback.
+
+        Export has no special ceremony schedule. The registered recordings use
+        the normal meditation interval range and the shuffled bag refills for
+        the full export, with no immediate repeat at bag boundaries.
+        """
         self.export_mode = True
         self.export_total_seconds = max(0.0, float(total_duration_seconds))
         self.elapsed_samples = 0
         self._duration_cache.clear()
-        self._export_schedule = []
-        self._explicit_export_schedule = bool(schedule_minutes)
         spec = self.state.get()
         if not spec.enabled:
             self.remaining_performances = []
             self._next_start_sample = math.inf
             self._journal("MEDITATION_PLAN", "automatic meditation disabled; no export performances")
             return
-        if self._explicit_export_schedule:
-            requested = []
-            for name in self.performance_registry:
-                minutes = schedule_minutes.get(name)
-                if minutes is None:
-                    continue
-                seconds = float(minutes) * 60.0
-                if not math.isfinite(seconds):
-                    raise ValueError(f"Invalid export start time for {name}")
-                seconds = max(0.0, seconds)
-                if seconds >= self.export_total_seconds:
-                    self._journal("MEDITATION_WARNING", f"{name}: start outside export; skipped")
-                    continue
-                requested.append((seconds, name))
-            requested.sort(key=lambda item: item[0])
-            next_free = 0.0
-            for requested_start, name in requested:
-                actual_start = max(requested_start, next_free)
-                if actual_start >= self.export_total_seconds:
-                    self._journal("MEDITATION_WARNING", f"{name}: cannot fit after prior performance; skipped")
-                    continue
-                duration = self._recording_duration_seconds(name)
-                if actual_start > requested_start + 1.0e-6:
-                    self._journal("MEDITATION_WARNING", (
-                        f"{name}: requested {requested_start / 60.0:.2f} min; "
-                        f"delayed to {actual_start / 60.0:.2f} min to avoid overlap "
-                        "with the preceding recording and its bed-return fade"
-                    ))
-                self._export_schedule.append((actual_start, name))
-                # Include the bed-return transition; never start the next
-                # performance halfway through recovery from the previous one.
-                next_free = actual_start + duration + spec.transition_seconds
-                if actual_start + duration > self.export_total_seconds:
-                    self._journal("MEDITATION_WARNING", f"{name}: recording will be truncated at export end")
-            self.remaining_performances = [name for _, name in self._export_schedule]
-        else:
-            self.remaining_performances = list(self.performance_registry)
-            self.rng.shuffle(self.remaining_performances)
-            # Probe once so errors are caught before the long export starts.
-            for name in self.remaining_performances:
-                self._recording_duration_seconds(name)
+
+        self._last_automatic_name = None
+        self._refill_performance_bag()
+        # Probe once so decoding/path errors are caught before a long export.
+        for name in self.performance_registry:
+            self._recording_duration_seconds(name)
         self._reschedule()
         self._journal("MEDITATION_PLAN", (
-            "explicit export schedule: " + (
-                " -> ".join(f"{name}@{seconds / 60.0:.2f}min" for seconds, name in self._export_schedule)
-                or "all off"
-            ) if self._explicit_export_schedule else
-            "random unique order: " + " -> ".join(self.remaining_performances)
+            f"{len(self.performance_registry)} MP3 ceremonies scanned; repeating shuffled ceremonies "
+            "using normal interval timing; initial order: "
+            + " -> ".join(self.remaining_performances)
         ))
 
     def _reschedule(self, from_sample: int | None = None) -> None:
@@ -7307,27 +7402,15 @@ class MeditationOrchestrator:
         if not self.remaining_performances or (self.export_mode and not spec.enabled):
             self._next_start_sample = math.inf
             return
-        if self.export_mode and self._explicit_export_schedule:
-            pending = [(t, n) for t, n in self._export_schedule if n in self.remaining_performances]
-            self._next_start_sample = round(pending[0][0] * self.sample_rate) if pending else math.inf
-            return
         low, high = spec.interval_min_minutes * 60.0, spec.interval_max_minutes * 60.0
         wait = float(math.exp(self.rng.uniform(math.log(low), math.log(high))))
-        if self.export_mode:
-            remaining = max(0.0, self.export_total_seconds - base / self.sample_rate)
-            required = sum(self._duration_cache[n] + spec.transition_seconds for n in self.remaining_performances)
-            slack = max(0.0, remaining - required)
-            safe_wait = slack / (len(self.remaining_performances) + 1)
-            lo = min(60.0, safe_wait * 0.30)
-            hi = max(lo, min(wait, safe_wait * 1.65))
-            wait = float(self.rng.uniform(lo, hi)) if slack > 0.0 else 0.0
         self._next_start_sample = base + round(wait * self.sample_rate)
 
-    def request_start_singing_bowls(self) -> None:
-        self._request_start("Tibetan singing bowls")
-
-    def request_start_gong(self) -> None:
-        self._request_start("Gong ceremony")
+    def request_start(self, name: str) -> None:
+        if name in self.recording_paths:
+            self._request_start(name)
+        else:
+            self._journal("MEDITATION_ERROR", f"ceremony not found: {name}")
 
     def _request_start(self, name: str) -> None:
         with self._command_lock:
@@ -7380,6 +7463,8 @@ class MeditationOrchestrator:
         self.performance_count += 1
         if name in self.remaining_performances:
             self.remaining_performances.remove(name)
+        if not manual:
+            self._last_automatic_name = name
         self._next_start_sample = math.inf
         self._stopping = self._source_ended = self._source_completed = False
         self._audio_mix = 0.0
@@ -7403,6 +7488,13 @@ class MeditationOrchestrator:
         self.active_name = ""
         self._stopping = self._source_ended = self._source_completed = False
         self._audio_mix = self._mix = 0.0
+        if not self.remaining_performances:
+            self._refill_performance_bag(avoid_name=name)
+            self._journal(
+                "MEDITATION_BAG_REFILL",
+                "next shuffled cycle: " + " -> ".join(self.remaining_performances),
+                offset,
+            )
         self._reschedule(from_sample=self.elapsed_samples + offset)
         if self._replacement_name is not None:
             name, self._replacement_name = self._replacement_name, None
@@ -7528,9 +7620,25 @@ class MeditationOrchestrator:
                 min(4.0, spec.transition_seconds) if self._stopping else 1.0,
             )
             audio[start_offset:] *= audio_curve[:, None]
+            proximity0 = self.field.proximity_state
             db0, db1 = self.field.advance(count / self.sample_rate, spec)
+            proximity1 = self.field.proximity_state
             attenuation = np.linspace(db0, db1, count, endpoint=False, dtype=np.float64)
             gains = np.power(10.0, attenuation * mix / 20.0).astype(np.float32)
+
+            # Presence is more than distance alone. At the far/descended end,
+            # reduce the ceremony itself by an additional 8 dB; as it approaches
+            # the listener, smoothly restore that gain. This makes the source
+            # audibly rise out of the brown-noise sea and sink back into it,
+            # while the existing Steam Audio distance and gentle angular drift
+            # remain intact.
+            proximity = np.linspace(
+                proximity0, proximity1, count, endpoint=False, dtype=np.float64
+            )
+            proximity = np.clip(proximity, 0.0, 1.0)
+            smooth_proximity = proximity ** 3 * (proximity * (proximity * 6.0 - 15.0) + 10.0)
+            presence_gain_db = -8.0 * (1.0 - smooth_proximity)
+            presence_gain = np.power(10.0, presence_gain_db / 20.0)
             # Fixed L/R source pair: neither channel is discarded or summed to
             # mono before spatial rendering. Both are at the SAME radius, so
             # distance doesn't make one channel louder than the other.
@@ -7548,7 +7656,8 @@ class MeditationOrchestrator:
             level = np.power(10.0, np.linspace(self._level_db, end_level, count,
                                              endpoint=False) / 20.0)
             self._level_db = float(end_level)
-            audio = (spatial * level[:, None]).astype(np.float32)
+            self.current_presence_gain_db = float(presence_gain_db[-1])
+            audio = (spatial * (level * presence_gain)[:, None]).astype(np.float32)
             if (
                 (self._stopping or self._source_ended)
                 and self._mix <= 0.0
@@ -7577,8 +7686,11 @@ class MeditationOrchestrator:
                 self._journal("MEDITATION_FIELD", (
                     f"{self.active_name}; brown={self.current_brown_gain_db:.2f}dB; "
                     f"distance={self.field.current_distance:.3f}m; "
+                    f"presenceGain={self.current_presence_gain_db:.2f}dB; "
                     f"xyz=({p.x:.3f},{p.y:.3f},{p.z:.3f}); "
                     f"coupling={spec.brown_coupling_percent:.0f}%; "
+                    f"presence={self.field.presence_phase}; "
+                    f"cycle={spec.presence_cycle_minutes:.1f}min; "
                     f"decoder_underruns={self.recording_player.underrun_count}"
                 ))
         elif self._pending_name:
@@ -7588,9 +7700,9 @@ class MeditationOrchestrator:
         elif not spec.enabled:
             self.current_status = "automatic performances disabled; manual audition available"
         elif not self.remaining_performances:
-            self.current_status = "no remaining performances this session/export; automatic repeats disabled"
+            self.current_status = "replenishing meditation shuffle bag"
         else:
-            self.current_status = f"waiting; next unique meditation in {self.next_performance_seconds / 60.0:.1f} min"
+            self.current_status = f"waiting; next meditation in {self.next_performance_seconds / 60.0:.1f} min"
 
     def generate(self, frame_count: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         if self._closed:
@@ -8057,11 +8169,8 @@ class LivingBrownNoiseMixer:
             ),
         )
 
-    def request_start_singing_bowl_ceremony(self) -> None:
-        self.meditation.request_start_singing_bowls()
-
-    def request_start_gong_ceremony(self) -> None:
-        self.meditation.request_start_gong()
+    def request_start_meditation(self, name: str) -> None:
+        self.meditation.request_start(name)
 
     def request_stop_meditation(self) -> None:
         self.meditation.request_stop()
@@ -8749,7 +8858,6 @@ class ExportWorker(QThread):
         metabolism_spec: MetabolismSpec,
         dream_motif_spatial_spec: DreamMotifSpatialSpec,
         meditation_spec: MeditationSpec,
-        export_ceremony_schedule: dict[str, float | None] | None = None,
     ) -> None:
         super().__init__()
         self.output_path = output_path
@@ -8769,9 +8877,6 @@ class ExportWorker(QThread):
         self.metabolism_spec = metabolism_spec
         self.dream_motif_spatial_spec = dream_motif_spatial_spec
         self.meditation_spec = meditation_spec
-        self.export_ceremony_schedule = dict(
-            export_ceremony_schedule or {}
-        )
         self._cancel_requested = threading.Event()
 
     def request_cancel(self) -> None:
@@ -8828,8 +8933,7 @@ class ExportWorker(QThread):
             meditation_engine = mixer.meditation
             meditation_engine.cancel_event = self._cancel_requested
             meditation_engine.configure_export(
-                self.duration_minutes * 60.0,
-                schedule_minutes=self.export_ceremony_schedule,
+                self.duration_minutes * 60.0
             )
 
             # Encode the generated float stereo buffers directly to MP3.
@@ -10124,9 +10228,9 @@ class MainWindow(QMainWindow):
         )
 
         meditation_note = QLabel(
-            "Recordings play in full from the ceremonies folder. Both slots "
-            "use the same evolving brown bed and slow stereo 3D movement. "
-            "The scheduling sliders below apply to export only."
+            "Every .mp3 file in the ceremonies folder is an automatic ceremony candidate. "
+            "Recordings play in full using the same evolving brown bed and slow stereo 3D movement. "
+            "Automatic timing uses the randomized interval controls below."
         )
         meditation_note.setWordWrap(True)
         meditation_layout.addWidget(meditation_note)
@@ -10233,29 +10337,33 @@ class MainWindow(QMainWindow):
             "Equal distances freeze radial motion, not directional drift."
         )
         self.meditation_far_control.setToolTip(
-            "Slow radial drift stays inside this range. The default 2–3 m "
-            "range changes distance gain by only about 3.5 dB."
+            "The staged presence journey moves between these endpoints while "
+            "a smaller independent radial drift remains layered on top."
+        )
+
+        self.meditation_presence_cycle_control = add_meditation_control(
+            "Presence cycle:", "presence_cycle_minutes",
+            2.0, 30.0, 0.5, 1, " min",
+        )
+        self.meditation_presence_cycle_control.setToolTip(
+            "Approximate tempo of one far → approach → present → retreat "
+            "journey. Individual phases vary organically around this value. "
+            "Directional drift continues independently throughout."
         )
 
         meditation_buttons = QHBoxLayout()
-        self.start_singing_bowl_button = QPushButton(
-            "Start singing-bowl ceremony"
-        )
-        self.start_gong_button = QPushButton(
-            "Start gong ceremony"
+        self.meditation_ceremony_combo = QComboBox()
+        self.meditation_ceremony_combo.addItem("Select ceremony to start…", None)
+        for ceremony_name in self.mixer.meditation.performance_registry:
+            self.meditation_ceremony_combo.addItem(ceremony_name, ceremony_name)
+        self.meditation_ceremony_combo.setToolTip(
+            "Select any .mp3 found in the ceremonies folder to start it immediately."
         )
         self.stop_meditation_button = QPushButton(
             "Stop meditation performance"
         )
-        meditation_buttons.addWidget(
-            self.start_singing_bowl_button
-        )
-        meditation_buttons.addWidget(
-            self.start_gong_button
-        )
-        meditation_buttons.addWidget(
-            self.stop_meditation_button
-        )
+        meditation_buttons.addWidget(self.meditation_ceremony_combo, 1)
+        meditation_buttons.addWidget(self.stop_meditation_button)
         meditation_layout.addLayout(meditation_buttons)
 
         self.meditation_status_label = QLabel("")
@@ -11436,109 +11544,6 @@ class MainWindow(QMainWindow):
         duration_row.addWidget(self.export_duration_label)
         export_layout.addLayout(duration_row)
 
-        # --------------------------------------------------------------
-        # Export ceremony scheduling
-        # --------------------------------------------------------------
-        self.export_ceremony_expand_button = QToolButton()
-        self.export_ceremony_expand_button.setText(
-            "Meditation scheduling (export only)"
-        )
-        self.export_ceremony_expand_button.setCheckable(True)
-        self.export_ceremony_expand_button.setChecked(
-            bool(
-                self.loaded_settings.get(
-                    "export_ceremony_schedule_expanded",
-                    False,
-                )
-            )
-        )
-        self.export_ceremony_expand_button.setArrowType(
-            Qt.ArrowType.DownArrow
-            if self.export_ceremony_expand_button.isChecked()
-            else Qt.ArrowType.RightArrow
-        )
-        self.export_ceremony_expand_button.setToolButtonStyle(
-            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
-        )
-        export_layout.addWidget(self.export_ceremony_expand_button)
-
-        self.export_ceremony_panel = QWidget()
-        export_ceremony_form = QFormLayout(
-            self.export_ceremony_panel
-        )
-        export_ceremony_form.setContentsMargins(18, 0, 0, 0)
-
-        def _make_export_ceremony_slider(
-            setting_name: str,
-            default_value: int,
-        ) -> tuple[QSlider, QLabel]:
-            slider = QSlider(Qt.Orientation.Horizontal)
-            slider.setRange(-1, self.export_duration_slider.value())
-            slider.setSingleStep(5)
-            slider.setPageStep(15)
-            slider.setValue(
-                int(
-                    self.loaded_settings.get(
-                        setting_name,
-                        default_value,
-                    )
-                )
-            )
-            label = QLabel("")
-            label.setMinimumWidth(90)
-            return slider, label
-
-        self.export_gong_start_slider, self.export_gong_start_label = (
-            _make_export_ceremony_slider(
-                "export_gong_start_minutes",
-                -1,
-            )
-        )
-        gong_schedule_row = QHBoxLayout()
-        gong_schedule_row.addWidget(
-            self.export_gong_start_slider,
-            1,
-        )
-        gong_schedule_row.addWidget(
-            self.export_gong_start_label,
-        )
-        export_ceremony_form.addRow(
-            "Gong ceremony:",
-            gong_schedule_row,
-        )
-
-        self.export_bowls_start_slider, self.export_bowls_start_label = (
-            _make_export_ceremony_slider(
-                "export_bowls_start_minutes",
-                -1,
-            )
-        )
-        bowls_schedule_row = QHBoxLayout()
-        bowls_schedule_row.addWidget(
-            self.export_bowls_start_slider,
-            1,
-        )
-        bowls_schedule_row.addWidget(
-            self.export_bowls_start_label,
-        )
-        export_ceremony_form.addRow(
-            "Singing bowls:",
-            bowls_schedule_row,
-        )
-
-        schedule_note = QLabel(
-            "Off disables that ceremony for the export. Start times are "
-            "minutes from the beginning of the file. Each ceremony plays "
-            "at most once; overlapping schedules are delayed automatically."
-        )
-        schedule_note.setWordWrap(True)
-        export_ceremony_form.addRow("", schedule_note)
-
-        self.export_ceremony_panel.setVisible(
-            self.export_ceremony_expand_button.isChecked()
-        )
-        export_layout.addWidget(self.export_ceremony_panel)
-
         export_buttons = QHBoxLayout()
         self.export_button = QPushButton("Export audio…")
         self.cancel_export_button = QPushButton("Cancel export")
@@ -11707,11 +11712,8 @@ class MainWindow(QMainWindow):
                 enabled=bool(checked)
             )
         )
-        self.start_singing_bowl_button.clicked.connect(
-            self._start_singing_bowl_ceremony
-        )
-        self.start_gong_button.clicked.connect(
-            self._start_gong_ceremony
+        self.meditation_ceremony_combo.activated.connect(
+            self._start_selected_meditation
         )
         self.stop_meditation_button.clicked.connect(
             self._stop_meditation
@@ -11787,21 +11789,6 @@ class MainWindow(QMainWindow):
         self.cancel_export_button.clicked.connect(self._cancel_export)
         self.export_duration_slider.valueChanged.connect(
             self._on_export_duration_changed
-        )
-        self.export_ceremony_expand_button.toggled.connect(
-            self._toggle_export_ceremony_schedule
-        )
-        self.export_gong_start_slider.valueChanged.connect(
-            lambda value: self._on_export_ceremony_start_changed(
-                self.export_gong_start_label,
-                value,
-            )
-        )
-        self.export_bowls_start_slider.valueChanged.connect(
-            lambda value: self._on_export_ceremony_start_changed(
-                self.export_bowls_start_label,
-                value,
-            )
         )
 
         self.timer = QTimer(self)
@@ -12821,19 +12808,17 @@ class MainWindow(QMainWindow):
         self._update_meditation_status()
         self._schedule_settings_save()
 
-    def _start_singing_bowl_ceremony(self) -> None:
-        self.mixer.request_start_singing_bowl_ceremony()
+    def _start_selected_meditation(self, index: int) -> None:
+        name = self.meditation_ceremony_combo.itemData(index)
+        if not name:
+            return
+        self.mixer.request_start_meditation(str(name))
         self._write_conductor_log(
             "MEDITATION_MANUAL",
-            "requested start: Tibetan singing bowls",
+            f"requested start: {name}",
         )
-
-    def _start_gong_ceremony(self) -> None:
-        self.mixer.request_start_gong_ceremony()
-        self._write_conductor_log(
-            "MEDITATION_MANUAL",
-            "requested start: Gong ceremony",
-        )
+        # Return to the placeholder so the same ceremony can be selected again.
+        self.meditation_ceremony_combo.setCurrentIndex(0)
 
     def _stop_meditation(self) -> None:
         self.mixer.request_stop_meditation()
@@ -12854,6 +12839,7 @@ class MainWindow(QMainWindow):
                 f"azimuth {field.current_azimuth:+.1f}°; "
                 f"elevation {field.current_elevation:+.1f}°; "
                 f"coupling {spec.brown_coupling_percent:.0f}%; "
+                f"presence {field.presence_phase} ({spec.presence_cycle_minutes:.1f} min cycle); "
                 f"performance trim {spec.performance_level_db:+.1f} dB"
             )
         else:
@@ -13073,15 +13059,6 @@ class MainWindow(QMainWindow):
             "export_duration_minutes": (
                 self.export_duration_slider.value()
             ),
-            "export_ceremony_schedule_expanded": (
-                self.export_ceremony_expand_button.isChecked()
-            ),
-            "export_gong_start_minutes": (
-                self.export_gong_start_slider.value()
-            ),
-            "export_bowls_start_minutes": (
-                self.export_bowls_start_slider.value()
-            ),
         }
 
         try:
@@ -13102,57 +13079,10 @@ class MainWindow(QMainWindow):
 
         return f"{hours} h {remainder} min"
 
-    def _format_export_ceremony_start(self, minutes: int) -> str:
-        if minutes < 0:
-            return "Off"
-        return self._format_duration(minutes)
-
-    def _on_export_ceremony_start_changed(
-        self,
-        label: QLabel,
-        minutes: int,
-    ) -> None:
-        label.setText(
-            self._format_export_ceremony_start(minutes)
-        )
-        self._schedule_settings_save()
-
-    def _toggle_export_ceremony_schedule(
-        self,
-        expanded: bool,
-    ) -> None:
-        self.export_ceremony_panel.setVisible(bool(expanded))
-        self.export_ceremony_expand_button.setArrowType(
-            Qt.ArrowType.DownArrow
-            if expanded
-            else Qt.ArrowType.RightArrow
-        )
-        self._schedule_settings_save()
-
     def _on_export_duration_changed(self, minutes: int) -> None:
         self.export_duration_label.setText(
             self._format_duration(minutes)
         )
-
-        # Ceremony start sliders always cover exactly the current export.
-        # Values that are now beyond EOF are clamped to the new end time.
-        for slider, label in (
-            (
-                self.export_gong_start_slider,
-                self.export_gong_start_label,
-            ),
-            (
-                self.export_bowls_start_slider,
-                self.export_bowls_start_label,
-            ),
-        ):
-            slider.setMaximum(minutes)
-            label.setText(
-                self._format_export_ceremony_start(
-                    slider.value()
-                )
-            )
-
         self._schedule_settings_save()
 
     def _start_export(self) -> None:
@@ -13215,22 +13145,6 @@ class MainWindow(QMainWindow):
             meditation_spec=(
                 self.mixer.meditation_state.get()
             ),
-            export_ceremony_schedule={
-                "Gong ceremony": (
-                    None
-                    if self.export_gong_start_slider.value() < 0
-                    else float(
-                        self.export_gong_start_slider.value()
-                    )
-                ),
-                "Tibetan singing bowls": (
-                    None
-                    if self.export_bowls_start_slider.value() < 0
-                    else float(
-                        self.export_bowls_start_slider.value()
-                    )
-                ),
-            },
         )
 
         self.export_worker.progress_changed.connect(
