@@ -121,6 +121,7 @@
     "presence_cycle_minutes": 6.0,
     "spatial_far_meters": 8.0,
     "spatial_near_meters": 4.25,
+    "subliminal_emergence_seconds": 90.0,
     "transition_seconds": 12.0
   },
   "meditation_panel_expanded": false,

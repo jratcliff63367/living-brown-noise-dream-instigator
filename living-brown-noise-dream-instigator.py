@@ -6738,6 +6738,7 @@ class MeditationSpec:
     spatial_near_meters: float = 2.0
     spatial_far_meters: float = 3.0
     presence_cycle_minutes: float = 6.0
+    subliminal_emergence_seconds: float = 60.0
     transition_seconds: float = 12.0
 
     def validated(self) -> "MeditationSpec":
@@ -6757,6 +6758,7 @@ class MeditationSpec:
             "spatial_near_meters": (2.0, 8.0),
             "spatial_far_meters": (2.0, 8.0),
             "presence_cycle_minutes": (2.0, 30.0),
+            "subliminal_emergence_seconds": (0.0, 180.0),
             "transition_seconds": (1.0, 60.0),
         }
         for name, (low, high) in bounds.items():
@@ -6827,6 +6829,7 @@ class MeditationSpec:
             "spatial_near_meters": (2.0, 8.0),
             "spatial_far_meters": (2.0, 8.0),
             "presence_cycle_minutes": (2.0, 30.0),
+            "subliminal_emergence_seconds": (0.0, 180.0),
             "transition_seconds": (1.0, 60.0),
         }
         for name, (low, high) in limits.items():
@@ -7505,7 +7508,7 @@ class MeditationOrchestrator:
         self._level_db = state.get().performance_level_db
         self.current_brown_gain_db = 0.0
         self.current_presence_gain_db = -8.0
-        self.blocks_motifs = False  # retained for compatibility; no longer used to gate ambients
+        self.blocks_motifs = False  # True if any part of the rendered block is occupied
         self._last_status_sample = -self.sample_rate
         self._last_field_log_sample = -30 * self.sample_rate
         self._last_error = ""
@@ -7781,6 +7784,20 @@ class MeditationOrchestrator:
         # About one eighth of the normal presence cycle, with practical bounds.
         return float(np.clip(spec.presence_cycle_minutes * 60.0 * 0.125, 30.0, 90.0))
 
+    @staticmethod
+    def _subliminal_transition_seconds(spec: MeditationSpec) -> float:
+        """Duration used when a ceremony enters or leaves awareness.
+
+        transition_seconds remains the minimum click-safe transition for old
+        settings and for a deliberately disabled subliminal stage.  Normally
+        the user-tunable subliminal duration governs both ends so a ceremony
+        disappears with the same patience with which it appeared.
+        """
+        return max(
+            float(spec.transition_seconds),
+            float(spec.subliminal_emergence_seconds),
+        )
+
     def request_start(self, name: str) -> None:
         if name == self.RANDOM_START_TOKEN or name in self.recording_paths:
             self._request_start(name)
@@ -7807,11 +7824,16 @@ class MeditationOrchestrator:
         if stop:
             self._replacement_name = None
             if self.active:
+                spec = self.state.get()
+                fade_seconds = self._subliminal_transition_seconds(spec)
                 self._scheduled_stop = False
                 self._stopping = True
                 self._source_completed = False
-                self.field.begin_final_retreat(self.state.get().transition_seconds)
-                self._journal("MEDITATION_STOP_REQUEST", self.active_name)
+                self.field.begin_final_retreat(fade_seconds)
+                self._journal(
+                    "MEDITATION_STOP_REQUEST",
+                    f"{self.active_name}; subliminal fade={fade_seconds:.1f}s",
+                )
             else:
                 for player in self.players:
                     player.stop()
@@ -7819,14 +7841,17 @@ class MeditationOrchestrator:
                 self._reschedule()
         elif name is not None:
             if self.active:
+                spec = self.state.get()
+                fade_seconds = self._subliminal_transition_seconds(spec)
                 self._replacement_name = name
                 self._scheduled_stop = False
                 self._stopping = True
                 self._source_completed = False
-                self.field.begin_final_retreat(self.state.get().transition_seconds)
+                self.field.begin_final_retreat(fade_seconds)
                 self._journal(
                     "MEDITATION_SWITCH_REQUEST",
-                    f"{self.active_name} -> generated ceremony starting with {name}; fade first",
+                    f"{self.active_name} -> generated ceremony starting with {name}; "
+                    f"subliminal fade={fade_seconds:.1f}s first",
                 )
             else:
                 self._prepare(name, manual=True, due_sample=self.elapsed_samples)
@@ -7916,6 +7941,7 @@ class MeditationOrchestrator:
             f"first vocal={self.current_vocal_name}; "
             f"MP3={self.recording_paths[self.current_vocal_name].name}; "
             f"final retreat={retreat_seconds:.1f}s; stereo 3D pair; "
+            f"subliminal emergence={spec.subliminal_emergence_seconds:.1f}s; "
             "continuous spatial field; shared evolving brown bed"
         ), offset)
         if not manual and self.elapsed_samples + offset > due + self.renderer.frame_size:
@@ -8122,6 +8148,7 @@ class MeditationOrchestrator:
 
     def _update_ceremony_timeline(self, spec: MeditationSpec) -> None:
         remaining = self.ceremony_remaining_seconds
+        fade_seconds = self._subliminal_transition_seconds(spec)
         if not self._ceremony_retreat_started:
             retreat_seconds = self._ceremony_retreat_samples / self.sample_rate
             if remaining <= retreat_seconds:
@@ -8133,13 +8160,13 @@ class MeditationOrchestrator:
                     f"distance={self.field.current_distance:.2f}m",
                 )
 
-        if not self._stopping and remaining <= spec.transition_seconds:
+        if not self._stopping and remaining <= fade_seconds:
             self._stopping = True
             self._scheduled_stop = True
             self._source_completed = True
             self._journal(
                 "MEDITATION_FINAL_FADE",
-                f"remaining={remaining:.1f}s; transition={spec.transition_seconds:.1f}s",
+                f"remaining={remaining:.1f}s; subliminal fade={fade_seconds:.1f}s",
             )
 
     def _render_piece(self, count: int, spec: MeditationSpec):
@@ -8183,6 +8210,7 @@ class MeditationOrchestrator:
             active_count = count - start_offset
             if active_count > 0:
                 self._update_ceremony_timeline(spec)
+                fade_seconds = self._subliminal_transition_seconds(spec)
                 vocals = self._render_vocals(active_count)
                 audio[start_offset:] = vocals
 
@@ -8190,7 +8218,7 @@ class MeditationOrchestrator:
                     self._mix,
                     0.0 if self._stopping else 1.0,
                     active_count,
-                    spec.transition_seconds,
+                    fade_seconds if self._stopping else spec.transition_seconds,
                 )
 
                 # The first clip needs only click protection; its real emergence
@@ -8198,7 +8226,7 @@ class MeditationOrchestrator:
                 # Final/manual fades use the full transition duration so the
                 # vocal does not disappear before the spatial retreat completes.
                 audio_fade_seconds = (
-                    spec.transition_seconds if self._stopping else 1.0
+                    fade_seconds if self._stopping else 1.0
                 )
                 audio_curve, self._audio_mix = self._ramp(
                     self._audio_mix,
@@ -8208,6 +8236,28 @@ class MeditationOrchestrator:
                 )
                 audio[start_offset:] *= audio_curve[:, None]
 
+                # Human hearing recognizes coherent vocals at remarkably low
+                # levels.  Give every ceremony a distinct pre-emergence veil
+                # before the existing spatial approach becomes fully audible.
+                # The fourth-power curve deliberately spends most of the
+                # selected time close to silence, then hands off smoothly at
+                # unity to the normal presence journey.  Apply the same veil
+                # to brown-bed attenuation below so a sudden change in the bed
+                # cannot announce that the ceremony has started.
+                subliminal_samples = round(
+                    spec.subliminal_emergence_seconds * self.sample_rate
+                )
+                if subliminal_samples > 0:
+                    emergence_position = (
+                        self._ceremony_elapsed_samples
+                        + np.arange(active_count, dtype=np.float64)
+                    ) / subliminal_samples
+                    emergence = np.clip(emergence_position, 0.0, 1.0)
+                    emergence = emergence ** 4
+                else:
+                    emergence = np.ones(active_count, dtype=np.float64)
+                audio[start_offset:] *= emergence[:, None]
+
                 proximity0 = self.field.proximity_state
                 db0, db1 = self.field.advance(active_count / self.sample_rate, spec)
                 proximity1 = self.field.proximity_state
@@ -8215,9 +8265,10 @@ class MeditationOrchestrator:
                 attenuation = np.linspace(
                     db0, db1, active_count, endpoint=False, dtype=np.float64
                 )
+                effective_mix = mix[start_offset:] * emergence
                 gains[start_offset:] = np.power(
                     10.0,
-                    attenuation * mix[start_offset:] / 20.0,
+                    attenuation * effective_mix / 20.0,
                 ).astype(np.float32)
 
                 proximity = np.linspace(
@@ -8358,7 +8409,9 @@ class MeditationOrchestrator:
         self.blocks_motifs = False
         for offset in range(0, frame_count, self.renderer.frame_size):
             count = min(self.renderer.frame_size, frame_count - offset)
-            block, mix, gain, _occupied = self._render_piece(count, self.state.get())
+            block, mix, gain, occupied = self._render_piece(count, self.state.get())
+            # Preserve occupancy even when the ceremony ends within this block.
+            self.blocks_motifs = self.blocks_motifs or occupied
             audio[offset:offset + count] = block
             presence[offset:offset + count] = mix
             brown_gain[offset:offset + count] = gain
@@ -9251,22 +9304,14 @@ class LivingBrownNoiseMixer:
         stereo += spatial_heartbeat
 
 
-        # Ceremony and dream-motif ambients are mutually exclusive foreground
-        # worlds. Once a ceremony has begun to rise in, suppress the ambient
-        # sound-effect engine completely so its environmental events cannot
-        # conflict with the ceremony. The motif conductor remains paused until
-        # the ceremony fade has fully returned to zero.
-        ceremony_blocks_ambient_effects = bool(
-            self.meditation.active
-            or self.meditation._pending_name is not None
-            or meditation_amount > 0.0
+        # Suppress every dream-motif path (beds, events, and manual audition)
+        # throughout ceremony entrance, performance, and final disappearance.
+        # Use block occupancy, not loudness or the final active state.
+        stereo += self.dream_motif_3d.generate(
+            frame_count,
+            enabled=(modes.dream_motifs_enabled and not self.meditation.blocks_motifs),
+            metabolism_activity=self.current_metabolism_activity,
         )
-        if not ceremony_blocks_ambient_effects:
-            stereo += self.dream_motif_3d.generate(
-                frame_count,
-                enabled=modes.dream_motifs_enabled,
-                metabolism_activity=self.current_metabolism_activity,
-            )
 
         # Already spatialized at the native Steam frame cadence above.
         stereo += meditation_audio
@@ -11068,6 +11113,19 @@ class MainWindow(QMainWindow):
             "Approximate tempo of one far → approach → present → retreat "
             "journey. Individual phases vary organically around this value. "
             "Directional drift continues independently throughout."
+        )
+
+        self.meditation_subliminal_emergence_control = add_meditation_control(
+            "Subliminal emergence:", "subliminal_emergence_seconds",
+            0.0, 180.0, 5.0, 0, " sec",
+        )
+        self.meditation_subliminal_emergence_control.setToolTip(
+            "How long a new ceremony remains beneath immediate recognition, "
+            "and how gradually it disappears at the end. "
+            "A strongly curved veil gradually reveals both the vocal and its "
+            "effect on the brown bed, then hands off to the normal Presence "
+            "cycle. The same duration governs the final vocal, brown-bed, and "
+            "spatial retreat. Set to 0 seconds to use the basic transition."
         )
 
         meditation_buttons = QHBoxLayout()
