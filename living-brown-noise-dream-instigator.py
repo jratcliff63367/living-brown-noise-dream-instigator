@@ -6709,15 +6709,28 @@ class BaseBrownFluidStereo:
 
 @dataclass(frozen=True, slots=True)
 class MeditationSpec:
-    """Shared controls for every recorded meditation, independent of its label.
+    """Shared controls for generated vocal ceremonies.
 
-    Attenuation is expressed as a negative gain in dB: -6 is less reduction
-    than -24. Both endpoints apply to the brown bed AND the heartbeat.
+    A ceremony is assembled from multiple foreground vocal recordings selected
+    from the active style. The outer ceremony duration and the rest between
+    ceremonies are both user-controlled ranges. Brown-bed attenuation is
+    expressed as a negative gain in dB: -6 is less reduction than -24.
     """
 
     enabled: bool = True
-    interval_min_minutes: float = 45.0
-    interval_max_minutes: float = 120.0
+
+    # Short rests are intentional. The ceremony itself already dissolves into
+    # and out of the Living Brown Noise bed, so long silent separators are not
+    # necessary to make successive performances feel distinct.
+    interval_min_minutes: float = 1.0
+    interval_max_minutes: float = 3.0
+
+    # One generated ceremony stitches as many vocal recordings as necessary to
+    # reach a target drawn from this range. The final retreat/fade is included
+    # inside this duration rather than added afterward.
+    ceremony_min_minutes: float = 8.0
+    ceremony_max_minutes: float = 12.0
+
     performance_level_db: float = 0.0
     brown_least_attenuation_db: float = -6.0
     brown_greatest_attenuation_db: float = -24.0
@@ -6731,8 +6744,10 @@ class MeditationSpec:
         if not isinstance(self.enabled, bool):
             raise ValueError("enabled must be boolean")
         bounds = {
-            "interval_min_minutes": (5.0, 480.0),
-            "interval_max_minutes": (5.0, 480.0),
+            "interval_min_minutes": (0.25, 60.0),
+            "interval_max_minutes": (0.25, 60.0),
+            "ceremony_min_minutes": (3.0, 30.0),
+            "ceremony_max_minutes": (3.0, 30.0),
             "performance_level_db": (-30.0, 12.0),
             "brown_least_attenuation_db": (-60.0, 0.0),
             "brown_greatest_attenuation_db": (-60.0, 0.0),
@@ -6750,6 +6765,8 @@ class MeditationSpec:
                 raise ValueError(f"{name} must be between {low} and {high}")
         if self.interval_min_minutes > self.interval_max_minutes:
             raise ValueError("minimum rest cannot exceed maximum rest")
+        if self.ceremony_min_minutes > self.ceremony_max_minutes:
+            raise ValueError("minimum ceremony length cannot exceed maximum ceremony length")
         if self.brown_greatest_attenuation_db > self.brown_least_attenuation_db:
             raise ValueError("greatest attenuation must be the more negative dB value")
         if self.spatial_near_meters > self.spatial_far_meters:
@@ -6758,11 +6775,11 @@ class MeditationSpec:
 
     @classmethod
     def from_settings(cls, loaded: dict) -> "MeditationSpec":
-        """Read current settings or migrate the old container, ignoring dead keys.
+        """Read current settings and migrate the former one-MP3 ceremony UI.
 
-        Old bowl/gong gain values intentionally do not define separate rules
-        anymore. New controls start at their shared defaults. Existing enable,
-        level, rest intervals, and transition settings are retained.
+        The first run of the generated-ceremony architecture deliberately uses
+        its new 1-3 minute rest defaults rather than inheriting the former
+        45-120 minute waits. All unrelated meditation/spatial settings survive.
         """
         raw = loaded.get("meditation", loaded.get("synthesized_meditation", {}))
         if not isinstance(raw, dict):
@@ -6783,11 +6800,26 @@ class MeditationSpec:
                         values[name] = value
             except (ValueError, TypeError, OverflowError):
                 pass
-        # Restore invalid fields separately so one damaged value does not
-        # discard a user's valid enable/level/interval settings.
+
+        # Presence of either ceremony-length field means these settings were
+        # already saved by the generated-ceremony build. Otherwise this is a
+        # legacy one-recording configuration and the old long rest values no
+        # longer describe the intended behavior.
+        generated_architecture_saved = (
+            "ceremony_min_minutes" in raw
+            or "ceremony_max_minutes" in raw
+        )
+        if not generated_architecture_saved:
+            values["interval_min_minutes"] = defaults.interval_min_minutes
+            values["interval_max_minutes"] = defaults.interval_max_minutes
+            values["ceremony_min_minutes"] = defaults.ceremony_min_minutes
+            values["ceremony_max_minutes"] = defaults.ceremony_max_minutes
+
         limits = {
-            "interval_min_minutes": (5.0, 480.0),
-            "interval_max_minutes": (5.0, 480.0),
+            "interval_min_minutes": (0.25, 60.0),
+            "interval_max_minutes": (0.25, 60.0),
+            "ceremony_min_minutes": (3.0, 30.0),
+            "ceremony_max_minutes": (3.0, 30.0),
             "performance_level_db": (-30.0, 12.0),
             "brown_least_attenuation_db": (-60.0, 0.0),
             "brown_greatest_attenuation_db": (-60.0, 0.0),
@@ -6802,6 +6834,7 @@ class MeditationSpec:
                 values[name] = getattr(defaults, name)
         for low_name, high_name in (
             ("interval_min_minutes", "interval_max_minutes"),
+            ("ceremony_min_minutes", "ceremony_max_minutes"),
             ("brown_greatest_attenuation_db", "brown_least_attenuation_db"),
             ("spatial_near_meters", "spatial_far_meters"),
         ):
@@ -6832,6 +6865,7 @@ class MeditationState:
             values.update(changes)
             for low_name, high_name in (
                 ("interval_min_minutes", "interval_max_minutes"),
+                ("ceremony_min_minutes", "ceremony_max_minutes"),
                 ("brown_greatest_attenuation_db", "brown_least_attenuation_db"),
                 ("spatial_near_meters", "spatial_far_meters"),
             ):
@@ -6844,17 +6878,12 @@ class MeditationState:
 
 
 class MeditationFieldMotion:
-    """Meditation presence arc plus subtle independent spatial drift.
+    """One continuous spatial presence field shared by an entire ceremony.
 
-    The radial motion is deliberately staged rather than purely wandering:
-    the performance establishes at distance, slowly approaches, dwells in a
-    more immediate presence, then recedes back into the brown-noise field.
-    Small radial drift and independent azimuth/elevation travel remain layered
-    on top so the path never feels like a mechanical automation envelope.
-
-    Brown-noise attenuation keeps its own organic journey and may be partially
-    coupled to the final source proximity. Called once per Steam Audio frame in
-    both realtime playback and offline export.
+    Vocal file boundaries never reset this field. A newly-started ceremony
+    begins at the far endpoint and immediately starts approaching; internal
+    presence cycles can continue for long ceremonies, and the conductor can
+    request one explicit final retreat before the ceremony ends.
     """
 
     STEREO_HALF_WIDTH_DEGREES = 24.0
@@ -6877,9 +6906,13 @@ class MeditationFieldMotion:
 
         self.rng = np.random.default_rng(seed + 7)
         self.brown = journey(23, 0.45, 0.0, 1.0, 90.0, 240.0)
-        self.radial_drift = journey(11, 0.50, 0.0, 1.0, 70.0, 180.0, 1.8)
-        self.azimuth = journey(37, 0.0, -115.0, 115.0, 210.0, 480.0, 2.0)
-        self.elevation = journey(53, 4.0, -10.0, 16.0, 180.0, 400.0, 2.0)
+
+        # Faster than the former multi-minute directional journeys. These are
+        # still slow movements, but large enough to be perceived within one
+        # 2-5 minute source clip rather than only across several clips.
+        self.radial_drift = journey(11, 0.50, 0.0, 1.0, 45.0, 110.0, 1.8)
+        self.azimuth = journey(37, 0.0, -115.0, 115.0, 45.0, 110.0, 2.0)
+        self.elevation = journey(53, 4.0, -10.0, 16.0, 60.0, 140.0, 2.0)
 
         self.near = spec.spatial_near_meters
         self.far = spec.spatial_far_meters
@@ -6887,16 +6920,20 @@ class MeditationFieldMotion:
         self.greatest_db = spec.brown_greatest_attenuation_db
         self.coupling = spec.brown_coupling_percent / 100.0
 
-        # Always begin at the far end so a newly started ceremony can emerge
-        # from the brown-noise sea instead of appearing at an arbitrary radius.
-        self.presence_phase_index = 0
-        self.presence_phase = self._PHASES[self.presence_phase_index]
+        self.presence_phase_index = 1
+        self.presence_phase = "approach"
         self.presence_elapsed = 0.0
         self.presence_start = 1.0
-        self.presence_target = 1.0
+        self.presence_target = 0.06
         self.presence_base = 1.0
-        self.presence_duration = self._phase_duration(spec, self.presence_phase)
+        self.presence_duration = self._phase_duration(spec, "approach")
         self.current_radial_state = 1.0
+
+        self._final_retreat_active = False
+        self._final_retreat_elapsed = 0.0
+        self._final_retreat_duration = 45.0
+        self._final_retreat_start = 1.0
+        self._final_retreat_progress = 0.0
 
         self.independent_state = self.brown.current_value
         self.proximity_state = 0.0
@@ -6909,8 +6946,6 @@ class MeditationFieldMotion:
     def _phase_duration(self, spec: MeditationSpec, phase: str) -> float:
         cycle = max(120.0, float(spec.presence_cycle_minutes) * 60.0)
         nominal = cycle * self._PHASE_FRACTIONS[phase]
-        # Modest per-phase irregularity prevents a recognizable repeating arc
-        # while preserving the user's overall cycle-tempo control.
         return max(20.0, nominal * float(self.rng.uniform(0.86, 1.16)))
 
     @staticmethod
@@ -6918,14 +6953,44 @@ class MeditationFieldMotion:
         value = float(np.clip(value, 0.0, 1.0))
         return value ** 3 * (value * (value * 6.0 - 15.0) + 10.0)
 
+    def reset_for_ceremony(self, spec: MeditationSpec) -> None:
+        """Begin an emergence immediately from the far endpoint."""
+        self.presence_phase_index = 1
+        self.presence_phase = "approach"
+        self.presence_elapsed = 0.0
+        self.presence_start = 1.0
+        self.presence_target = 0.06
+        self.presence_base = 1.0
+        self.presence_duration = self._phase_duration(spec, "approach")
+        self.current_radial_state = 1.0
+        self._final_retreat_active = False
+        self._final_retreat_elapsed = 0.0
+        self._final_retreat_progress = 0.0
+        self.proximity_state = 0.0
+        self.current_distance = self._distance()
+        self.current_brown_db = self._brown_db()
+        self.current_position = self._position(0.0)
+
+    def begin_final_retreat(self, duration_seconds: float) -> None:
+        if self._final_retreat_active:
+            return
+        self._final_retreat_active = True
+        self._final_retreat_elapsed = 0.0
+        self._final_retreat_duration = max(1.0, float(duration_seconds))
+        self._final_retreat_start = float(self.presence_base)
+        self._final_retreat_progress = 0.0
+        self.presence_phase = "retreat"
+        self.presence_elapsed = 0.0
+        self.presence_duration = self._final_retreat_duration
+        self.presence_start = self._final_retreat_start
+        self.presence_target = 1.0
+
     def _begin_next_presence_phase(self, spec: MeditationSpec) -> None:
         self.presence_phase_index = (self.presence_phase_index + 1) % len(self._PHASES)
         self.presence_phase = self._PHASES[self.presence_phase_index]
         self.presence_elapsed = 0.0
         self.presence_start = self.presence_base
-        if self.presence_phase == "approach":
-            self.presence_target = 0.06
-        elif self.presence_phase == "present":
+        if self.presence_phase in {"approach", "present"}:
             self.presence_target = 0.06
         else:
             self.presence_target = 1.0
@@ -6933,6 +6998,23 @@ class MeditationFieldMotion:
 
     def _advance_presence(self, seconds: float, spec: MeditationSpec) -> None:
         remaining = max(0.0, float(seconds))
+
+        if self._final_retreat_active:
+            self._final_retreat_elapsed = min(
+                self._final_retreat_duration,
+                self._final_retreat_elapsed + remaining,
+            )
+            self._final_retreat_progress = self._smoothstep5(
+                self._final_retreat_elapsed / self._final_retreat_duration
+            )
+            self.presence_base = (
+                self._final_retreat_start
+                + (1.0 - self._final_retreat_start) * self._final_retreat_progress
+            )
+            self.presence_elapsed = self._final_retreat_elapsed
+            self.presence_phase = "retreat"
+            return
+
         while remaining > 0.0:
             available = max(1.0e-9, self.presence_duration - self.presence_elapsed)
             step = min(remaining, available)
@@ -6990,18 +7072,19 @@ class MeditationFieldMotion:
         self.current_azimuth = self.azimuth.advance(seconds)
         self.current_elevation = self.elevation.advance(seconds)
 
-        # The staged arrival/departure supplies the large radial narrative. A
-        # small independent wander (about +/- 4% of the normalized distance
-        # range) keeps the source alive even while it dwells near or far.
-        drift_offset = (drift - 0.5) * 0.08
+        # As the explicit final retreat approaches its far endpoint, reduce the
+        # small radial wander too. The ceremony therefore actually disappears
+        # into the distance instead of being held a few percent forward by an
+        # unrelated drift value.
+        drift_scale = 1.0 - self._final_retreat_progress if self._final_retreat_active else 1.0
+        drift_offset = (drift - 0.5) * 0.08 * drift_scale
         self.current_radial_state = float(np.clip(
             self.presence_base + drift_offset, 0.0, 1.0
         ))
 
         # Slider edits settle gradually rather than teleporting the source or
-        # stepping its gain. The presence-cycle slider affects newly-entered
-        # phases; it intentionally does not time-warp a phase already underway.
-        blend = 1.0 - math.exp(-seconds / 3.0)
+        # stepping its gain. Presence-cycle edits affect newly-entered phases.
+        blend = 1.0 - math.exp(-seconds / 3.0) if seconds > 0.0 else 0.0
         self.near += (spec.spatial_near_meters - self.near) * blend
         self.far += (spec.spatial_far_meters - self.far) * blend
         self.least_db += (spec.brown_least_attenuation_db - self.least_db) * blend
@@ -7341,14 +7424,20 @@ class CeremonyRecordingPlayer:
 
 
 class MeditationOrchestrator:
-    """Recorded performances, shared spatial field, and repeating interval scheduling.
+    """Generate complete ceremonies from the active style's vocal library.
 
-    This is not an instrument synthesizer or a phrase-library conductor.
-    A recording plays through EOF, then the normal randomized interval system
-    schedules another performance. A shuffled bag prevents immediate repetition
-    and refills indefinitely so long realtime sessions and exports keep receiving
-    ceremonies. Manual selection from the ceremony dropdown remains immediate.
+    One ceremony owns a continuous spatial/presence field. Two bounded
+    read-ahead players allow successive 2-5 minute vocal recordings to overlap
+    with an equal-power crossfade without any disk I/O in the audio callback.
+    The vocal shuffle bag spans ceremonies, so every source is used before the
+    library repeats and bag boundaries never repeat the last used clip.
+
+    Instruments are intentionally NOT part of this conductor yet.
     """
+
+    RANDOM_START_TOKEN = "__generated_random__"
+    CROSSFADE_MIN_SECONDS = 3.0
+    CROSSFADE_MAX_SECONDS = 8.0
 
     def __init__(self, *, sample_rate: float, renderer: SteamAudioRenderer,
                  state: MeditationState, style_directory: Path,
@@ -7366,10 +7455,22 @@ class MeditationOrchestrator:
                 "No meditation MP3 files found for style %s beneath %s",
                 self.style_name, self.style_directory
             )
-        self.remaining_performances = []
-        self._last_automatic_name: str | None = None
+
+        # Global no-repeat pool for vocal source clips.
+        self.remaining_performances: list[str] = []
+        self._last_vocal_name: str | None = None
         self._refill_performance_bag()
-        self.recording_player = CeremonyRecordingPlayer(self.sample_rate)
+
+        # Two independent bounded read-ahead workers are enough for an outgoing
+        # and incoming source during crossfade. Their stereo is combined before
+        # the one continuous ceremony spatial field is applied.
+        self.players = [
+            CeremonyRecordingPlayer(self.sample_rate),
+            CeremonyRecordingPlayer(self.sample_rate),
+        ]
+        self._current_player_index = 0
+        self._next_player_index = 1
+
         self.field = MeditationFieldMotion(state.get(), seed + 900)
         left, right = self.field.stereo_positions()
         self.sources = [
@@ -7377,7 +7478,10 @@ class MeditationOrchestrator:
                                    distance_attenuation_enabled=True)
             for p in (left, right)
         ]
+
         self.active_name = ""
+        self.current_vocal_name = ""
+        self.next_vocal_name = ""
         self.current_status = "waiting"
         self.performance_count = 0
         self.elapsed_samples = 0
@@ -7385,7 +7489,7 @@ class MeditationOrchestrator:
         self.export_total_seconds = 0.0
         self._duration_cache: dict[str, float] = {}
         self._next_start_sample = math.inf
-        self._event_journal = deque(maxlen=2048)
+        self._event_journal = deque(maxlen=4096)
         self._command_lock = threading.Lock()
         self._manual_start_requested: str | None = None
         self._manual_stop_requested = False
@@ -7394,40 +7498,55 @@ class MeditationOrchestrator:
         self._pending_due_sample = math.inf
         self._replacement_name: str | None = None
         self._stopping = False
-        self._source_ended = False
+        self._scheduled_stop = False
         self._source_completed = False
         self._mix = 0.0
         self._audio_mix = 0.0
         self._level_db = state.get().performance_level_db
         self.current_brown_gain_db = 0.0
         self.current_presence_gain_db = -8.0
-        self.blocks_motifs = False
+        self.blocks_motifs = False  # retained for compatibility; no longer used to gate ambients
         self._last_status_sample = -self.sample_rate
         self._last_field_log_sample = -30 * self.sample_rate
-        self._last_underrun_count = 0
         self._last_error = ""
         self.cancel_event = None
         self._closed = False
+
+        self._ceremony_target_samples = 0
+        self._ceremony_elapsed_samples = 0
+        self._ceremony_retreat_started = False
+        self._ceremony_retreat_samples = 0
+
+        self._crossfade_active = False
+        self._crossfade_elapsed_samples = 0
+        self._crossfade_total_samples = 0
+        self._next_crossfade_seconds = self._choose_crossfade_seconds()
+        self._current_underrun_snapshot = 0
+        self._next_underrun_snapshot = 0
+
         self._reschedule()
+
+    @property
+    def recording_player(self) -> CeremonyRecordingPlayer:
+        """Compatibility/readability alias for the currently foregrounded clip."""
+        return self.players[self._current_player_index]
+
+    @property
+    def next_recording_player(self) -> CeremonyRecordingPlayer:
+        return self.players[self._next_player_index]
 
     @staticmethod
     def _display_name_for_path(path: Path) -> str:
-        special_names = {
-            "singing-bowls": "Tibetan singing bowls",
-            "gong-ceremony": "Gong ceremony",
-        }
         stem = path.stem
-        return special_names.get(stem.lower(), stem.replace("_", " ").replace("-", " ").strip().title())
+        return stem.replace("_", " ").replace("-", " ").strip().title()
 
     @classmethod
     def _scan_recordings(cls, style_dir: Path) -> dict[str, Path]:
         """Return foreground vocal MP3s for the currently selected style.
 
-        The authored layout is ceremonies/<style>/vocals/. For migration from
-        the previous flat ceremony folder, direct MP3s in the style directory
-        are also accepted when present. Instrument files are intentionally not
-        promoted to foreground ceremonies yet; they remain reserved for the
-        later accompaniment layer.
+        The authored layout is ceremonies/<style>/vocals/. Direct MP3s in the
+        style directory remain accepted for migration. instruments/ is ignored
+        deliberately until the separate accompaniment research phase.
         """
         style_dir = Path(style_dir)
         vocals_dir = style_dir / STYLE_VOCALS_FOLDER
@@ -7456,32 +7575,37 @@ class MeditationOrchestrator:
         return recordings
 
     def set_style_directory(self, style_dir: Path) -> None:
-        """Switch the foreground ceremony library to another authored style."""
-        self.recording_player.stop()
+        """Switch the vocal library to another authored style."""
+        for player in self.players:
+            player.stop()
         self.style_directory = Path(style_dir)
         self.style_name = self.style_directory.name
         self.recording_paths = self._scan_recordings(self.style_directory)
         self.performance_registry = tuple(self.recording_paths)
         self.remaining_performances = []
-        self._last_automatic_name = None
+        self._last_vocal_name = None
         self._pending_name = None
         self._pending_manual = False
         self._replacement_name = None
         self._stopping = False
-        self._source_ended = False
-        self._source_completed = False
+        self._scheduled_stop = False
         self.active_name = ""
+        self.current_vocal_name = ""
+        self.next_vocal_name = ""
         self.current_status = f"waiting — style {self.style_name}"
         self._mix = 0.0
         self._audio_mix = 0.0
         self.current_brown_gain_db = 0.0
         self.current_presence_gain_db = -8.0
         self._duration_cache.clear()
+        self._crossfade_active = False
+        self._ceremony_elapsed_samples = 0
+        self._ceremony_target_samples = 0
         self._refill_performance_bag()
         self._reschedule()
         self._journal(
             "MEDITATION_STYLE",
-            f"selected style={self.style_name}; foreground ceremonies={len(self.performance_registry)}",
+            f"selected style={self.style_name}; vocal clips={len(self.performance_registry)}",
         )
 
     @property
@@ -7493,11 +7617,26 @@ class MeditationOrchestrator:
         return bool(self.active_name)
 
     @property
+    def ceremony_elapsed_seconds(self) -> float:
+        return self._ceremony_elapsed_samples / self.sample_rate
+
+    @property
+    def ceremony_target_seconds(self) -> float:
+        return self._ceremony_target_samples / self.sample_rate
+
+    @property
+    def ceremony_remaining_seconds(self) -> float:
+        return max(0.0, self.ceremony_target_seconds - self.ceremony_elapsed_seconds)
+
+    @property
     def next_performance_seconds(self) -> float:
+        if not math.isfinite(self._next_start_sample):
+            return math.inf
         return max(0.0, (self._next_start_sample - self.elapsed_samples) / self.sample_rate)
 
     @staticmethod
     def _format_log_time(seconds: float) -> str:
+        """Format an exported ceremony-log timestamp as HH:MM:SS.mmm."""
         total_ms = max(0, int(round(seconds * 1000.0)))
         hours, remainder = divmod(total_ms, 3_600_000)
         minutes, remainder = divmod(remainder, 60_000)
@@ -7506,12 +7645,11 @@ class MeditationOrchestrator:
 
     def _journal(self, category: str, message: str, offset: int = 0) -> None:
         self._event_journal.append((
-            (self.elapsed_samples + offset) / self.sample_rate, str(category), str(message),
+            (self.elapsed_samples + offset) / self.sample_rate,
+            str(category), str(message),
         ))
 
     def drain_event_journal(self) -> list[tuple[float, str, str]]:
-        # popleft avoids losing entries appended by the audio thread between
-        # a list() snapshot and clear(). deque appends/pops are atomic in CPython.
         entries = []
         while True:
             try:
@@ -7520,78 +7658,134 @@ class MeditationOrchestrator:
                 return entries
 
     def _recording_duration_seconds(self, name: str) -> float:
-        # Called only during export setup (never from the live callback).
         if name not in self._duration_cache:
-            duration = CeremonyRecordingPlayer.probe_duration_seconds(self.recording_paths[name])
+            duration = CeremonyRecordingPlayer.probe_duration_seconds(
+                self.recording_paths[name]
+            )
             if duration <= 0.0:
-                raise ValueError(f"Cannot determine duration for scheduled {name}")
+                raise ValueError(f"Cannot determine duration for vocal clip {name}")
             self._duration_cache[name] = duration
         return self._duration_cache[name]
 
     def _refill_performance_bag(self, avoid_name: str | None = None) -> None:
-        """Refill the shuffled ceremony bag, avoiding an immediate repeat."""
+        """Refill the shuffled vocal pool, avoiding a boundary repeat."""
         self.remaining_performances = list(self.performance_registry)
         self.rng.shuffle(self.remaining_performances)
+        avoid_name = avoid_name or self._last_vocal_name
         if (
             avoid_name is not None
             and len(self.remaining_performances) > 1
             and self.remaining_performances[0] == avoid_name
         ):
-            # Preserve the random order as much as possible while guaranteeing
-            # that a bag boundary never repeats the ceremony that just ended.
             swap_index = next(
                 i for i, name in enumerate(self.remaining_performances[1:], 1)
                 if name != avoid_name
             )
             self.remaining_performances[0], self.remaining_performances[swap_index] = (
-                self.remaining_performances[swap_index], self.remaining_performances[0]
+                self.remaining_performances[swap_index],
+                self.remaining_performances[0],
             )
 
-    def configure_export(self, total_duration_seconds: float) -> None:
-        """Prepare offline export using the same randomized timing as live playback.
+    def _take_vocal(self, avoid_name: str | None = None) -> str | None:
+        if not self.performance_registry:
+            return None
+        if not self.remaining_performances:
+            self._refill_performance_bag(avoid_name=avoid_name)
+            self._journal(
+                "MEDITATION_BAG_REFILL",
+                "next vocal cycle: " + " -> ".join(self.remaining_performances),
+            )
+        if not self.remaining_performances:
+            return None
 
-        Export has no special ceremony schedule. The registered recordings use
-        the normal meditation interval range and the shuffled bag refills for
-        the full export, with no immediate repeat at bag boundaries.
-        """
+        if (
+            avoid_name
+            and len(self.remaining_performances) > 1
+            and self.remaining_performances[0] == avoid_name
+        ):
+            swap_index = next(
+                (i for i, name in enumerate(self.remaining_performances[1:], 1)
+                 if name != avoid_name),
+                None,
+            )
+            if swap_index is not None:
+                self.remaining_performances[0], self.remaining_performances[swap_index] = (
+                    self.remaining_performances[swap_index], self.remaining_performances[0]
+                )
+        name = self.remaining_performances.pop(0)
+        self._last_vocal_name = name
+        return name
+
+    def _return_reserved_vocal(self) -> None:
+        """Put an unused preloaded next clip back into the current pool."""
+        if self.next_vocal_name and self.next_vocal_name not in self.remaining_performances:
+            self.remaining_performances.insert(0, self.next_vocal_name)
+        self.next_recording_player.stop()
+        self.next_vocal_name = ""
+
+    def configure_export(self, total_duration_seconds: float) -> None:
         self.export_mode = True
         self.export_total_seconds = max(0.0, float(total_duration_seconds))
         self.elapsed_samples = 0
         self._duration_cache.clear()
         spec = self.state.get()
-        if not spec.enabled:
-            self.remaining_performances = []
+        if not spec.enabled or not self.performance_registry:
             self._next_start_sample = math.inf
-            self._journal("MEDITATION_PLAN", "automatic meditation disabled; no export performances")
+            self._journal(
+                "MEDITATION_PLAN",
+                "automatic generated ceremonies disabled or no vocal clips available",
+            )
             return
 
-        self._last_automatic_name = None
+        self._last_vocal_name = None
         self._refill_performance_bag()
-        # Probe once so decoding/path errors are caught before a long export.
+        # Fail fast on malformed files before a long render begins.
         for name in self.performance_registry:
             self._recording_duration_seconds(name)
         self._reschedule()
         self._journal("MEDITATION_PLAN", (
-            f"{len(self.performance_registry)} MP3 ceremonies scanned; repeating shuffled ceremonies "
-            "using normal interval timing; initial order: "
+            f"style={self.style_name}; {len(self.performance_registry)} vocal clips; "
+            f"generated ceremonies {spec.ceremony_min_minutes:.1f}-"
+            f"{spec.ceremony_max_minutes:.1f} min; rests "
+            f"{spec.interval_min_minutes:.2f}-{spec.interval_max_minutes:.2f} min; "
+            f"equal-power vocal crossfades {self.CROSSFADE_MIN_SECONDS:.0f}-"
+            f"{self.CROSSFADE_MAX_SECONDS:.0f}s; initial vocal pool: "
             + " -> ".join(self.remaining_performances)
         ))
 
     def _reschedule(self, from_sample: int | None = None) -> None:
         base = self.elapsed_samples if from_sample is None else from_sample
         spec = self.state.get()
-        if not self.remaining_performances or (self.export_mode and not spec.enabled):
+        if not self.performance_registry or (self.export_mode and not spec.enabled):
             self._next_start_sample = math.inf
             return
-        low, high = spec.interval_min_minutes * 60.0, spec.interval_max_minutes * 60.0
-        wait = float(math.exp(self.rng.uniform(math.log(low), math.log(high))))
+        low = spec.interval_min_minutes * 60.0
+        high = spec.interval_max_minutes * 60.0
+        if abs(high - low) < 1.0e-9:
+            wait = low
+        else:
+            wait = float(math.exp(self.rng.uniform(math.log(low), math.log(high))))
         self._next_start_sample = base + round(wait * self.sample_rate)
 
+    def _choose_ceremony_seconds(self, spec: MeditationSpec) -> float:
+        low = spec.ceremony_min_minutes * 60.0
+        high = spec.ceremony_max_minutes * 60.0
+        return low if abs(high - low) < 1.0e-9 else float(self.rng.uniform(low, high))
+
+    def _choose_crossfade_seconds(self) -> float:
+        return float(self.rng.uniform(
+            self.CROSSFADE_MIN_SECONDS, self.CROSSFADE_MAX_SECONDS
+        ))
+
+    def _final_retreat_seconds(self, spec: MeditationSpec) -> float:
+        # About one eighth of the normal presence cycle, with practical bounds.
+        return float(np.clip(spec.presence_cycle_minutes * 60.0 * 0.125, 30.0, 90.0))
+
     def request_start(self, name: str) -> None:
-        if name in self.recording_paths:
+        if name == self.RANDOM_START_TOKEN or name in self.recording_paths:
             self._request_start(name)
         else:
-            self._journal("MEDITATION_ERROR", f"ceremony not found: {name}")
+            self._journal("MEDITATION_ERROR", f"vocal clip not found: {name}")
 
     def _request_start(self, name: str) -> None:
         with self._command_lock:
@@ -7605,100 +7799,190 @@ class MeditationOrchestrator:
 
     def _consume_commands(self) -> None:
         with self._command_lock:
-            name, stop = self._manual_start_requested, self._manual_stop_requested
+            name = self._manual_start_requested
+            stop = self._manual_stop_requested
             self._manual_start_requested = None
             self._manual_stop_requested = False
+
         if stop:
             self._replacement_name = None
             if self.active:
+                self._scheduled_stop = False
                 self._stopping = True
+                self._source_completed = False
+                self.field.begin_final_retreat(self.state.get().transition_seconds)
                 self._journal("MEDITATION_STOP_REQUEST", self.active_name)
             else:
-                self.recording_player.stop()
+                for player in self.players:
+                    player.stop()
                 self._pending_name = None
                 self._reschedule()
         elif name is not None:
             if self.active:
-                # Do not chop one recording to start another on a block edge.
                 self._replacement_name = name
+                self._scheduled_stop = False
                 self._stopping = True
-                self._journal("MEDITATION_SWITCH_REQUEST", f"{self.active_name} -> {name}; fade first")
+                self._source_completed = False
+                self.field.begin_final_retreat(self.state.get().transition_seconds)
+                self._journal(
+                    "MEDITATION_SWITCH_REQUEST",
+                    f"{self.active_name} -> generated ceremony starting with {name}; fade first",
+                )
             else:
                 self._prepare(name, manual=True, due_sample=self.elapsed_samples)
 
-    def _prepare(self, name: str, *, manual: bool, due_sample: int) -> None:
+    def _remove_specific_from_pool(self, name: str) -> None:
+        try:
+            self.remaining_performances.remove(name)
+        except ValueError:
+            pass
+        self._last_vocal_name = name
+
+    def _prepare(self, requested_name: str | None, *, manual: bool, due_sample: int) -> None:
+        if not self.performance_registry:
+            self._last_error = f"No vocal clips available for style {self.style_name}"
+            self.current_status = self._last_error
+            return
+
+        if requested_name in (None, self.RANDOM_START_TOKEN):
+            name = self._take_vocal()
+        else:
+            name = requested_name
+            self._remove_specific_from_pool(name)
+        if not name:
+            return
+
         self._pending_name = name
         self._pending_manual = manual
         self._pending_due_sample = due_sample
         self._last_error = ""
-        self.recording_player.prepare(self.recording_paths[name])
-        self.current_status = f"preparing {name}; brown bed unchanged until audio is ready"
-        self._journal("MEDITATION_PREPARE", f"{name}; {self.recording_paths[name].name}")
+        self.players[self._current_player_index].prepare(self.recording_paths[name])
+        self.current_status = f"preparing generated ceremony; first vocal {name}"
+        self._journal(
+            "MEDITATION_PREPARE",
+            f"generated ceremony; first={name}; file={self.recording_paths[name].name}",
+        )
+
+    def _prepare_next_vocal(self) -> None:
+        if not self.active or self.next_vocal_name or not self.performance_registry:
+            return
+        name = self._take_vocal(avoid_name=self.current_vocal_name)
+        if not name:
+            return
+        self.next_vocal_name = name
+        self._next_crossfade_seconds = self._choose_crossfade_seconds()
+        self.next_recording_player.prepare(self.recording_paths[name])
+        self._journal(
+            "MEDITATION_VOCAL_PRELOAD",
+            f"current={self.current_vocal_name}; next={name}; "
+            f"crossfade={self._next_crossfade_seconds:.2f}s",
+        )
 
     def _begin(self, offset: int) -> None:
-        name = self._pending_name
+        first_name = self._pending_name
         due = self._pending_due_sample
         manual = self._pending_manual
         self._pending_name = None
-        self.active_name = name
+        self.current_vocal_name = first_name or ""
+        self.active_name = f"{self.style_name} generated ceremony"
         self.performance_count += 1
-        if name in self.remaining_performances:
-            self.remaining_performances.remove(name)
-        if not manual:
-            self._last_automatic_name = name
         self._next_start_sample = math.inf
-        self._stopping = self._source_ended = self._source_completed = False
+        self._stopping = False
+        self._scheduled_stop = False
+        self._source_completed = False
         self._audio_mix = 0.0
-        self._last_underrun_count = 0
+        self._mix = 0.0
+        self._crossfade_active = False
+        self._crossfade_elapsed_samples = 0
+        self._crossfade_total_samples = 0
+        self._ceremony_elapsed_samples = 0
+        spec = self.state.get()
+        target_seconds = self._choose_ceremony_seconds(spec)
+        self._ceremony_target_samples = max(
+            round(target_seconds * self.sample_rate),
+            round(spec.transition_seconds * self.sample_rate) + 1,
+        )
+        retreat_seconds = min(
+            self._final_retreat_seconds(spec),
+            max(spec.transition_seconds, target_seconds * 0.35),
+        )
+        self._ceremony_retreat_samples = round(retreat_seconds * self.sample_rate)
+        self._ceremony_retreat_started = False
+        self.field.reset_for_ceremony(spec)
+        self._current_underrun_snapshot = self.recording_player.underrun_count
+        self._next_underrun_snapshot = self.next_recording_player.underrun_count
         self._journal("MEDITATION_START", (
-            f"{name}; MP3={self.recording_paths[name].name}; "
-            f"duration={self.recording_player.duration_seconds / 60.0:.2f} min; "
-            "stereo 3D pair; shared evolving brown bed"
+            f"{self.active_name}; target={target_seconds / 60.0:.2f} min; "
+            f"first vocal={self.current_vocal_name}; "
+            f"MP3={self.recording_paths[self.current_vocal_name].name}; "
+            f"final retreat={retreat_seconds:.1f}s; stereo 3D pair; "
+            "continuous spatial field; shared evolving brown bed"
         ), offset)
         if not manual and self.elapsed_samples + offset > due + self.renderer.frame_size:
             self._journal("MEDITATION_WARNING", (
-                f"{name}: actual start delayed {(self.elapsed_samples + offset - due) / self.sample_rate:.3f}s"
+                f"generated ceremony start delayed "
+                f"{(self.elapsed_samples + offset - due) / self.sample_rate:.3f}s"
             ), offset)
+        self._prepare_next_vocal()
         self._last_status_sample = -self.sample_rate
 
     def _finish(self, offset: int) -> None:
-        name = self.active_name
         category = "MEDITATION_COMPLETE" if self._source_completed else "MEDITATION_STOP"
-        self._journal(category, f"{name}; bed returned to normal", offset)
+        self._journal(
+            category,
+            f"{self.active_name}; elapsed={self.ceremony_elapsed_seconds / 60.0:.2f} min; "
+            "bed returned to normal",
+            offset,
+        )
+        # A next vocal may have been preloaded but never entered before the
+        # final retreat. Return it to the front of the pool rather than silently
+        # consuming a source the listener never heard.
+        self._return_reserved_vocal()
         self.recording_player.stop()
         self.active_name = ""
-        self._stopping = self._source_ended = self._source_completed = False
+        self.current_vocal_name = ""
+        self._stopping = False
+        self._scheduled_stop = False
+        self._source_completed = False
+        self._crossfade_active = False
         self._audio_mix = self._mix = 0.0
-        if not self.remaining_performances:
-            self._refill_performance_bag(avoid_name=name)
-            self._journal(
-                "MEDITATION_BAG_REFILL",
-                "next shuffled cycle: " + " -> ".join(self.remaining_performances),
-                offset,
-            )
+        self._ceremony_elapsed_samples = 0
+        self._ceremony_target_samples = 0
+        self._ceremony_retreat_started = False
         self._reschedule(from_sample=self.elapsed_samples + offset)
         if self._replacement_name is not None:
-            name, self._replacement_name = self._replacement_name, None
-            self._prepare(name, manual=True, due_sample=self.elapsed_samples + offset)
+            replacement = self._replacement_name
+            self._replacement_name = None
+            self._prepare(replacement, manual=True, due_sample=self.elapsed_samples + offset)
         self._last_status_sample = -self.sample_rate
 
-    def _handle_error(self, message: str) -> None:
+    def _handle_first_error(self, message: str) -> None:
         self._journal("MEDITATION_ERROR", message)
         self._last_error = message
         if self.export_mode:
             raise RuntimeError(message)
-        if self._pending_name in self.remaining_performances:
-            self.remaining_performances.remove(self._pending_name)
         self._pending_name = None
         self.recording_player.stop()
         if self.active:
-            self._source_ended = True
+            self._stopping = True
             self._source_completed = False
         else:
             self._reschedule()
         self.current_status = f"recording error: {message}"
 
-    def _ramp(self, current: float, target: float, count: int, seconds: float) -> tuple[np.ndarray, float]:
+    def _drop_failed_next(self, message: str) -> None:
+        self._journal("MEDITATION_VOCAL_ERROR", message)
+        failed = self.next_vocal_name
+        self.next_recording_player.stop()
+        self.next_vocal_name = ""
+        if failed:
+            self._journal("MEDITATION_VOCAL_SKIPPED", failed)
+        if self.export_mode:
+            raise RuntimeError(message)
+        self._prepare_next_vocal()
+
+    def _ramp(self, current: float, target: float, count: int,
+              seconds: float) -> tuple[np.ndarray, float]:
         if count == 0:
             return np.empty(0, dtype=np.float32), current
         step = 1.0 / max(1.0, seconds * self.sample_rate)
@@ -7713,139 +7997,285 @@ class MeditationOrchestrator:
             end = max(end, target)
         return values.astype(np.float32), float(end)
 
+    def _next_ready(self) -> bool:
+        if not self.next_vocal_name:
+            return False
+        try:
+            return self.next_recording_player.ready(
+                wait=self.export_mode,
+                cancel_event=self.cancel_event,
+            )
+        except InterruptedError:
+            raise
+        except Exception as exc:
+            self._drop_failed_next(str(exc))
+            return False
+
+    def _should_crossfade(self) -> bool:
+        if self._stopping or self._crossfade_active or not self.next_vocal_name:
+            return False
+        if self.ceremony_remaining_seconds <= self._next_crossfade_seconds + 2.0:
+            return False
+        return self.recording_player.remaining_seconds <= self._next_crossfade_seconds + 0.25
+
+    def _begin_crossfade(self) -> bool:
+        if not self._next_ready():
+            return False
+        self._crossfade_active = True
+        self._crossfade_elapsed_samples = 0
+        self._crossfade_total_samples = max(
+            1, round(self._next_crossfade_seconds * self.sample_rate)
+        )
+        self._journal(
+            "MEDITATION_CROSSFADE_START",
+            f"{self.current_vocal_name} -> {self.next_vocal_name}; "
+            f"duration={self._next_crossfade_seconds:.2f}s; "
+            f"ceremony={self.ceremony_elapsed_seconds / 60.0:.2f}/"
+            f"{self.ceremony_target_seconds / 60.0:.2f}min",
+        )
+        return True
+
+    def _complete_crossfade(self) -> None:
+        outgoing_name = self.current_vocal_name
+        incoming_name = self.next_vocal_name
+        outgoing_player = self.recording_player
+        outgoing_player.stop()
+        self._current_player_index, self._next_player_index = (
+            self._next_player_index, self._current_player_index
+        )
+        self.current_vocal_name = incoming_name
+        self.next_vocal_name = ""
+        self._crossfade_active = False
+        self._crossfade_elapsed_samples = 0
+        self._crossfade_total_samples = 0
+        self._journal(
+            "MEDITATION_CROSSFADE_COMPLETE",
+            f"{outgoing_name} -> {self.current_vocal_name}; "
+            f"spatial field continuous at {self.field.current_distance:.2f}m",
+        )
+        self._prepare_next_vocal()
+
+    def _render_player(self, player: CeremonyRecordingPlayer, count: int) -> np.ndarray:
+        return player.render(
+            count,
+            wait=self.export_mode,
+            cancel_event=self.cancel_event,
+        )
+
+    def _render_vocals(self, count: int) -> np.ndarray:
+        """Render current clip, with an equal-power handoff when due."""
+        if self._should_crossfade():
+            self._begin_crossfade()
+
+        if self._crossfade_active:
+            try:
+                outgoing = self._render_player(self.recording_player, count)
+                incoming = self._render_player(self.next_recording_player, count)
+            except InterruptedError:
+                raise
+            except Exception as exc:
+                self._handle_first_error(str(exc))
+                return np.zeros((count, 2), dtype=np.float32)
+
+            start = self._crossfade_elapsed_samples
+            positions = (
+                start + np.arange(count, dtype=np.float64)
+            ) / max(1, self._crossfade_total_samples)
+            positions = np.clip(positions, 0.0, 1.0)
+            out_gain = np.cos(positions * math.pi * 0.5)
+            in_gain = np.sin(positions * math.pi * 0.5)
+            mixed = (
+                outgoing.astype(np.float64) * out_gain[:, None]
+                + incoming.astype(np.float64) * in_gain[:, None]
+            ).astype(np.float32)
+            self._crossfade_elapsed_samples += count
+
+            if (
+                self._crossfade_elapsed_samples >= self._crossfade_total_samples
+                or self.recording_player.complete
+            ):
+                self._complete_crossfade()
+            return mixed
+
+        try:
+            audio = self._render_player(self.recording_player, count)
+        except InterruptedError:
+            raise
+        except Exception as exc:
+            self._handle_first_error(str(exc))
+            return np.zeros((count, 2), dtype=np.float32)
+
+        if self.recording_player.complete and not self._stopping:
+            # A well-preloaded source should normally have crossed before EOF.
+            # If duration metadata was inaccurate, perform a graceful emergency
+            # handoff instead of ending the whole ceremony.
+            if self.ceremony_remaining_seconds > 2.0 and self._next_ready():
+                self._journal(
+                    "MEDITATION_CROSSFADE_LATE",
+                    f"{self.current_vocal_name} reached EOF before planned overlap; "
+                    f"continuing with {self.next_vocal_name}",
+                )
+                self._complete_crossfade()
+            elif self.ceremony_remaining_seconds > 2.0:
+                self._prepare_next_vocal()
+        return audio
+
+    def _update_ceremony_timeline(self, spec: MeditationSpec) -> None:
+        remaining = self.ceremony_remaining_seconds
+        if not self._ceremony_retreat_started:
+            retreat_seconds = self._ceremony_retreat_samples / self.sample_rate
+            if remaining <= retreat_seconds:
+                self._ceremony_retreat_started = True
+                self.field.begin_final_retreat(max(1.0, remaining))
+                self._journal(
+                    "MEDITATION_RETREAT_START",
+                    f"remaining={remaining:.1f}s; vocal={self.current_vocal_name}; "
+                    f"distance={self.field.current_distance:.2f}m",
+                )
+
+        if not self._stopping and remaining <= spec.transition_seconds:
+            self._stopping = True
+            self._scheduled_stop = True
+            self._source_completed = True
+            self._journal(
+                "MEDITATION_FINAL_FADE",
+                f"remaining={remaining:.1f}s; transition={spec.transition_seconds:.1f}s",
+            )
+
     def _render_piece(self, count: int, spec: MeditationSpec):
         self._consume_commands()
         start_offset = 0
+
         if not self.active:
             if self._pending_name and not self._pending_manual and not spec.enabled:
                 self.recording_player.stop()
                 self._pending_name = None
-            if self._pending_name is None and spec.enabled and self.remaining_performances:
+            if self._pending_name is None and spec.enabled and self.performance_registry:
                 if self._next_start_sample < self.elapsed_samples + count + 5 * self.sample_rate:
-                    self._prepare(self.remaining_performances[0], manual=False,
-                                  due_sample=int(self._next_start_sample))
+                    self._prepare(
+                        self.RANDOM_START_TOKEN,
+                        manual=False,
+                        due_sample=int(self._next_start_sample),
+                    )
             if self._pending_name is not None:
                 due = self._pending_due_sample
                 if due < self.elapsed_samples + count:
                     try:
-                        ready = self.recording_player.ready(wait=self.export_mode, cancel_event=self.cancel_event)
+                        ready = self.recording_player.ready(
+                            wait=self.export_mode,
+                            cancel_event=self.cancel_event,
+                        )
                     except InterruptedError:
                         raise
                     except Exception as exc:
-                        self._handle_error(str(exc))
+                        self._handle_first_error(str(exc))
                         ready = False
                     if ready:
                         start_offset = max(0, int(due - self.elapsed_samples))
                         self._begin(start_offset)
+
         audio = np.zeros((count, 2), dtype=np.float32)
         mix = np.zeros(count, dtype=np.float32)
         gains = np.ones(count, dtype=np.float32)
         was_active = self.active
-        if self.active:
-            end_offset = count
-            if not self._source_ended and not (self._stopping and self._audio_mix <= 0.0):
-                read_start = self.recording_player.elapsed_samples
-                try:
-                    recorded = self.recording_player.render(
-                        count - start_offset, wait=self.export_mode, cancel_event=self.cancel_event,
-                    )
-                    valid = self.recording_player.last_valid_frames
-                except InterruptedError:
-                    raise
-                except Exception as exc:
-                    self._handle_error(str(exc))
-                    recorded = np.zeros((count - start_offset, 2), dtype=np.float32)
-                    valid = 0
-                # Millisecond edge protection only, not a replacement envelope
-                # for the musical arc already present in the recording.
-                if valid:
-                    sample_positions = read_start + np.arange(valid, dtype=np.float64)
-                    ingress = np.clip(sample_positions / (0.03 * self.sample_rate), 0.0, 1.0)
-                    edge = 0.5 - 0.5 * np.cos(math.pi * ingress)
-                    final_count = self.recording_player.final_sample_count
-                    if final_count is not None:
-                        remaining = final_count - sample_positions
-                        egress = np.clip(remaining / (0.05 * self.sample_rate), 0.0, 1.0)
-                        edge *= 0.5 - 0.5 * np.cos(math.pi * egress)
-                    recorded[:valid] *= edge[:, None]
-                audio[start_offset:] = recorded
-                if self._source_ended:
-                    end_offset = start_offset + valid
-                if self.recording_player.complete:
-                    self._source_ended = True
-                    self._source_completed = not self._stopping
-                    end_offset = start_offset + valid
-                    self._journal("MEDITATION_RECORDING_END", self.active_name, end_offset)
-                if self.recording_player.underrun_count != self._last_underrun_count:
-                    # At most one message per second even if the device falls
-                    # badly behind; samples are never skipped to catch up.
-                    if self.elapsed_samples - self._last_status_sample >= self.sample_rate:
-                        self._journal("MEDITATION_BUFFER_WAIT", "decoder underrun; source cursor paused")
-                    self._last_underrun_count = self.recording_player.underrun_count
-            elif self._source_ended:
-                end_offset = start_offset
-            active_count = max(0, end_offset - start_offset)
-            mix[start_offset:end_offset], self._mix = self._ramp(
-                self._mix, 0.0 if self._stopping else 1.0,
-                active_count, spec.transition_seconds,
-            )
-            if end_offset < count:
-                mix[end_offset:], self._mix = self._ramp(
-                    self._mix, 0.0, count - end_offset, spec.transition_seconds,
-                )
-            # Use a separate short ingress for the recording so the first
-            # audible phrase is not hidden by the slower bed transition.
-            audio_curve, self._audio_mix = self._ramp(
-                self._audio_mix, 0.0 if self._stopping else 1.0,
-                count - start_offset,
-                min(4.0, spec.transition_seconds) if self._stopping else 1.0,
-            )
-            audio[start_offset:] *= audio_curve[:, None]
-            proximity0 = self.field.proximity_state
-            db0, db1 = self.field.advance(count / self.sample_rate, spec)
-            proximity1 = self.field.proximity_state
-            attenuation = np.linspace(db0, db1, count, endpoint=False, dtype=np.float64)
-            gains = np.power(10.0, attenuation * mix / 20.0).astype(np.float32)
 
-            # Presence is more than distance alone. At the far/descended end,
-            # reduce the ceremony itself by an additional 8 dB; as it approaches
-            # the listener, smoothly restore that gain. This makes the source
-            # audibly rise out of the brown-noise sea and sink back into it,
-            # while the existing Steam Audio distance and gentle angular drift
-            # remain intact.
-            proximity = np.linspace(
-                proximity0, proximity1, count, endpoint=False, dtype=np.float64
-            )
-            proximity = np.clip(proximity, 0.0, 1.0)
-            smooth_proximity = proximity ** 3 * (proximity * (proximity * 6.0 - 15.0) + 10.0)
-            presence_gain_db = -8.0 * (1.0 - smooth_proximity)
-            presence_gain = np.power(10.0, presence_gain_db / 20.0)
-            # Fixed L/R source pair: neither channel is discarded or summed to
-            # mono before spatial rendering. Both are at the SAME radius, so
-            # distance doesn't make one channel louder than the other.
-            for source, position in zip(self.sources, self.field.stereo_positions()):
-                source.set_position_vector(position)
-            spatial = (
-                0.5 * self.sources[0].process_mono(np.ascontiguousarray(audio[:, 0]))
-                + 0.5 * self.sources[1].process_mono(np.ascontiguousarray(audio[:, 1]))
-            )
-            # 0.5 per channel avoids doubling correlated (dual-mono) input.
-            # No input-RMS normalization, AGC, reverb, or extra loudness LFO.
-            end_level = self._level_db + (spec.performance_level_db - self._level_db) * (
-                1.0 - math.exp(-(count / self.sample_rate) / 0.2)
-            )
-            level = np.power(10.0, np.linspace(self._level_db, end_level, count,
-                                             endpoint=False) / 20.0)
-            self._level_db = float(end_level)
-            self.current_presence_gain_db = float(presence_gain_db[-1])
-            audio = (spatial * (level * presence_gain)[:, None]).astype(np.float32)
-            if (
-                (self._stopping or self._source_ended)
-                and self._mix <= 0.0
-                and (self._source_ended or self._audio_mix <= 0.0)
-            ):
-                self._finish(count)
-        self.current_brown_gain_db = 20.0 * math.log10(max(1e-12, float(gains[-1])))
+        if self.active:
+            active_count = count - start_offset
+            if active_count > 0:
+                self._update_ceremony_timeline(spec)
+                vocals = self._render_vocals(active_count)
+                audio[start_offset:] = vocals
+
+                mix[start_offset:], self._mix = self._ramp(
+                    self._mix,
+                    0.0 if self._stopping else 1.0,
+                    active_count,
+                    spec.transition_seconds,
+                )
+
+                # The first clip needs only click protection; its real emergence
+                # is produced by distance, presence gain, and brown-bed coupling.
+                # Final/manual fades use the full transition duration so the
+                # vocal does not disappear before the spatial retreat completes.
+                audio_fade_seconds = (
+                    spec.transition_seconds if self._stopping else 1.0
+                )
+                audio_curve, self._audio_mix = self._ramp(
+                    self._audio_mix,
+                    0.0 if self._stopping else 1.0,
+                    active_count,
+                    audio_fade_seconds,
+                )
+                audio[start_offset:] *= audio_curve[:, None]
+
+                proximity0 = self.field.proximity_state
+                db0, db1 = self.field.advance(active_count / self.sample_rate, spec)
+                proximity1 = self.field.proximity_state
+
+                attenuation = np.linspace(
+                    db0, db1, active_count, endpoint=False, dtype=np.float64
+                )
+                gains[start_offset:] = np.power(
+                    10.0,
+                    attenuation * mix[start_offset:] / 20.0,
+                ).astype(np.float32)
+
+                proximity = np.linspace(
+                    proximity0, proximity1, active_count,
+                    endpoint=False, dtype=np.float64,
+                )
+                proximity = np.clip(proximity, 0.0, 1.0)
+                smooth_proximity = proximity ** 3 * (
+                    proximity * (proximity * 6.0 - 15.0) + 10.0
+                )
+                presence_gain_db = -8.0 * (1.0 - smooth_proximity)
+                presence_gain = np.power(10.0, presence_gain_db / 20.0)
+
+                for source, position in zip(self.sources, self.field.stereo_positions()):
+                    source.set_position_vector(position)
+                source_audio = audio[start_offset:]
+                spatial = (
+                    0.5 * self.sources[0].process_mono(
+                        np.ascontiguousarray(source_audio[:, 0])
+                    )
+                    + 0.5 * self.sources[1].process_mono(
+                        np.ascontiguousarray(source_audio[:, 1])
+                    )
+                )
+
+                end_level = self._level_db + (
+                    spec.performance_level_db - self._level_db
+                ) * (1.0 - math.exp(-(active_count / self.sample_rate) / 0.2))
+                level = np.power(
+                    10.0,
+                    np.linspace(
+                        self._level_db, end_level, active_count, endpoint=False
+                    ) / 20.0,
+                )
+                self._level_db = float(end_level)
+                self.current_presence_gain_db = float(presence_gain_db[-1])
+                audio[start_offset:] = (
+                    spatial * (level * presence_gain)[:, None]
+                ).astype(np.float32)
+
+                self._ceremony_elapsed_samples += active_count
+
+                # If a scheduled fade reached the target, or a manual fade has
+                # completed, close the ceremony and only then begin the rest.
+                if self._stopping and self._mix <= 0.0 and self._audio_mix <= 0.0:
+                    self._finish(count)
+                elif (
+                    self._scheduled_stop
+                    and self._ceremony_elapsed_samples >= self._ceremony_target_samples
+                ):
+                    # Rounding or an unusually short transition can leave a
+                    # microscopic tail. Force the next block to finish cleanly.
+                    self._mix = min(self._mix, 1.0e-6)
+                    self._audio_mix = min(self._audio_mix, 1.0e-6)
+
+        self.current_brown_gain_db = 20.0 * math.log10(
+            max(1e-12, float(gains[-1]))
+        )
         self.elapsed_samples += count
         self._refresh_status(spec)
         return audio, mix, gains, was_active or bool(np.any(mix > 0.0))
@@ -7854,36 +8284,70 @@ class MeditationOrchestrator:
         if self.elapsed_samples - self._last_status_sample < self.sample_rate:
             return
         self._last_status_sample = self.elapsed_samples
+
         if self.active:
-            phase = "returning to brown bed" if self._source_ended else "fading out" if self._stopping else "playing MP3"
+            if self._stopping:
+                phase = "final fade" if self._scheduled_stop else "manual fade"
+            elif self._ceremony_retreat_started:
+                phase = "retreating into brown bed"
+            elif self._crossfade_active:
+                phase = "crossfading vocals"
+            else:
+                phase = "generated vocal ceremony"
+
+            crossfade_text = ""
+            if self._crossfade_active:
+                progress = min(
+                    1.0,
+                    self._crossfade_elapsed_samples / max(1, self._crossfade_total_samples),
+                )
+                crossfade_text = f"; crossfade {100.0 * progress:.0f}%"
+
             self.current_status = (
                 f"{self.active_name}: {phase}; "
-                f"{self.recording_player.elapsed_seconds / 60.0:.1f} min played; "
-                f"{self.recording_player.remaining_seconds / 60.0:.1f} min remaining"
+                f"{self.ceremony_elapsed_seconds / 60.0:.1f}/"
+                f"{self.ceremony_target_seconds / 60.0:.1f} min; "
+                f"vocal {self.current_vocal_name or 'none'}; "
+                f"next {self.next_vocal_name or 'none'}{crossfade_text}"
             )
+
             if self.elapsed_samples - self._last_field_log_sample >= 30 * self.sample_rate:
                 self._last_field_log_sample = self.elapsed_samples
                 p = self.field.current_position
+                current_underruns = self.recording_player.underrun_count
+                next_underruns = self.next_recording_player.underrun_count
                 self._journal("MEDITATION_FIELD", (
-                    f"{self.active_name}; brown={self.current_brown_gain_db:.2f}dB; "
+                    f"{self.active_name}; vocal={self.current_vocal_name}; "
+                    f"next={self.next_vocal_name or 'none'}; "
+                    f"ceremony={self.ceremony_elapsed_seconds / 60.0:.2f}/"
+                    f"{self.ceremony_target_seconds / 60.0:.2f}min; "
+                    f"brown={self.current_brown_gain_db:.2f}dB; "
                     f"distance={self.field.current_distance:.3f}m; "
                     f"presenceGain={self.current_presence_gain_db:.2f}dB; "
                     f"xyz=({p.x:.3f},{p.y:.3f},{p.z:.3f}); "
                     f"coupling={spec.brown_coupling_percent:.0f}%; "
                     f"presence={self.field.presence_phase}; "
-                    f"cycle={spec.presence_cycle_minutes:.1f}min; "
-                    f"decoder_underruns={self.recording_player.underrun_count}"
+                    f"decoder_underruns=current:{current_underruns},next:{next_underruns}"
                 ))
         elif self._pending_name:
-            self.current_status = f"prepared/loading {self._pending_name}; waiting for its start time"
+            self.current_status = (
+                f"preparing generated ceremony; first vocal {self._pending_name}"
+            )
         elif self._last_error:
             self.current_status = f"recording error: {self._last_error}"
         elif not spec.enabled:
-            self.current_status = "automatic performances disabled; manual audition available"
-        elif not self.remaining_performances:
-            self.current_status = "replenishing meditation shuffle bag"
+            self.current_status = "automatic ceremonies disabled; manual generated ceremony available"
+        elif not self.performance_registry:
+            self.current_status = f"no vocal clips found for style {self.style_name}"
         else:
-            self.current_status = f"waiting; next meditation in {self.next_performance_seconds / 60.0:.1f} min"
+            wait = self.next_performance_seconds
+            if math.isfinite(wait):
+                self.current_status = (
+                    f"waiting; next generated ceremony in {wait / 60.0:.1f} min; "
+                    f"{len(self.performance_registry)} vocal clips in style"
+                )
+            else:
+                self.current_status = "waiting"
 
     def generate(self, frame_count: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         if self._closed:
@@ -7892,26 +8356,22 @@ class MeditationOrchestrator:
         presence = np.zeros(frame_count, dtype=np.float32)
         brown_gain = np.ones(frame_count, dtype=np.float32)
         self.blocks_motifs = False
-        # Match the wrapper's persistent convolution frame size. Normal live
-        # and export requests are frame multiples; only the final export can
-        # be short. No extra zero-padded frame is inserted at file boundaries.
         for offset in range(0, frame_count, self.renderer.frame_size):
             count = min(self.renderer.frame_size, frame_count - offset)
-            block, mix, gain, occupied = self._render_piece(count, self.state.get())
+            block, mix, gain, _occupied = self._render_piece(count, self.state.get())
             audio[offset:offset + count] = block
             presence[offset:offset + count] = mix
             brown_gain[offset:offset + count] = gain
-            self.blocks_motifs = self.blocks_motifs or occupied
         return audio, presence, brown_gain
 
     def close(self) -> None:
         if self._closed:
             return
-        self.recording_player.close()
+        for player in self.players:
+            player.close()
         for source in self.sources:
             source.close()
         self._closed = True
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -8791,14 +9251,12 @@ class LivingBrownNoiseMixer:
         stereo += spatial_heartbeat
 
 
-        # Recorded dream motifs remain mutually exclusive with meditation.
-        # Pause through the recording AND its graceful return-to-brown fade.
+        # The themed ambient world continues independently underneath vocal
+        # ceremonies. A ceremony is another living layer, not a replacement for
+        # the active style's space/activity/event environment.
         stereo += self.dream_motif_3d.generate(
             frame_count,
-            enabled=(
-                modes.dream_motifs_enabled
-                and not self.meditation.blocks_motifs
-            ),
+            enabled=modes.dream_motifs_enabled,
             metabolism_activity=self.current_metabolism_activity,
         )
 
@@ -10430,10 +10888,10 @@ class MainWindow(QMainWindow):
         )
 
         meditation_note = QLabel(
-            "Each top-level folder beneath ceremonies/ is a style. The selected style supplies "
-            "foreground vocal ceremonies from vocals/ and ambient material from "
-            "ambients/activity, ambients/event, and ambients/space. Automatic timing uses the "
-            "randomized interval controls below."
+            "Each top-level folder beneath ceremonies/ is a style. Generated ceremonies stitch "
+            "multiple foreground clips from vocals/ with smooth equal-power crossfades while one "
+            "continuous 3D presence field rises from and retreats into the brown-noise bed. The "
+            "style's ambients continue independently underneath. Instruments are not used yet."
         )
         meditation_note.setWordWrap(True)
         meditation_layout.addWidget(meditation_note)
@@ -10460,35 +10918,67 @@ class MainWindow(QMainWindow):
         meditation_layout.addLayout(meditation_form)
 
         self.meditation_interval_min_control = FloatControl(
-            minimum=5.0,
-            maximum=240.0,
+            minimum=0.25,
+            maximum=60.0,
             value=meditation_spec.interval_min_minutes,
-            step=1.0,
-            decimals=0,
+            step=0.25,
+            decimals=2,
             suffix=" min",
             on_change=lambda value: self._update_meditation(
                 interval_min_minutes=value
             ),
         )
         meditation_form.addRow(
-            "Minimum rest between performances:",
+            "Minimum rest between ceremonies:",
             self.meditation_interval_min_control,
         )
 
         self.meditation_interval_max_control = FloatControl(
-            minimum=5.0,
-            maximum=240.0,
+            minimum=0.25,
+            maximum=60.0,
             value=meditation_spec.interval_max_minutes,
-            step=1.0,
-            decimals=0,
+            step=0.25,
+            decimals=2,
             suffix=" min",
             on_change=lambda value: self._update_meditation(
                 interval_max_minutes=value
             ),
         )
         meditation_form.addRow(
-            "Maximum rest between performances:",
+            "Maximum rest between ceremonies:",
             self.meditation_interval_max_control,
+        )
+
+        self.meditation_ceremony_min_control = FloatControl(
+            minimum=3.0,
+            maximum=30.0,
+            value=meditation_spec.ceremony_min_minutes,
+            step=0.5,
+            decimals=1,
+            suffix=" min",
+            on_change=lambda value: self._update_meditation(
+                ceremony_min_minutes=value
+            ),
+        )
+        meditation_form.addRow(
+            "Minimum ceremony length:",
+            self.meditation_ceremony_min_control,
+        )
+
+        self.meditation_ceremony_max_control = FloatControl(
+            minimum=3.0,
+            maximum=30.0,
+            value=meditation_spec.ceremony_max_minutes,
+            step=0.5,
+            decimals=1,
+            suffix=" min",
+            on_change=lambda value: self._update_meditation(
+                ceremony_max_minutes=value
+            ),
+        )
+        meditation_form.addRow(
+            "Maximum ceremony length:",
+            self.meditation_ceremony_max_control,
         )
 
         self.meditation_level_control = FloatControl(
@@ -10574,11 +11064,16 @@ class MainWindow(QMainWindow):
 
         meditation_buttons = QHBoxLayout()
         self.meditation_ceremony_combo = QComboBox()
-        self.meditation_ceremony_combo.addItem("Select ceremony to start…", None)
+        self.meditation_ceremony_combo.addItem("Select ceremony / starting vocal…", None)
+        self.meditation_ceremony_combo.addItem(
+            "Start generated ceremony (random vocal)",
+            MeditationOrchestrator.RANDOM_START_TOKEN,
+        )
         for ceremony_name in self.mixer.meditation.performance_registry:
             self.meditation_ceremony_combo.addItem(ceremony_name, ceremony_name)
         self.meditation_ceremony_combo.setToolTip(
-            "Select any foreground vocal MP3 found in the active style's vocals folder."
+            "Start a generated ceremony. Choosing a named vocal uses it only as the first clip; "
+            "the conductor then continues through the shuffled vocal bank with smooth crossfades."
         )
         self.stop_meditation_button = QPushButton(
             "Stop meditation performance"
@@ -13022,6 +13517,14 @@ class MainWindow(QMainWindow):
             spec.interval_max_minutes,
             notify=False,
         )
+        self.meditation_ceremony_min_control.set_value(
+            spec.ceremony_min_minutes,
+            notify=False,
+        )
+        self.meditation_ceremony_max_control.set_value(
+            spec.ceremony_max_minutes,
+            notify=False,
+        )
         for control, value in (
             (self.meditation_least_reduction_control, spec.brown_least_attenuation_db),
             (self.meditation_greatest_reduction_control, spec.brown_greatest_attenuation_db),
@@ -13036,7 +13539,11 @@ class MainWindow(QMainWindow):
     def _refresh_ceremony_combo(self) -> None:
         self.meditation_ceremony_combo.blockSignals(True)
         self.meditation_ceremony_combo.clear()
-        self.meditation_ceremony_combo.addItem("Select ceremony to start…", None)
+        self.meditation_ceremony_combo.addItem("Select ceremony / starting vocal…", None)
+        self.meditation_ceremony_combo.addItem(
+            "Start generated ceremony (random vocal)",
+            MeditationOrchestrator.RANDOM_START_TOKEN,
+        )
         for ceremony_name in self.mixer.meditation.performance_registry:
             self.meditation_ceremony_combo.addItem(ceremony_name, ceremony_name)
         self.meditation_ceremony_combo.setCurrentIndex(0)
@@ -13068,7 +13575,7 @@ class MainWindow(QMainWindow):
             "STYLE_SELECTED",
             f"style={self.mixer.active_style_name}; "
             f"ambients={self.mixer.active_ambients_directory}; "
-            f"ceremonies={len(self.mixer.meditation.performance_registry)}",
+            f"vocal_clips={len(self.mixer.meditation.performance_registry)}",
         )
         self._update_meditation_status()
         self._schedule_settings_save()
