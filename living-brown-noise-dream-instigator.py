@@ -9251,14 +9251,22 @@ class LivingBrownNoiseMixer:
         stereo += spatial_heartbeat
 
 
-        # The themed ambient world continues independently underneath vocal
-        # ceremonies. A ceremony is another living layer, not a replacement for
-        # the active style's space/activity/event environment.
-        stereo += self.dream_motif_3d.generate(
-            frame_count,
-            enabled=modes.dream_motifs_enabled,
-            metabolism_activity=self.current_metabolism_activity,
+        # Ceremony and dream-motif ambients are mutually exclusive foreground
+        # worlds. Once a ceremony has begun to rise in, suppress the ambient
+        # sound-effect engine completely so its environmental events cannot
+        # conflict with the ceremony. The motif conductor remains paused until
+        # the ceremony fade has fully returned to zero.
+        ceremony_blocks_ambient_effects = bool(
+            self.meditation.active
+            or self.meditation._pending_name is not None
+            or meditation_amount > 0.0
         )
+        if not ceremony_blocks_ambient_effects:
+            stereo += self.dream_motif_3d.generate(
+                frame_count,
+                enabled=modes.dream_motifs_enabled,
+                metabolism_activity=self.current_metabolism_activity,
+            )
 
         # Already spatialized at the native Steam frame cadence above.
         stereo += meditation_audio
