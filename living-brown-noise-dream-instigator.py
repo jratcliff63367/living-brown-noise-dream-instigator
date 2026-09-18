@@ -45,10 +45,48 @@ from PySide6.QtWidgets import (
 # can be moved without editing hard-coded paths. phonon.dll,
 # steam_audio_renderer.py, and the sounds directory belong beside the script.
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
-SOUND_EFFECTS_DIRECTORY = SCRIPT_DIRECTORY / "sounds"
 CEREMONIES_DIRECTORY = SCRIPT_DIRECTORY / "ceremonies"
 EXPORT_DIRECTORY = SCRIPT_DIRECTORY / "exports"
 CONDUCTOR_LOG_PATH = SCRIPT_DIRECTORY / "conductor-log.txt"
+DEFAULT_STYLE_NAME = "indian"
+STYLE_AMBIENTS_FOLDER = "ambients"
+STYLE_VOCALS_FOLDER = "vocals"
+STYLE_INSTRUMENTS_FOLDER = "instruments"
+STYLE_AMBIENT_GROUPS = ("activity", "event", "space")
+
+
+def scan_ceremony_styles() -> tuple[str, ...]:
+    """Return top-level folders beneath ceremonies/ as available styles."""
+    CEREMONIES_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    return tuple(
+        path.name
+        for path in sorted(
+            (p for p in CEREMONIES_DIRECTORY.iterdir() if p.is_dir()),
+            key=lambda p: p.name.lower(),
+        )
+    )
+
+
+def resolve_style_name(preferred: str | None = None) -> str:
+    styles = scan_ceremony_styles()
+    preferred = str(preferred or "").strip()
+    if preferred and preferred in styles:
+        return preferred
+    if DEFAULT_STYLE_NAME in styles:
+        return DEFAULT_STYLE_NAME
+    if styles:
+        return styles[0]
+    # Keep the application usable before content has been authored. The folder
+    # will be created by the catalog/player paths as needed.
+    return preferred or DEFAULT_STYLE_NAME
+
+
+def style_directory(style_name: str) -> Path:
+    return CEREMONIES_DIRECTORY / str(style_name)
+
+
+def style_ambients_directory(style_name: str) -> Path:
+    return style_directory(style_name) / STYLE_AMBIENTS_FOLDER
 
 SETTINGS_PATH = SCRIPT_DIRECTORY / "settings.json"
 STARTUP_LOG_PATH = SCRIPT_DIRECTORY / "startup.log"
@@ -2576,24 +2614,9 @@ class DreamMotifCatalog:
         motifs: list[DreamMotif] = []
         errors: list[str] = []
 
-        directories = sorted(
-            (p for p in self.root_directory.iterdir() if p.is_dir()),
-            key=lambda p: p.name.lower(),
-        )
-
-        for directory in directories:
+        def classify_files(name: str, directory: Path, files: list[Path]) -> DreamMotif:
             ambient: list[DreamMotifAsset] = []
             layered: list[DreamMotifAsset] = []
-
-            files = sorted(
-                (
-                    p for p in directory.iterdir()
-                    if p.is_file()
-                    and p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
-                ),
-                key=lambda p: p.name.lower(),
-            )
-
             for path in files:
                 try:
                     stat = path.stat()
@@ -2605,7 +2628,6 @@ class DreamMotifCatalog:
                         and int(cached.get('modified_ns', -1)) == stat.st_mtime_ns
                         and float(cached.get('duration_seconds', 0.0)) > 0.0
                     )
-
                     if cache_valid:
                         duration = float(cached['duration_seconds'])
                         is_layered = bool(
@@ -2633,16 +2655,63 @@ class DreamMotifCatalog:
                         # manager verifies their true type before use.
                         ambient.append(asset)
                 except Exception as exc:
-                    errors.append(f'{directory.name}/{path.name}: {exc}')
+                    try:
+                        rel = path.relative_to(self.root_directory).as_posix()
+                    except Exception:
+                        rel = path.name
+                    errors.append(f'{rel}: {exc}')
 
-            motifs.append(
-                DreamMotif(
-                    name=directory.name,
-                    directory=directory,
-                    ambient_assets=tuple(ambient),
-                    layered_assets=tuple(layered),
-                )
+            return DreamMotif(
+                name=name,
+                directory=directory,
+                ambient_assets=tuple(ambient),
+                layered_assets=tuple(layered),
             )
+
+        # New authored style layout: ambients/activity, ambients/event,
+        # ambients/space. These folders are organizational only. Runtime
+        # behavior continues to be determined by clip duration, so flatten all
+        # three folders into one style-wide pool before classifying assets.
+        group_dirs = [
+            self.root_directory / group
+            for group in STYLE_AMBIENT_GROUPS
+            if (self.root_directory / group).is_dir()
+        ]
+        if group_dirs:
+            files = sorted(
+                {
+                    path
+                    for directory in group_dirs
+                    for path in directory.rglob('*')
+                    if path.is_file()
+                    and path.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
+                },
+                key=lambda p: p.relative_to(self.root_directory).as_posix().lower(),
+            )
+            motif = classify_files(
+                self.root_directory.parent.name or 'style',
+                self.root_directory,
+                files,
+            )
+            if motif.total_assets > 0:
+                motifs.append(motif)
+        else:
+            # Backward-compatible legacy layout: each immediate child folder
+            # remains its own motif world.
+            directories = sorted(
+                (p for p in self.root_directory.iterdir() if p.is_dir()),
+                key=lambda p: p.name.lower(),
+            )
+            for directory in directories:
+                files = sorted(
+                    (
+                        p for p in directory.iterdir()
+                        if p.is_file()
+                        and p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
+                    ),
+                    key=lambda p: p.name.lower(),
+                )
+                motifs.append(classify_files(directory.name, directory, files))
 
         self.motifs = tuple(motifs)
         self.errors = tuple(errors)
@@ -5990,6 +6059,69 @@ class DreamMotif3DEngine:
         self.events = keep
         return stereo
 
+    def set_root_directory(self, root_directory: Path) -> None:
+        """Reload the ambient/activity/event catalogue from a new style.
+
+        The GUI stops realtime playback before calling this method, so the
+        catalog and background decoder can be swapped without racing the audio
+        callback. Existing Steam Audio sources are reused; only their content
+        assignments are replaced.
+        """
+        root_directory = Path(root_directory)
+        if root_directory == self.root_directory:
+            return
+
+        self.asset_manager.close()
+        self.root_directory = root_directory
+        self.catalog = DreamMotifCatalog(
+            root_directory=root_directory,
+            layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
+        )
+        motifs = tuple(m for m in self.catalog.scan() if m.total_assets > 0)
+        self.asset_manager = AudioAssetManager(
+            root_directory=root_directory,
+            sample_rate=self.sample_rate,
+            layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
+        )
+        self.bag = DreamMotifShuffleBag(motifs, self.rng)
+
+        # Discard any old-style transient event state. The persistent spatial
+        # sources remain allocated and are reused for the new style.
+        self.events.clear()
+        self.pending_event_asset = None
+        self.pending_event_rejected.clear()
+        self.recent_event_paths.clear()
+        self.recent_event_families.clear()
+        self.recent_gestures.clear()
+
+        spec = self.state.get()
+        first = self.bag.next()
+        second = self.bag.next({first.name} if first else set())
+        self._assign_slot(0, first, spec.far_distance_calibrated)
+        self._assign_slot(1, second, spec.far_distance_calibrated)
+        self.dominant_index = 0
+        self.scene = self.SCENE_REST
+        self.scene_elapsed = 0.0
+        self.scene_duration = 240.0
+        self.conductor_elapsed = 0.0
+        self.creepy_window = 0.0
+        self.next_event_seconds = self._new_event_interval(spec, 0.65)
+        self.seconds_since_last_event = 0.0
+        self.seconds_since_role_exchange = 0.0
+        self.current_dominant_name = first.name if first else ""
+        self.current_distant_name = second.name if second else ""
+        self.current_status = "catalogued; background assets pending"
+        self.manual_test_motif_name = first.name if first else ""
+        self.manual_test_asset = None
+        self.manual_test_audio = None
+        self.manual_test_read_position = 0
+        self.manual_test_rejected.clear()
+        self._journal(
+            "STYLE_AMBIENTS",
+            f"root={root_directory}; groups={len(motifs)}; "
+            f"assets={sum(m.total_assets for m in motifs)}",
+        )
+
     def close(self): self.asset_manager.close()
 
     def generate(
@@ -7219,16 +7351,20 @@ class MeditationOrchestrator:
     """
 
     def __init__(self, *, sample_rate: float, renderer: SteamAudioRenderer,
-                 state: MeditationState, seed: int = 8_230_601) -> None:
+                 state: MeditationState, style_directory: Path,
+                 seed: int = 8_230_601) -> None:
         self.sample_rate = int(sample_rate)
         self.renderer = renderer
         self.state = state
         self.rng = np.random.default_rng(seed)
-        self.recording_paths = self._scan_recordings()
+        self.style_directory = Path(style_directory)
+        self.style_name = self.style_directory.name
+        self.recording_paths = self._scan_recordings(self.style_directory)
         self.performance_registry = tuple(self.recording_paths)
         if not self.performance_registry:
-            STARTUP_LOGGER.warning(
-                "No meditation MP3 files found in %s", CEREMONIES_DIRECTORY
+            LOGGER.warning(
+                "No meditation MP3 files found for style %s beneath %s",
+                self.style_name, self.style_directory
             )
         self.remaining_performances = []
         self._last_automatic_name: str | None = None
@@ -7284,14 +7420,30 @@ class MeditationOrchestrator:
         return special_names.get(stem.lower(), stem.replace("_", " ").replace("-", " ").strip().title())
 
     @classmethod
-    def _scan_recordings(cls) -> dict[str, Path]:
-        """Return every MP3 in the ceremonies folder as an automatic candidate."""
-        CEREMONIES_DIRECTORY.mkdir(parents=True, exist_ok=True)
-        paths = sorted(
-            (path for path in CEREMONIES_DIRECTORY.iterdir()
-             if path.is_file() and path.suffix.lower() == ".mp3"),
-            key=lambda path: path.name.lower(),
-        )
+    def _scan_recordings(cls, style_dir: Path) -> dict[str, Path]:
+        """Return foreground vocal MP3s for the currently selected style.
+
+        The authored layout is ceremonies/<style>/vocals/. For migration from
+        the previous flat ceremony folder, direct MP3s in the style directory
+        are also accepted when present. Instrument files are intentionally not
+        promoted to foreground ceremonies yet; they remain reserved for the
+        later accompaniment layer.
+        """
+        style_dir = Path(style_dir)
+        vocals_dir = style_dir / STYLE_VOCALS_FOLDER
+        paths: list[Path] = []
+        if vocals_dir.is_dir():
+            paths.extend(
+                path for path in vocals_dir.iterdir()
+                if path.is_file() and path.suffix.lower() == ".mp3"
+            )
+        if style_dir.is_dir():
+            paths.extend(
+                path for path in style_dir.iterdir()
+                if path.is_file() and path.suffix.lower() == ".mp3"
+            )
+        paths = sorted(set(paths), key=lambda path: path.name.lower())
+
         recordings: dict[str, Path] = {}
         for path in paths:
             base_name = cls._display_name_for_path(path)
@@ -7302,6 +7454,35 @@ class MeditationOrchestrator:
                 suffix += 1
             recordings[name] = path
         return recordings
+
+    def set_style_directory(self, style_dir: Path) -> None:
+        """Switch the foreground ceremony library to another authored style."""
+        self.recording_player.stop()
+        self.style_directory = Path(style_dir)
+        self.style_name = self.style_directory.name
+        self.recording_paths = self._scan_recordings(self.style_directory)
+        self.performance_registry = tuple(self.recording_paths)
+        self.remaining_performances = []
+        self._last_automatic_name = None
+        self._pending_name = None
+        self._pending_manual = False
+        self._replacement_name = None
+        self._stopping = False
+        self._source_ended = False
+        self._source_completed = False
+        self.active_name = ""
+        self.current_status = f"waiting — style {self.style_name}"
+        self._mix = 0.0
+        self._audio_mix = 0.0
+        self.current_brown_gain_db = 0.0
+        self.current_presence_gain_db = -8.0
+        self._duration_cache.clear()
+        self._refill_performance_bag()
+        self._reschedule()
+        self._journal(
+            "MEDITATION_STYLE",
+            f"selected style={self.style_name}; foreground ceremonies={len(self.performance_registry)}",
+        )
 
     @property
     def elapsed_seconds(self) -> float:
@@ -7828,13 +8009,17 @@ class LivingBrownNoiseMixer:
         self.current_heartbeat_prominence_state = (
             HeartbeatProminenceLimiter.STATE_IDLE
         )
+        self.active_ambients_directory = Path(sound_effects_directory)
+        self.active_style_directory = self.active_ambients_directory.parent
+        self.active_style_name = self.active_style_directory.name
+
         self.dream_motif_spatial_state = (
             DreamMotifSpatialState(dream_motif_spatial_spec)
         )
         self.dream_motif_3d = DreamMotif3DEngine(
             sample_rate=int(self.sample_rate),
             renderer=self.spatial_renderer,
-            root_directory=sound_effects_directory,
+            root_directory=self.active_ambients_directory,
             state=self.dream_motif_spatial_state,
         )
 
@@ -7848,6 +8033,7 @@ class LivingBrownNoiseMixer:
                 sample_rate=self.sample_rate,
                 renderer=self.spatial_renderer,
                 state=self.meditation_state,
+                style_directory=self.active_style_directory,
                 seed=self.common.seed + 8_230_601,
             )
         )
@@ -7942,6 +8128,22 @@ class LivingBrownNoiseMixer:
         self.heartbeat_spatial_state.set(spec)
         self.current_heartbeat_position = spec.position
         self.heartbeat_spatial.set_position_vector(spec.position)
+
+    def set_active_style(self, style_name: str) -> None:
+        style_name = resolve_style_name(style_name)
+        new_style_directory = style_directory(style_name)
+        new_ambients_directory = new_style_directory / STYLE_AMBIENTS_FOLDER
+        if (
+            style_name == self.active_style_name
+            and new_ambients_directory == self.active_ambients_directory
+        ):
+            return
+
+        self.active_style_name = style_name
+        self.active_style_directory = new_style_directory
+        self.active_ambients_directory = new_ambients_directory
+        self.dream_motif_3d.set_root_directory(new_ambients_directory)
+        self.meditation.set_style_directory(new_style_directory)
 
     def close(self) -> None:
         self.dream_motif_3d.close()
@@ -9235,7 +9437,7 @@ class MainWindow(QMainWindow):
         self.settings_store = settings_store
         self.loaded_settings = loaded_settings
         self.dream_motif_catalog = DreamMotifCatalog(
-            root_directory=SOUND_EFFECTS_DIRECTORY,
+            root_directory=self.mixer.active_ambients_directory,
             layer_threshold_seconds=(
                 DREAM_MOTIF_LAYER_THRESHOLD_SECONDS
             ),
@@ -9410,7 +9612,7 @@ class MainWindow(QMainWindow):
         )
 
         self.motif_directory_label = QLabel(
-            str(SOUND_EFFECTS_DIRECTORY)
+            str(self.mixer.active_ambients_directory)
         )
         self.motif_directory_label.setWordWrap(True)
         motif_catalogue_form.addRow("Motif root:", self.motif_directory_label)
@@ -10228,12 +10430,31 @@ class MainWindow(QMainWindow):
         )
 
         meditation_note = QLabel(
-            "Every .mp3 file in the ceremonies folder is an automatic ceremony candidate. "
-            "Recordings play in full using the same evolving brown bed and slow stereo 3D movement. "
-            "Automatic timing uses the randomized interval controls below."
+            "Each top-level folder beneath ceremonies/ is a style. The selected style supplies "
+            "foreground vocal ceremonies from vocals/ and ambient material from "
+            "ambients/activity, ambients/event, and ambients/space. Automatic timing uses the "
+            "randomized interval controls below."
         )
         meditation_note.setWordWrap(True)
         meditation_layout.addWidget(meditation_note)
+
+        style_row = QHBoxLayout()
+        style_row.addWidget(QLabel("Active style:"))
+        self.style_combo = QComboBox()
+        available_styles = scan_ceremony_styles()
+        for style_name in available_styles:
+            self.style_combo.addItem(style_name, style_name)
+        if self.style_combo.count() == 0:
+            self.style_combo.addItem(self.mixer.active_style_name, self.mixer.active_style_name)
+        style_index = self.style_combo.findData(self.mixer.active_style_name)
+        if style_index >= 0:
+            self.style_combo.setCurrentIndex(style_index)
+        self.style_combo.setToolTip(
+            "Top-level folders beneath ceremonies/. Changing style reloads both the vocal "
+            "ceremony library and the themed ambient/activity/event assets."
+        )
+        style_row.addWidget(self.style_combo, 1)
+        meditation_layout.addLayout(style_row)
 
         meditation_form = QFormLayout()
         meditation_layout.addLayout(meditation_form)
@@ -10357,7 +10578,7 @@ class MainWindow(QMainWindow):
         for ceremony_name in self.mixer.meditation.performance_registry:
             self.meditation_ceremony_combo.addItem(ceremony_name, ceremony_name)
         self.meditation_ceremony_combo.setToolTip(
-            "Select any .mp3 found in the ceremonies folder to start it immediately."
+            "Select any foreground vocal MP3 found in the active style's vocals folder."
         )
         self.stop_meditation_button = QPushButton(
             "Stop meditation performance"
@@ -11712,6 +11933,9 @@ class MainWindow(QMainWindow):
                 enabled=bool(checked)
             )
         )
+        self.style_combo.activated.connect(
+            self._on_style_changed
+        )
         self.meditation_ceremony_combo.activated.connect(
             self._start_selected_meditation
         )
@@ -12254,8 +12478,9 @@ class MainWindow(QMainWindow):
         self._schedule_settings_save()
 
     def _reload_dream_motifs(self) -> None:
+        self.motif_directory_label.setText(str(self.mixer.active_ambients_directory))
         self.motif_summary_label.setText(
-            "Scanning dream motif subfolders…"
+            "Scanning themed ambient subfolders…"
         )
         QApplication.processEvents()
 
@@ -12282,8 +12507,8 @@ class MainWindow(QMainWindow):
             self._on_motif_changed(self.motif_combo.currentText())
         else:
             self.motif_summary_label.setText(
-                "No motif subfolders containing supported audio were "
-                f"found beneath {SOUND_EFFECTS_DIRECTORY}."
+                "No ambient subfolders containing supported audio were "
+                f"found beneath {self.mixer.active_ambients_directory}."
             )
             self.motif_detail_label.setText("")
 
@@ -12808,6 +13033,46 @@ class MainWindow(QMainWindow):
         self._update_meditation_status()
         self._schedule_settings_save()
 
+    def _refresh_ceremony_combo(self) -> None:
+        self.meditation_ceremony_combo.blockSignals(True)
+        self.meditation_ceremony_combo.clear()
+        self.meditation_ceremony_combo.addItem("Select ceremony to start…", None)
+        for ceremony_name in self.mixer.meditation.performance_registry:
+            self.meditation_ceremony_combo.addItem(ceremony_name, ceremony_name)
+        self.meditation_ceremony_combo.setCurrentIndex(0)
+        self.meditation_ceremony_combo.blockSignals(False)
+
+    def _on_style_changed(self, index: int) -> None:
+        style_name = self.style_combo.itemData(index)
+        if not style_name:
+            return
+        style_name = str(style_name)
+        if style_name == self.mixer.active_style_name:
+            return
+
+        # Switching libraries mutates the background decoder/catalogue, so stop
+        # realtime playback first. The user can immediately press Start again.
+        was_running = self.engine.stream is not None
+        if was_running:
+            self._stop()
+
+        self.mixer.set_active_style(style_name)
+        self.dream_motif_catalog = DreamMotifCatalog(
+            root_directory=self.mixer.active_ambients_directory,
+            layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
+        )
+        self.motif_directory_label.setText(str(self.mixer.active_ambients_directory))
+        self._reload_dream_motifs()
+        self._refresh_ceremony_combo()
+        self._write_conductor_log(
+            "STYLE_SELECTED",
+            f"style={self.mixer.active_style_name}; "
+            f"ambients={self.mixer.active_ambients_directory}; "
+            f"ceremonies={len(self.mixer.meditation.performance_registry)}",
+        )
+        self._update_meditation_status()
+        self._schedule_settings_save()
+
     def _start_selected_meditation(self, index: int) -> None:
         name = self.meditation_ceremony_combo.itemData(index)
         if not name:
@@ -13023,6 +13288,7 @@ class MainWindow(QMainWindow):
                 dream_motif_spatial_spec
             ),
             "meditation": asdict(meditation_spec),
+            "selected_style": self.mixer.active_style_name,
             "meditation_panel_expanded": (
                 self.meditation_expand_button.isChecked()
             ),
@@ -13134,7 +13400,7 @@ class MainWindow(QMainWindow):
             noise_evolution_spec=noise_evolution_spec,
             body_movement_spec=body_movement_spec,
             heartbeat_spec=heartbeat_spec,
-            sound_effects_directory=SOUND_EFFECTS_DIRECTORY,
+            sound_effects_directory=self.mixer.active_ambients_directory,
             breath_spec=breath_spec,
             breath_evolution_spec=breath_evolution_spec,
             motion_spec=motion_spec,
@@ -13366,6 +13632,12 @@ def build_application() -> tuple[QApplication, MainWindow]:
     loaded = settings_store.load()
     log_stage(
         f"build_application: settings loaded; keys={len(loaded)}"
+    )
+    selected_style_name = resolve_style_name(loaded.get("selected_style"))
+    selected_ambients_directory = style_ambients_directory(selected_style_name)
+    log_stage(
+        f"build_application: selected style={selected_style_name}; "
+        f"ambients={selected_ambients_directory}"
     )
 
     default_modes = EngineModes()
@@ -13663,7 +13935,7 @@ def build_application() -> tuple[QApplication, MainWindow]:
         noise_evolution_spec=noise_evolution_spec,
         body_movement_spec=body_movement_spec,
         heartbeat_spec=heartbeat_spec,
-        sound_effects_directory=SOUND_EFFECTS_DIRECTORY,
+        sound_effects_directory=selected_ambients_directory,
         breath_spec=breath_spec,
         breath_evolution_spec=breath_evolution_spec,
         motion_spec=motion_spec,
@@ -13720,7 +13992,7 @@ def main() -> int:
     EXPORT_DIRECTORY.mkdir(parents=True, exist_ok=True)
     log_stage(f"Script path: {Path(__file__).resolve()}")
     log_stage(f"Startup log: {STARTUP_LOG_PATH}")
-    log_stage(f"Sound-effects directory: {SOUND_EFFECTS_DIRECTORY}")
+    log_stage(f"Ceremony styles directory: {CEREMONIES_DIRECTORY}")
 
     try:
         app, window = build_application()
