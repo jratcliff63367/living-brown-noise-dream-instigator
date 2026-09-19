@@ -2594,18 +2594,6 @@ class DreamMotifCatalog:
         self.motifs: tuple[DreamMotif, ...] = ()
         self.errors: tuple[str, ...] = ()
 
-    @staticmethod
-    def is_instrument_path(root_directory: Path, path: Path) -> bool:
-        if root_directory.name != STYLE_AMBIENTS_FOLDER:
-            return False
-        return path.is_relative_to(root_directory.parent / "instruments")
-
-    @staticmethod
-    def manifest_key(root_directory: Path, path: Path) -> str:
-        if DreamMotifCatalog.is_instrument_path(root_directory, path):
-            return "../" + path.relative_to(root_directory.parent).as_posix()
-        return path.relative_to(root_directory).as_posix()
-
     def _load_manifest(self) -> dict:
         try:
             raw = json.loads(self.manifest_path.read_text(encoding='utf-8'))
@@ -2632,7 +2620,7 @@ class DreamMotifCatalog:
             for path in files:
                 try:
                     stat = path.stat()
-                    relative = self.manifest_key(self.root_directory, path)
+                    relative = path.relative_to(self.root_directory).as_posix()
                     cached = cached_files.get(relative, {})
                     cache_valid = (
                         isinstance(cached, dict)
@@ -2654,9 +2642,6 @@ class DreamMotifCatalog:
                         is_layered = False
                         known = False
 
-                    # Instruments are ambient beds, even when a clip is short.
-                    if self.is_instrument_path(self.root_directory, path):
-                        is_layered = False
                     asset = DreamMotifAsset(
                         path=path,
                         duration_seconds=duration,
@@ -2692,14 +2677,6 @@ class DreamMotifCatalog:
             for group in STYLE_AMBIENT_GROUPS
             if (self.root_directory / group).is_dir()
         ]
-        instrument_files = []
-        instrument_root = self.root_directory.parent / "instruments"
-        if self.root_directory.name == STYLE_AMBIENTS_FOLDER and instrument_root.is_dir():
-            instrument_files = sorted(
-                (p for p in instrument_root.rglob("*")
-                 if p.is_file() and p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS),
-                key=lambda p: p.as_posix().lower(),
-            )
         if group_dirs:
             files = sorted(
                 {
@@ -2714,7 +2691,7 @@ class DreamMotifCatalog:
             motif = classify_files(
                 self.root_directory.parent.name or 'style',
                 self.root_directory,
-                files + instrument_files,
+                files,
             )
             if motif.total_assets > 0:
                 motifs.append(motif)
@@ -2735,11 +2712,6 @@ class DreamMotifCatalog:
                     key=lambda p: p.name.lower(),
                 )
                 motifs.append(classify_files(directory.name, directory, files))
-
-        if not group_dirs and instrument_files:
-            motifs.append(classify_files(
-                "Instruments", instrument_root, instrument_files,
-            ))
 
         self.motifs = tuple(motifs)
         self.errors = tuple(errors)
@@ -2917,7 +2889,6 @@ class AudioAssetManager:
             duration_seconds=duration,
             is_layered_event=(
                 duration <= self.layer_threshold_seconds
-                and not DreamMotifCatalog.is_instrument_path(self.root_directory, path)
             ),
             byte_size=int(mono.nbytes),
         )
@@ -2933,9 +2904,9 @@ class AudioAssetManager:
     def _update_manifest(self, prepared: PreparedAudioAsset) -> None:
         try:
             stat = prepared.path.stat()
-            relative = DreamMotifCatalog.manifest_key(
-                self.root_directory, prepared.path
-            )
+            relative = prepared.path.relative_to(
+                self.root_directory
+            ).as_posix()
             try:
                 manifest = json.loads(
                     self.manifest_path.read_text(encoding='utf-8')
@@ -6767,6 +6738,8 @@ class MeditationSpec:
     spatial_near_meters: float = 2.0
     spatial_far_meters: float = 3.0
     presence_cycle_minutes: float = 6.0
+    distance_modulation_percent: float = 10.0
+    distance_modulation_seconds: float = 90.0
     instruments_enabled: bool = True
     instrument_selection_percent: float = 50.0
     subliminal_emergence_seconds: float = 60.0
@@ -6791,6 +6764,8 @@ class MeditationSpec:
             "spatial_near_meters": (2.0, 8.0),
             "spatial_far_meters": (2.0, 8.0),
             "presence_cycle_minutes": (2.0, 30.0),
+            "distance_modulation_percent": (0.0, 500.0),
+            "distance_modulation_seconds": (2.0, 300.0),
             "instrument_selection_percent": (0.0, 100.0),
             "subliminal_emergence_seconds": (0.0, 180.0),
             "transition_seconds": (1.0, 60.0),
@@ -6863,6 +6838,8 @@ class MeditationSpec:
             "spatial_near_meters": (2.0, 8.0),
             "spatial_far_meters": (2.0, 8.0),
             "presence_cycle_minutes": (2.0, 30.0),
+            "distance_modulation_percent": (0.0, 500.0),
+            "distance_modulation_seconds": (2.0, 300.0),
             "instrument_selection_percent": (0.0, 100.0),
             "subliminal_emergence_seconds": (0.0, 180.0),
             "transition_seconds": (1.0, 60.0),
@@ -7538,6 +7515,17 @@ class MeditationOrchestrator:
         self._mix = 0.0
         self._audio_mix = 0.0
         self._level_db = state.get().performance_level_db
+        # Independent RNG keeps motion choices separate from passage selection.
+        self._distance_drift_rng = np.random.default_rng(seed + 2700)
+        self._distance_drift_start = 0.0
+        self._distance_drift_target = float(self._distance_drift_rng.uniform(-1.0, 1.0))
+        self._distance_drift_progress = 0.0
+        self._distance_drift_span = float(self._distance_drift_rng.uniform(0.3, 0.75))
+        self._distance_drift_holding = False
+        self._distance_modulation_depth = 0.0
+        self._distance_modulation_period = state.get().distance_modulation_seconds
+        self.current_distance_modulation_percent = 0.0
+        self._modulation_bed_weight = 1.0
         self.current_brown_gain_db = 0.0
         self.current_presence_gain_db = -8.0
         self.blocks_motifs = False  # True if any part of the rendered block is occupied
@@ -7983,6 +7971,7 @@ class MeditationOrchestrator:
         self._passage_gain = 1.0
         self._handoff_out = False
         self._selection_settings = (spec.instruments_enabled, spec.instrument_selection_percent)
+        self._modulation_bed_weight = 1.0
         self.field.reset_for_ceremony(spec)
         self._current_underrun_snapshot = self.recording_player.underrun_count
         self._next_underrun_snapshot = self.next_recording_player.underrun_count
@@ -8260,6 +8249,69 @@ class MeditationOrchestrator:
                 f"remaining={remaining:.1f}s; subliminal fade={fade_seconds:.1f}s",
             )
 
+    def _advance_distance_drift(self, normalized_time: float) -> float:
+        """Random destinations and travel times, with smooth starts/stops and rests."""
+        remaining = max(0.0, normalized_time)
+        while remaining > 0.0:
+            available = self._distance_drift_span - self._distance_drift_progress
+            if remaining < available:
+                self._distance_drift_progress += remaining
+                break
+            remaining -= available
+            self._distance_drift_start = self._distance_drift_target
+            self._distance_drift_progress = 0.0
+            if not self._distance_drift_holding and self._distance_drift_rng.random() < 0.2:
+                # Occasionally linger at a destination before moving again.
+                self._distance_drift_holding = True
+                self._distance_drift_span = float(self._distance_drift_rng.uniform(0.05, 0.2))
+            else:
+                self._distance_drift_holding = False
+                self._distance_drift_target = float(self._distance_drift_rng.uniform(-1.0, 1.0))
+                self._distance_drift_span = float(self._distance_drift_rng.uniform(0.3, 0.75))
+        t = self._distance_drift_progress / self._distance_drift_span
+        # Quintic easing has zero velocity and acceleration at both ends.
+        eased = t * t * t * (t * (6.0 * t - 15.0) + 10.0)
+        return self._distance_drift_start + (
+            self._distance_drift_target - self._distance_drift_start
+        ) * eased
+
+    def _modulate_ceremony_positions(self, positions, count: int, spec: MeditationSpec):
+        """Slow radial variation without changing source directions."""
+        dt = count / self.sample_rate
+        blend = -math.expm1(-dt / 3.0)
+        self._distance_modulation_depth += (
+            spec.distance_modulation_percent / 100.0 - self._distance_modulation_depth
+        ) * blend
+        self._distance_modulation_period += (
+            spec.distance_modulation_seconds - self._distance_modulation_period
+        ) * blend
+        wave = self._advance_distance_drift(dt / self._distance_modulation_period)
+        # Ease modulation into a new ceremony; keep its entrance/exit envelope intact.
+        ease = min(1.0, self._ceremony_elapsed_samples / (30.0 * self.sample_rate))
+        ease = ease * ease * (3.0 - 2.0 * ease)
+        offset = self._distance_modulation_depth * wave * ease
+        self.current_distance_modulation_percent = 100.0 * offset
+        result = []
+        for position in positions:
+            radius = math.sqrt(position.x ** 2 + position.y ** 2 + position.z ** 2)
+            # Never enter the renderer's near-field amplification region.
+            scale = max(1.0 + offset, 2.0 / radius) if radius > 0.0 else 1.0
+            result.append(Vector3(position.x * scale, position.y * scale, position.z * scale))
+        return tuple(result)
+
+    def _fill_modulated_bed(self, baseline_gains: np.ndarray) -> np.ndarray:
+        """Release bed attenuation as outward modulation reduces ceremony presence."""
+        outward_scale = 1.0 + max(0.0, self.current_distance_modulation_percent / 100.0)
+        target_weight = 1.0 / (outward_scale * outward_scale)
+        weights = np.linspace(
+            self._modulation_bed_weight, target_weight,
+            len(baseline_gains), endpoint=False, dtype=np.float64,
+        )
+        self._modulation_bed_weight = target_weight
+        # Crossfade from the existing ceremony bed toward its normal gain (1).
+        # Entrance/exit remain intact: an already-restored bed stays at unity.
+        return (baseline_gains + (1.0 - baseline_gains) * (1.0 - weights)).astype(np.float32)
+
     def _render_piece(self, count: int, spec: MeditationSpec):
         self._consume_commands()
         start_offset = 0
@@ -8380,6 +8432,8 @@ class MeditationOrchestrator:
                     positions = (Vector3(-0.5, 0.0, -3.0), Vector3(0.5, 0.0, -3.0))
                     presence_gain = np.ones(active_count, dtype=np.float64)
                     presence_gain_db = np.zeros(active_count, dtype=np.float64)
+                positions = self._modulate_ceremony_positions(positions, active_count, spec)
+                gains[start_offset:] = self._fill_modulated_bed(gains[start_offset:])
                 for source, position in zip(self.sources, positions):
                     source.set_position_vector(position)
                 source_audio = audio[start_offset:]
@@ -11214,6 +11268,29 @@ class MainWindow(QMainWindow):
             "Directional drift continues independently throughout."
         )
 
+        self.meditation_modulation_depth_control = add_meditation_control(
+            "Distance modulation — depth:", "distance_modulation_percent",
+            0.0, 500.0, 1.0, 0, "%",
+        )
+        self.meditation_modulation_depth_control.setToolTip(
+            "Maximum fractional distance variation around the existing ceremony position. "
+            "Applies to vocals and instruments without adding directional movement. "
+            "As the ceremony moves outward, brown noise fills the gap; as it returns, "
+            "the bed makes room again. "
+            "0% disables it; changes settle smoothly. Up to 500% for exaggerated testing. "
+            "Inward motion is clamped at 2 m, including depths above 100%."
+        )
+        self.meditation_modulation_time_control = add_meditation_control(
+            "Distance modulation — timescale:", "distance_modulation_seconds",
+            2.0, 300.0, 1.0, 0, " sec",
+        )
+        self.meditation_modulation_time_control.setToolTip(
+            "Overall pace of smooth random near/far drift, not a repeating cycle. "
+            "Each journey takes roughly 30–75% of this time, with occasional short "
+            "rests. At 120 seconds, journeys take about 36–90 seconds. "
+            "Higher values slow the motion; 2 seconds allows rapid testing."
+        )
+
         self.meditation_instruments_checkbox = QCheckBox("Allow instrument passages")
         self.meditation_instruments_checkbox.setChecked(meditation_spec.instruments_enabled)
         self.meditation_instruments_checkbox.setToolTip(
@@ -13807,7 +13884,8 @@ class MainWindow(QMainWindow):
                 f"coupling {spec.brown_coupling_percent:.0f}%; "
                 f"presence {field.presence_phase} ({spec.presence_cycle_minutes:.1f} min cycle); "
                 f"performance trim {spec.performance_level_db:+.1f} dB\n"
-                f"Instrument selection: {spec.instrument_selection_percent:.0f}%"
+                f"Instrument selection: {spec.instrument_selection_percent:.0f}%; "
+                f"distance modulation: {orchestrator.current_distance_modulation_percent:+.1f}%"
             )
         else:
             self.meditation_status_label.setText(orchestrator.current_status)
