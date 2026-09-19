@@ -2594,6 +2594,18 @@ class DreamMotifCatalog:
         self.motifs: tuple[DreamMotif, ...] = ()
         self.errors: tuple[str, ...] = ()
 
+    @staticmethod
+    def is_instrument_path(root_directory: Path, path: Path) -> bool:
+        if root_directory.name != STYLE_AMBIENTS_FOLDER:
+            return False
+        return path.is_relative_to(root_directory.parent / "instruments")
+
+    @staticmethod
+    def manifest_key(root_directory: Path, path: Path) -> str:
+        if DreamMotifCatalog.is_instrument_path(root_directory, path):
+            return "../" + path.relative_to(root_directory.parent).as_posix()
+        return path.relative_to(root_directory).as_posix()
+
     def _load_manifest(self) -> dict:
         try:
             raw = json.loads(self.manifest_path.read_text(encoding='utf-8'))
@@ -2620,7 +2632,7 @@ class DreamMotifCatalog:
             for path in files:
                 try:
                     stat = path.stat()
-                    relative = path.relative_to(self.root_directory).as_posix()
+                    relative = self.manifest_key(self.root_directory, path)
                     cached = cached_files.get(relative, {})
                     cache_valid = (
                         isinstance(cached, dict)
@@ -2642,6 +2654,9 @@ class DreamMotifCatalog:
                         is_layered = False
                         known = False
 
+                    # Instruments are ambient beds, even when a clip is short.
+                    if self.is_instrument_path(self.root_directory, path):
+                        is_layered = False
                     asset = DreamMotifAsset(
                         path=path,
                         duration_seconds=duration,
@@ -2677,6 +2692,14 @@ class DreamMotifCatalog:
             for group in STYLE_AMBIENT_GROUPS
             if (self.root_directory / group).is_dir()
         ]
+        instrument_files = []
+        instrument_root = self.root_directory.parent / "instruments"
+        if self.root_directory.name == STYLE_AMBIENTS_FOLDER and instrument_root.is_dir():
+            instrument_files = sorted(
+                (p for p in instrument_root.rglob("*")
+                 if p.is_file() and p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS),
+                key=lambda p: p.as_posix().lower(),
+            )
         if group_dirs:
             files = sorted(
                 {
@@ -2691,7 +2714,7 @@ class DreamMotifCatalog:
             motif = classify_files(
                 self.root_directory.parent.name or 'style',
                 self.root_directory,
-                files,
+                files + instrument_files,
             )
             if motif.total_assets > 0:
                 motifs.append(motif)
@@ -2712,6 +2735,11 @@ class DreamMotifCatalog:
                     key=lambda p: p.name.lower(),
                 )
                 motifs.append(classify_files(directory.name, directory, files))
+
+        if not group_dirs and instrument_files:
+            motifs.append(classify_files(
+                "Instruments", instrument_root, instrument_files,
+            ))
 
         self.motifs = tuple(motifs)
         self.errors = tuple(errors)
@@ -2889,6 +2917,7 @@ class AudioAssetManager:
             duration_seconds=duration,
             is_layered_event=(
                 duration <= self.layer_threshold_seconds
+                and not DreamMotifCatalog.is_instrument_path(self.root_directory, path)
             ),
             byte_size=int(mono.nbytes),
         )
@@ -2904,9 +2933,9 @@ class AudioAssetManager:
     def _update_manifest(self, prepared: PreparedAudioAsset) -> None:
         try:
             stat = prepared.path.stat()
-            relative = prepared.path.relative_to(
-                self.root_directory
-            ).as_posix()
+            relative = DreamMotifCatalog.manifest_key(
+                self.root_directory, prepared.path
+            )
             try:
                 manifest = json.loads(
                     self.manifest_path.read_text(encoding='utf-8')
@@ -6738,12 +6767,16 @@ class MeditationSpec:
     spatial_near_meters: float = 2.0
     spatial_far_meters: float = 3.0
     presence_cycle_minutes: float = 6.0
+    instruments_enabled: bool = True
+    instrument_selection_percent: float = 50.0
     subliminal_emergence_seconds: float = 60.0
     transition_seconds: float = 12.0
 
     def validated(self) -> "MeditationSpec":
         if not isinstance(self.enabled, bool):
             raise ValueError("enabled must be boolean")
+        if not isinstance(self.instruments_enabled, bool):
+            raise ValueError("instruments_enabled must be boolean")
         bounds = {
             "interval_min_minutes": (0.25, 60.0),
             "interval_max_minutes": (0.25, 60.0),
@@ -6758,6 +6791,7 @@ class MeditationSpec:
             "spatial_near_meters": (2.0, 8.0),
             "spatial_far_meters": (2.0, 8.0),
             "presence_cycle_minutes": (2.0, 30.0),
+            "instrument_selection_percent": (0.0, 100.0),
             "subliminal_emergence_seconds": (0.0, 180.0),
             "transition_seconds": (1.0, 60.0),
         }
@@ -6829,6 +6863,7 @@ class MeditationSpec:
             "spatial_near_meters": (2.0, 8.0),
             "spatial_far_meters": (2.0, 8.0),
             "presence_cycle_minutes": (2.0, 30.0),
+            "instrument_selection_percent": (0.0, 100.0),
             "subliminal_emergence_seconds": (0.0, 180.0),
             "transition_seconds": (1.0, 60.0),
         }
@@ -7427,15 +7462,12 @@ class CeremonyRecordingPlayer:
 
 
 class MeditationOrchestrator:
-    """Generate complete ceremonies from the active style's vocal library.
+    """Generate ceremonies from independently shuffled vocal and instrument pools.
 
-    One ceremony owns a continuous spatial/presence field. Two bounded
-    read-ahead players allow successive 2-5 minute vocal recordings to overlap
-    with an equal-power crossfade without any disk I/O in the audio callback.
-    The vocal shuffle bag spans ceremonies, so every source is used before the
-    library repeats and bag boundaries never repeat the last used clip.
-
-    Instruments are intentionally NOT part of this conductor yet.
+    Two bounded read-ahead workers handle successive passages. Matching
+    categories crossfade; vocals and instruments fade out then in without
+    overlapping playback. Solo instruments hold a stable front stereo position.
+    Both categories share ceremony timing, emergence, exit, and brown-bed control.
     """
 
     RANDOM_START_TOKEN = "__generated_random__"
@@ -7459,7 +7491,7 @@ class MeditationOrchestrator:
                 self.style_name, self.style_directory
             )
 
-        # Global no-repeat pool for vocal source clips.
+        # Category pools share storage but refill independently.
         self.remaining_performances: list[str] = []
         self._last_vocal_name: str | None = None
         self._refill_performance_bag()
@@ -7523,6 +7555,9 @@ class MeditationOrchestrator:
         self._crossfade_active = False
         self._crossfade_elapsed_samples = 0
         self._crossfade_total_samples = 0
+        self._selection_settings = None
+        self._passage_gain = 1.0
+        self._handoff_out = False
         self._next_crossfade_seconds = self._choose_crossfade_seconds()
         self._current_underrun_snapshot = 0
         self._next_underrun_snapshot = 0
@@ -7545,11 +7580,11 @@ class MeditationOrchestrator:
 
     @classmethod
     def _scan_recordings(cls, style_dir: Path) -> dict[str, Path]:
-        """Return foreground vocal MP3s for the currently selected style.
+        """Return vocal and instrument MP3s for the currently selected style.
 
         The authored layout is ceremonies/<style>/vocals/. Direct MP3s in the
-        style directory remain accepted for migration. instruments/ is ignored
-        deliberately until the separate accompaniment research phase.
+        style directory remain accepted for migration. Instrument MP3s live in
+        instruments/<type>/ and are selected as standalone passages.
         """
         style_dir = Path(style_dir)
         vocals_dir = style_dir / STYLE_VOCALS_FOLDER
@@ -7566,9 +7601,17 @@ class MeditationOrchestrator:
             )
         paths = sorted(set(paths), key=lambda path: path.name.lower())
 
+        instruments_dir = style_dir / "instruments"
+        if instruments_dir.is_dir():
+            paths.extend(sorted(
+                (p for p in instruments_dir.glob("*/*") if p.is_file() and p.suffix.lower() == ".mp3"),
+                key=lambda p: str(p).lower(),
+            ))
         recordings: dict[str, Path] = {}
         for path in paths:
             base_name = cls._display_name_for_path(path)
+            if path.parent.parent == instruments_dir:
+                base_name = f"[Instrument: {path.parent.name}] {base_name}"
             name = base_name
             suffix = 2
             while name in recordings:
@@ -7578,7 +7621,7 @@ class MeditationOrchestrator:
         return recordings
 
     def set_style_directory(self, style_dir: Path) -> None:
-        """Switch the vocal library to another authored style."""
+        """Switch the ceremony library to another authored style."""
         for player in self.players:
             player.stop()
         self.style_directory = Path(style_dir)
@@ -7608,7 +7651,7 @@ class MeditationOrchestrator:
         self._reschedule()
         self._journal(
             "MEDITATION_STYLE",
-            f"selected style={self.style_name}; vocal clips={len(self.performance_registry)}",
+            f"selected style={self.style_name}; ceremony clips={len(self.performance_registry)}",
         )
 
     @property
@@ -7671,7 +7714,7 @@ class MeditationOrchestrator:
         return self._duration_cache[name]
 
     def _refill_performance_bag(self, avoid_name: str | None = None) -> None:
-        """Refill the shuffled vocal pool, avoiding a boundary repeat."""
+        """Initialize both category pools, avoiding a boundary repeat."""
         self.remaining_performances = list(self.performance_registry)
         self.rng.shuffle(self.remaining_performances)
         avoid_name = avoid_name or self._last_vocal_name
@@ -7689,33 +7732,34 @@ class MeditationOrchestrator:
                 self.remaining_performances[0],
             )
 
-    def _take_vocal(self, avoid_name: str | None = None) -> str | None:
-        if not self.performance_registry:
-            return None
-        if not self.remaining_performances:
-            self._refill_performance_bag(avoid_name=avoid_name)
-            self._journal(
-                "MEDITATION_BAG_REFILL",
-                "next vocal cycle: " + " -> ".join(self.remaining_performances),
-            )
-        if not self.remaining_performances:
-            return None
+    @staticmethod
+    def _is_instrument(name: str) -> bool:
+        return bool(name and name.startswith("[Instrument: "))
 
-        if (
-            avoid_name
-            and len(self.remaining_performances) > 1
-            and self.remaining_performances[0] == avoid_name
-        ):
-            swap_index = next(
-                (i for i, name in enumerate(self.remaining_performances[1:], 1)
-                 if name != avoid_name),
-                None,
-            )
-            if swap_index is not None:
-                self.remaining_performances[0], self.remaining_performances[swap_index] = (
-                    self.remaining_performances[swap_index], self.remaining_performances[0]
-                )
-        name = self.remaining_performances.pop(0)
+    def _take_vocal(self, avoid_name: str | None = None, *, first_passage: bool = False) -> str | None:
+        """Choose category by weight, then draw from its independent shuffle bag."""
+        spec = self.state.get()
+        vocals = [n for n in self.performance_registry if not self._is_instrument(n)]
+        instruments = [n for n in self.performance_registry if self._is_instrument(n)]
+        if not spec.instruments_enabled:
+            instruments = []
+        if not vocals and not instruments:
+            return None
+        # avoid_name is the actual outgoing passage, not a reserved bag draw.
+        # Every ceremony opens with a vocal; instruments also return to vocals.
+        return_to_vocals = bool(vocals) and (first_passage or self._is_instrument(avoid_name))
+        use_instrument = not return_to_vocals and bool(instruments) and (
+            not vocals or self.rng.random() < spec.instrument_selection_percent / 100.0
+        )
+        eligible = instruments if use_instrument else vocals
+        remaining = [n for n in self.remaining_performances if n in eligible]
+        if not remaining:
+            remaining = list(eligible)
+            self.rng.shuffle(remaining)
+            self.remaining_performances.extend(remaining)
+        avoid = avoid_name or self._last_vocal_name
+        name = next((n for n in remaining if n != avoid), remaining[0])
+        self.remaining_performances.remove(name)
         self._last_vocal_name = name
         return name
 
@@ -7736,7 +7780,7 @@ class MeditationOrchestrator:
             self._next_start_sample = math.inf
             self._journal(
                 "MEDITATION_PLAN",
-                "automatic generated ceremonies disabled or no vocal clips available",
+                "automatic generated ceremonies disabled or no ceremony clips available",
             )
             return
 
@@ -7747,12 +7791,12 @@ class MeditationOrchestrator:
             self._recording_duration_seconds(name)
         self._reschedule()
         self._journal("MEDITATION_PLAN", (
-            f"style={self.style_name}; {len(self.performance_registry)} vocal clips; "
+            f"style={self.style_name}; {len(self.performance_registry)} ceremony clips; "
             f"generated ceremonies {spec.ceremony_min_minutes:.1f}-"
             f"{spec.ceremony_max_minutes:.1f} min; rests "
             f"{spec.interval_min_minutes:.2f}-{spec.interval_max_minutes:.2f} min; "
-            f"equal-power vocal crossfades {self.CROSSFADE_MIN_SECONDS:.0f}-"
-            f"{self.CROSSFADE_MAX_SECONDS:.0f}s; initial vocal pool: "
+            f"same-category crossfades {self.CROSSFADE_MIN_SECONDS:.0f}-"
+            f"{self.CROSSFADE_MAX_SECONDS:.0f}s; category changes fade through silence; initial pool: "
             + " -> ".join(self.remaining_performances)
         ))
 
@@ -7865,12 +7909,15 @@ class MeditationOrchestrator:
 
     def _prepare(self, requested_name: str | None, *, manual: bool, due_sample: int) -> None:
         if not self.performance_registry:
-            self._last_error = f"No vocal clips available for style {self.style_name}"
+            self._last_error = f"No ceremony clips available for style {self.style_name}"
             self.current_status = self._last_error
             return
 
-        if requested_name in (None, self.RANDOM_START_TOKEN):
-            name = self._take_vocal()
+        has_vocals = any(not self._is_instrument(n) for n in self.performance_registry)
+        if requested_name in (None, self.RANDOM_START_TOKEN) or (
+            has_vocals and self._is_instrument(requested_name)
+        ):
+            name = self._take_vocal(first_passage=True)
         else:
             name = requested_name
             self._remove_specific_from_pool(name)
@@ -7882,7 +7929,7 @@ class MeditationOrchestrator:
         self._pending_due_sample = due_sample
         self._last_error = ""
         self.players[self._current_player_index].prepare(self.recording_paths[name])
-        self.current_status = f"preparing generated ceremony; first vocal {name}"
+        self.current_status = f"preparing generated ceremony; first passage {name}"
         self._journal(
             "MEDITATION_PREPARE",
             f"generated ceremony; first={name}; file={self.recording_paths[name].name}",
@@ -7933,12 +7980,15 @@ class MeditationOrchestrator:
         )
         self._ceremony_retreat_samples = round(retreat_seconds * self.sample_rate)
         self._ceremony_retreat_started = False
+        self._passage_gain = 1.0
+        self._handoff_out = False
+        self._selection_settings = (spec.instruments_enabled, spec.instrument_selection_percent)
         self.field.reset_for_ceremony(spec)
         self._current_underrun_snapshot = self.recording_player.underrun_count
         self._next_underrun_snapshot = self.next_recording_player.underrun_count
         self._journal("MEDITATION_START", (
             f"{self.active_name}; target={target_seconds / 60.0:.2f} min; "
-            f"first vocal={self.current_vocal_name}; "
+            f"first passage={self.current_vocal_name}; "
             f"MP3={self.recording_paths[self.current_vocal_name].name}; "
             f"final retreat={retreat_seconds:.1f}s; stereo 3D pair; "
             f"subliminal emergence={spec.subliminal_emergence_seconds:.1f}s; "
@@ -8090,8 +8140,48 @@ class MeditationOrchestrator:
 
     def _render_vocals(self, count: int) -> np.ndarray:
         """Render current clip, with an equal-power handoff when due."""
-        if self._should_crossfade():
-            self._begin_crossfade()
+        spec = self.state.get()
+        selection = (spec.instruments_enabled, spec.instrument_selection_percent)
+        if selection != self._selection_settings and not self._crossfade_active:
+            self._return_reserved_vocal()
+            self._selection_settings = selection
+            self._prepare_next_vocal()
+
+        different = bool(self.next_vocal_name) and (
+            self._is_instrument(self.current_vocal_name) != self._is_instrument(self.next_vocal_name)
+        )
+        disabled_current = self._is_instrument(self.current_vocal_name) and not spec.instruments_enabled
+        if not self._stopping and not self._crossfade_active and (
+            self._should_crossfade() or disabled_current
+        ):
+            if different or disabled_current:
+                if self._next_ready() or disabled_current:
+                    self._handoff_out = True
+            else:
+                self._begin_crossfade()
+
+        if self._handoff_out and not disabled_current and not self.next_vocal_name:
+            self._handoff_out = False
+        if self._handoff_out or self._passage_gain < 1.0:
+            try:
+                audio = self._render_player(self.recording_player, count)
+            except InterruptedError:
+                raise
+            except Exception as exc:
+                self._handle_first_error(str(exc))
+                return np.zeros((count, 2), dtype=np.float32)
+            curve, self._passage_gain = self._ramp(
+                self._passage_gain, 0.0 if self._handoff_out else 1.0,
+                count, 0.05 if disabled_current else 4.0,
+            )
+            audio *= curve[:, None]
+            if self._handoff_out and self._passage_gain <= 0.0:
+                if self._next_ready():
+                    # Only the outgoing player was rendered in this block.
+                    # Incoming playback begins next block, starting at silence.
+                    self._complete_crossfade()
+                    self._handoff_out = False
+            return audio
 
         if self._crossfade_active:
             try:
@@ -8142,6 +8232,7 @@ class MeditationOrchestrator:
                     f"continuing with {self.next_vocal_name}",
                 )
                 self._complete_crossfade()
+                self._passage_gain = 0.0
             elif self.ceremony_remaining_seconds > 2.0:
                 self._prepare_next_vocal()
         return audio
@@ -8211,6 +8302,7 @@ class MeditationOrchestrator:
             if active_count > 0:
                 self._update_ceremony_timeline(spec)
                 fade_seconds = self._subliminal_transition_seconds(spec)
+                instrument_passage = self._is_instrument(self.current_vocal_name)
                 vocals = self._render_vocals(active_count)
                 audio[start_offset:] = vocals
 
@@ -8282,7 +8374,13 @@ class MeditationOrchestrator:
                 presence_gain_db = -8.0 * (1.0 - smooth_proximity)
                 presence_gain = np.power(10.0, presence_gain_db / 20.0)
 
-                for source, position in zip(self.sources, self.field.stereo_positions()):
+                positions = self.field.stereo_positions()
+                if instrument_passage:
+                    # Stable front-centered stereo image for a solo instrument.
+                    positions = (Vector3(-0.5, 0.0, -3.0), Vector3(0.5, 0.0, -3.0))
+                    presence_gain = np.ones(active_count, dtype=np.float64)
+                    presence_gain_db = np.zeros(active_count, dtype=np.float64)
+                for source, position in zip(self.sources, positions):
                     source.set_position_vector(position)
                 source_audio = audio[start_offset:]
                 spatial = (
@@ -8342,9 +8440,9 @@ class MeditationOrchestrator:
             elif self._ceremony_retreat_started:
                 phase = "retreating into brown bed"
             elif self._crossfade_active:
-                phase = "crossfading vocals"
+                phase = "crossfading passages"
             else:
-                phase = "generated vocal ceremony"
+                phase = "instrument passage" if self._is_instrument(self.current_vocal_name) else "vocal passage"
 
             crossfade_text = ""
             if self._crossfade_active:
@@ -8358,7 +8456,7 @@ class MeditationOrchestrator:
                 f"{self.active_name}: {phase}; "
                 f"{self.ceremony_elapsed_seconds / 60.0:.1f}/"
                 f"{self.ceremony_target_seconds / 60.0:.1f} min; "
-                f"vocal {self.current_vocal_name or 'none'}; "
+                f"passage {self.current_vocal_name or 'none'}; "
                 f"next {self.next_vocal_name or 'none'}{crossfade_text}"
             )
 
@@ -8382,20 +8480,20 @@ class MeditationOrchestrator:
                 ))
         elif self._pending_name:
             self.current_status = (
-                f"preparing generated ceremony; first vocal {self._pending_name}"
+                f"preparing generated ceremony; first passage {self._pending_name}"
             )
         elif self._last_error:
             self.current_status = f"recording error: {self._last_error}"
         elif not spec.enabled:
             self.current_status = "automatic ceremonies disabled; manual generated ceremony available"
         elif not self.performance_registry:
-            self.current_status = f"no vocal clips found for style {self.style_name}"
+            self.current_status = f"no ceremony clips found for style {self.style_name}"
         else:
             wait = self.next_performance_seconds
             if math.isfinite(wait):
                 self.current_status = (
                     f"waiting; next generated ceremony in {wait / 60.0:.1f} min; "
-                    f"{len(self.performance_registry)} vocal clips in style"
+                    f"{len(self.performance_registry)} ceremony clips in style"
                 )
             else:
                 self.current_status = "waiting"
@@ -10942,9 +11040,10 @@ class MainWindow(QMainWindow):
 
         meditation_note = QLabel(
             "Each top-level folder beneath ceremonies/ is a style. Generated ceremonies stitch "
-            "multiple foreground clips from vocals/ with smooth equal-power crossfades while one "
-            "continuous 3D presence field rises from and retreats into the brown-noise bed. The "
-            "style's ambients continue independently underneath. Instruments are not used yet."
+            "vocal and instrument passages according to the instrument selection probability. "
+            "Vocals and separate instruments never play together: category changes fade "
+            "out then in. Instrument passages stay centered; the whole ceremony retains "
+            "its gradual entrance and exit."
         )
         meditation_note.setWordWrap(True)
         meditation_layout.addWidget(meditation_note)
@@ -11115,6 +11214,30 @@ class MainWindow(QMainWindow):
             "Directional drift continues independently throughout."
         )
 
+        self.meditation_instruments_checkbox = QCheckBox("Allow instrument passages")
+        self.meditation_instruments_checkbox.setChecked(meditation_spec.instruments_enabled)
+        self.meditation_instruments_checkbox.setToolTip(
+            "Allow instruments to be selected instead of vocals. Unchecking fades "
+            "an active instrument out and returns to vocals when available. "
+            "Instruments embedded in vocal recordings are unaffected."
+        )
+        self.meditation_instruments_checkbox.toggled.connect(
+            lambda checked: self._update_meditation(instruments_enabled=checked)
+        )
+        meditation_form.addRow(self.meditation_instruments_checkbox)
+
+        self.meditation_instrument_selection_control = add_meditation_control(
+            "Instrument selection probability:", "instrument_selection_percent",
+            0.0, 100.0, 1.0, 0, "%",
+        )
+        self.meditation_instrument_selection_control.setToolTip(
+            "Ceremonies start with vocals. Chance of selecting an instrument after a vocal. "
+            "After an instrument, always return to vocals when available. "
+            "0% selects vocals only; 100% alternates vocals and instruments. "
+            "Instrument-only styles fall back to another instrument. Each category "
+            "uses its own shuffle bag; this is not an exact share of listening time."
+        )
+
         self.meditation_subliminal_emergence_control = add_meditation_control(
             "Subliminal emergence:", "subliminal_emergence_seconds",
             0.0, 180.0, 5.0, 0, " sec",
@@ -11130,12 +11253,16 @@ class MainWindow(QMainWindow):
 
         meditation_buttons = QHBoxLayout()
         self.meditation_ceremony_combo = QComboBox()
-        self.meditation_ceremony_combo.addItem("Select ceremony / starting vocal…", None)
+        self.meditation_ceremony_combo.addItem("Select ceremony / starting passage…", None)
         self.meditation_ceremony_combo.addItem(
             "Start generated ceremony (random vocal)",
             MeditationOrchestrator.RANDOM_START_TOKEN,
         )
-        for ceremony_name in self.mixer.meditation.performance_registry:
+        registry = self.mixer.meditation.performance_registry
+        has_vocals = any(not MeditationOrchestrator._is_instrument(n) for n in registry)
+        for ceremony_name in registry:
+            if has_vocals and MeditationOrchestrator._is_instrument(ceremony_name):
+                continue
             self.meditation_ceremony_combo.addItem(ceremony_name, ceremony_name)
         self.meditation_ceremony_combo.setToolTip(
             "Start a generated ceremony. Choosing a named vocal uses it only as the first clip; "
@@ -13605,7 +13732,7 @@ class MainWindow(QMainWindow):
     def _refresh_ceremony_combo(self) -> None:
         self.meditation_ceremony_combo.blockSignals(True)
         self.meditation_ceremony_combo.clear()
-        self.meditation_ceremony_combo.addItem("Select ceremony / starting vocal…", None)
+        self.meditation_ceremony_combo.addItem("Select ceremony / starting passage…", None)
         self.meditation_ceremony_combo.addItem(
             "Start generated ceremony (random vocal)",
             MeditationOrchestrator.RANDOM_START_TOKEN,
@@ -13670,15 +13797,17 @@ class MainWindow(QMainWindow):
         spec = self.mixer.meditation_state.get()
         if orchestrator.active:
             field = orchestrator.field
+            instrument_passage = orchestrator._is_instrument(orchestrator.current_vocal_name)
             self.meditation_status_label.setText(
                 f"{orchestrator.current_status}\n"
                 f"Brown + heartbeat {orchestrator.current_brown_gain_db:+.1f} dB; "
-                f"distance {field.current_distance:.2f} m; "
-                f"azimuth {field.current_azimuth:+.1f}°; "
-                f"elevation {field.current_elevation:+.1f}°; "
+                f"distance {3.0 if instrument_passage else field.current_distance:.2f} m; "
+                f"azimuth {0.0 if instrument_passage else field.current_azimuth:+.1f}°; "
+                f"elevation {0.0 if instrument_passage else field.current_elevation:+.1f}°; "
                 f"coupling {spec.brown_coupling_percent:.0f}%; "
                 f"presence {field.presence_phase} ({spec.presence_cycle_minutes:.1f} min cycle); "
-                f"performance trim {spec.performance_level_db:+.1f} dB"
+                f"performance trim {spec.performance_level_db:+.1f} dB\n"
+                f"Instrument selection: {spec.instrument_selection_percent:.0f}%"
             )
         else:
             self.meditation_status_label.setText(orchestrator.current_status)

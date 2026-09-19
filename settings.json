@@ -49,7 +49,7 @@
   },
   "brown_noise_evolution": {
     "enabled": true,
-    "rate": 0.63
+    "rate": 0.68
   },
   "dream_motif_spatial": {
     "activity": 0.85,
@@ -85,10 +85,10 @@
   "dual_brown_motion": {
     "center_distance": 0.3,
     "enabled": true,
-    "evolution_rate": 0.49,
+    "evolution_rate": 0.61,
     "layer_amount": 1.35,
     "layer_enabled": true,
-    "sphere_radius": 1.35
+    "sphere_radius": 1.75
   },
   "export_duration_minutes": 480,
   "heartbeat": {
@@ -110,18 +110,20 @@
   "heartbeat_spatial_panel_expanded": false,
   "meditation": {
     "brown_coupling_percent": 76.0,
-    "brown_greatest_attenuation_db": -12.5,
-    "brown_least_attenuation_db": -3.0,
+    "brown_greatest_attenuation_db": -18.0,
+    "brown_least_attenuation_db": -5.0,
     "ceremony_max_minutes": 20.0,
     "ceremony_min_minutes": 10.0,
     "enabled": true,
-    "interval_max_minutes": 10.0,
-    "interval_min_minutes": 3.0,
+    "instrument_selection_percent": 20.0,
+    "instruments_enabled": true,
+    "interval_max_minutes": 15.0,
+    "interval_min_minutes": 5.0,
     "performance_level_db": 4.0,
     "presence_cycle_minutes": 6.0,
     "spatial_far_meters": 8.0,
     "spatial_near_meters": 4.25,
-    "subliminal_emergence_seconds": 90.0,
+    "subliminal_emergence_seconds": 60.0,
     "transition_seconds": 12.0
   },
   "meditation_panel_expanded": false,
@@ -159,7 +161,7 @@
     "heartbeat_level_min_db": 0.0,
     "phase_max_minutes": 9.25,
     "phase_min_minutes": 2.75,
-    "resting_tendency_percent": 22.0
+    "resting_tendency_percent": 38.0
   },
   "metabolism_3d_expanded": false,
   "metabolism_breath_expanded": false,
