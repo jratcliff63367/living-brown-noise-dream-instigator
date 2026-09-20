@@ -1,0 +1,14 @@
+index,file,source,start_seconds,start_timestamp,duration_seconds,notes
+1,vocal03-ref-01-resonant-sustain.mp3,vocal03.mp3,92.000,01:32.00,20.000,Sung passage with sustained resonance and natural human tone.
+2,vocal03-ref-02-expressive-phrase.mp3,vocal03.mp3,178.000,02:58.00,20.000,Expressive sung phrasing with useful melodic contour and articulation.
+3,vocal03-ref-03-ornamented-vocal.mp3,vocal03.mp3,275.000,04:35.00,20.000,Ornamented sung section with pitch movement and expressive vocal detail.
+4,vocal03-ref-04-breathwork-air.mp3,vocal03.mp3,447.000,07:27.00,20.000,Breath-forward sung texture; useful for airy breath-work character.
+5,vocal03-ref-05-rich-midrange.mp3,vocal03.mp3,548.000,09:08.00,20.000,Rich midrange singing with clear harmonic body and controlled dynamics.
+6,vocal03-ref-06-breath-release.mp3,vocal03.mp3,625.000,10:25.00,20.000,"Sung phrase with audible breath support, release, and changing vocal density."
+7,vocal03-ref-07-full-dynamic-vocal.mp3,vocal03.mp3,805.000,13:25.00,20.000,Strong sung passage with fuller projection and dynamic phrase shape.
+8,vocal03-ref-08-register-variation.mp3,vocal03.mp3,897.000,14:57.00,20.000,Sung passage with register movement and contrasting vocal color.
+9,vocal03-ref-09-expressive-late-middle.mp3,vocal03.mp3,990.000,16:30.00,20.000,Expressive sung section with natural timing and phrase irregularity.
+10,vocal03-ref-10-breath-rich-vocal.mp3,vocal03.mp3,1162.000,19:22.00,20.000,"Breath-rich singing emphasizing air, transition, and organic vocal texture."
+11,vocal03-ref-11-late-resonance.mp3,vocal03.mp3,1340.000,22:20.00,20.000,Later sung passage with strong resonance and a different performance contour.
+12,vocal03-ref-12-soft-breathwork.mp3,vocal03.mp3,1437.000,23:57.00,20.000,Soft sung breath-work section; useful for subtle airy conditioning.
+13,vocal03-ref-13-closing-full-voice.mp3,vocal03.mp3,1532.000,25:32.00,20.000,Closing-region sung passage with fuller vocal body and clear projection.

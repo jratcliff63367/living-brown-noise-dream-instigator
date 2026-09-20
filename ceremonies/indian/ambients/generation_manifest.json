@@ -1,0 +1,454 @@
+{
+  "generated": [
+    {
+      "category": "event",
+      "slug": "single_temple_bell",
+      "duration_seconds": 3.0,
+      "loop": false,
+      "prompt": "Single resonant Indian temple bell strike, clean source, warm metallic bloom, natural decay, no crowd, no narration.",
+      "file": "ceremonies\\indian\\ambients\\event\\01-single_temple_bell.mp3",
+      "timestamp_unix": 1789675272.873451
+    },
+    {
+      "category": "event",
+      "slug": "manjira_chime_pair",
+      "duration_seconds": 2.5,
+      "loop": false,
+      "prompt": "Two delicate manjira hand-cymbal chimes, bright and devotional, crisp attack, natural ring, clean recording.",
+      "file": "ceremonies\\indian\\ambients\\event\\02-manjira_chime_pair.mp3",
+      "timestamp_unix": 1789675276.1392412
+    },
+    {
+      "category": "event",
+      "slug": "gentle_conch_call",
+      "duration_seconds": 4.0,
+      "loop": false,
+      "prompt": "Short gentle conch shell call used in Hindu ritual, smooth breath-driven tone, ceremonial, not harsh, clean recording.",
+      "file": "ceremonies\\indian\\ambients\\event\\03-gentle_conch_call.mp3",
+      "timestamp_unix": 1789675279.2080374
+    },
+    {
+      "category": "event",
+      "slug": "female_om_exhale",
+      "duration_seconds": 4.5,
+      "loop": false,
+      "prompt": "Brief solo female meditative om-like exhale, breathy and intimate, devotional, no instruments, no words beyond the chant sound.",
+      "file": "ceremonies\\indian\\ambients\\event\\04-female_om_exhale.mp3",
+      "timestamp_unix": 1789675283.00068
+    },
+    {
+      "category": "event",
+      "slug": "female_shanti_fragment",
+      "duration_seconds": 5.0,
+      "loop": false,
+      "prompt": "Short solo female devotional chant fragment in an Indian meditative style, intimate, fluid, no accompaniment, no spoken narration.",
+      "file": "ceremonies\\indian\\ambients\\event\\05-female_shanti_fragment.mp3",
+      "timestamp_unix": 1789675286.6562304
+    },
+    {
+      "category": "event",
+      "slug": "hare_krishna_call_fragment",
+      "duration_seconds": 5.5,
+      "loop": false,
+      "prompt": "Brief female kirtan-style call fragment, warm devotional energy, light melodic lift, clean recording, minimal accompaniment.",
+      "file": "ceremonies\\indian\\ambients\\event\\06-hare_krishna_call_fragment.mp3",
+      "timestamp_unix": 1789675290.7465153
+    },
+    {
+      "category": "event",
+      "slug": "harmonium_flourish",
+      "duration_seconds": 4.5,
+      "loop": false,
+      "prompt": "Short harmonium devotional flourish, warm reeds, gentle and organic, clean source, no crowd noise.",
+      "file": "ceremonies\\indian\\ambients\\event\\07-harmonium_flourish.mp3",
+      "timestamp_unix": 1789675293.6782804
+    },
+    {
+      "category": "event",
+      "slug": "soft_tabla_finger_flourish",
+      "duration_seconds": 4.0,
+      "loop": false,
+      "prompt": "Brief soft tabla finger flourish, intimate hand percussion, subtle and organic, clean recording.",
+      "file": "ceremonies\\indian\\ambients\\event\\08-soft_tabla_finger_flourish.mp3",
+      "timestamp_unix": 1789675296.6818972
+    },
+    {
+      "category": "event",
+      "slug": "tiny_puja_bells",
+      "duration_seconds": 3.5,
+      "loop": false,
+      "prompt": "Small cluster of tiny puja bells, delicate sparkling ritual bell texture, clean recording, natural decay.",
+      "file": "ceremonies\\indian\\ambients\\event\\09-tiny_puja_bells.mp3",
+      "timestamp_unix": 1789675299.7338245
+    },
+    {
+      "category": "event",
+      "slug": "mantra_murmur_tease",
+      "duration_seconds": 6.0,
+      "loop": false,
+      "prompt": "Very short suggestion of a few worshippers murmuring a devotional mantra, subtle and organic, no dominant crowd chatter.",
+      "file": "ceremonies\\indian\\ambients\\event\\10-mantra_murmur_tease.mp3",
+      "timestamp_unix": 1789675303.1816902
+    },
+    {
+      "category": "activity",
+      "slug": "female_kirtan_harmonium_01",
+      "duration_seconds": 14.0,
+      "loop": true,
+      "prompt": "Small intimate kirtan activity with solo female chant and harmonium, devotional Indian atmosphere, gentle pulse, clean audio.",
+      "file": "ceremonies\\indian\\ambients\\activity\\11-female_kirtan_harmonium_01.mp3",
+      "timestamp_unix": 1789675309.0138102
+    },
+    {
+      "category": "activity",
+      "slug": "female_kirtan_harmonium_02",
+      "duration_seconds": 16.0,
+      "loop": true,
+      "prompt": "Solo female Indian devotional chant over harmonium drone, expressive and meditative, lightly rhythmic, clean recording.",
+      "file": "ceremonies\\indian\\ambients\\activity\\12-female_kirtan_harmonium_02.mp3",
+      "timestamp_unix": 1789675315.3416095
+    },
+    {
+      "category": "activity",
+      "slug": "female_om_drone",
+      "duration_seconds": 15.0,
+      "loop": true,
+      "prompt": "Solo female sustained om-like meditation chant with subtle breath and evolving tone, Indian spiritual mood, no nature sounds.",
+      "file": "ceremonies\\indian\\ambients\\activity\\13-female_om_drone.mp3",
+      "timestamp_unix": 1789675321.149444
+    },
+    {
+      "category": "activity",
+      "slug": "female_shanti_shruti_box",
+      "duration_seconds": 16.0,
+      "loop": true,
+      "prompt": "Solo female meditative chant with shruti-box-like drone, calm devotional Indian feel, intimate and clean.",
+      "file": "ceremonies\\indian\\ambients\\activity\\14-female_shanti_shruti_box.mp3",
+      "timestamp_unix": 1789675326.9556293
+    },
+    {
+      "category": "activity",
+      "slug": "tanpura_female_vocal",
+      "duration_seconds": 18.0,
+      "loop": true,
+      "prompt": "Female devotional vocalising over tanpura drone, fluid melodic movement, meditative Indian ambience, no narration.",
+      "file": "ceremonies\\indian\\ambients\\activity\\15-tanpura_female_vocal.mp3",
+      "timestamp_unix": 1789675333.2186708
+    },
+    {
+      "category": "activity",
+      "slug": "kirtan_with_soft_claps",
+      "duration_seconds": 16.0,
+      "loop": true,
+      "prompt": "Small devotional kirtan with female lead voice, soft hand claps, harmonium support, warm and organic, clean audio.",
+      "file": "ceremonies\\indian\\ambients\\activity\\16-kirtan_with_soft_claps.mp3",
+      "timestamp_unix": 1789675339.0712283
+    },
+    {
+      "category": "activity",
+      "slug": "bansuri_and_humming",
+      "duration_seconds": 15.0,
+      "loop": true,
+      "prompt": "Gentle Indian meditation texture with soft bansuri flute and female humming-like vocalisation, calm and devotional.",
+      "file": "ceremonies\\indian\\ambients\\activity\\17-bansuri_and_humming.mp3",
+      "timestamp_unix": 1789675344.933825
+    },
+    {
+      "category": "activity",
+      "slug": "harmonium_drone_room",
+      "duration_seconds": 14.0,
+      "loop": true,
+      "prompt": "Warm harmonium drone with subtle devotional singing nearby, small prayer-room feel, meditative and clean.",
+      "file": "ceremonies\\indian\\ambients\\activity\\18-harmonium_drone_room.mp3",
+      "timestamp_unix": 1789675351.2689261
+    },
+    {
+      "category": "activity",
+      "slug": "handpan_indian_mood",
+      "duration_seconds": 18.0,
+      "loop": true,
+      "prompt": "Handpan in a contemplative Indian spiritual mood with soft female vocalisations, meditative and clean, no birds.",
+      "file": "ceremonies\\indian\\ambients\\activity\\19-handpan_indian_mood.mp3",
+      "timestamp_unix": 1789675357.8012288
+    },
+    {
+      "category": "activity",
+      "slug": "singing_bowls_indian_prayer",
+      "duration_seconds": 16.0,
+      "loop": true,
+      "prompt": "Gentle singing bowls with subtle Indian female devotional vocal phrases, calm and spacious, clean recording.",
+      "file": "ceremonies\\indian\\ambients\\activity\\20-singing_bowls_indian_prayer.mp3",
+      "timestamp_unix": 1789675363.785515
+    },
+    {
+      "category": "activity",
+      "slug": "shruti_box_female_vocables",
+      "duration_seconds": 18.0,
+      "loop": true,
+      "prompt": "Solo female nonverbal devotional vocables over a shruti-box style drone, expressive and hypnotic, Indian meditative mood.",
+      "file": "ceremonies\\indian\\ambients\\activity\\21-shruti_box_female_vocables.mp3",
+      "timestamp_unix": 1789675370.1086867
+    },
+    {
+      "category": "activity",
+      "slug": "tabla_and_humming",
+      "duration_seconds": 14.0,
+      "loop": true,
+      "prompt": "Soft tabla pulse with gentle female humming in an Indian devotional style, restrained and meditative.",
+      "file": "ceremonies\\indian\\ambients\\activity\\22-tabla_and_humming.mp3",
+      "timestamp_unix": 1789675376.0814104
+    },
+    {
+      "category": "activity",
+      "slug": "devotional_hum_tanpura",
+      "duration_seconds": 17.0,
+      "loop": true,
+      "prompt": "Layered devotional humming over tanpura drone, intimate Indian prayer atmosphere, no spoken words.",
+      "file": "ceremonies\\indian\\ambients\\activity\\23-devotional_hum_tanpura.mp3",
+      "timestamp_unix": 1789675382.712633
+    },
+    {
+      "category": "activity",
+      "slug": "morning_temple_chanting",
+      "duration_seconds": 20.0,
+      "loop": true,
+      "prompt": "Morning temple activity with soft chanting, occasional bell accents, devotional Indian atmosphere, calm and clean.",
+      "file": "ceremonies\\indian\\ambients\\activity\\24-morning_temple_chanting.mp3",
+      "timestamp_unix": 1789675389.5651858
+    },
+    {
+      "category": "activity",
+      "slug": "riverbank_mantra_activity",
+      "duration_seconds": 18.0,
+      "loop": true,
+      "prompt": "Meditative mantra activity by an Indian riverside shrine, devotional singing and subtle ritual energy, no obvious wildlife foreground.",
+      "file": "ceremonies\\indian\\ambients\\activity\\25-riverbank_mantra_activity.mp3",
+      "timestamp_unix": 1789675395.95523
+    },
+    {
+      "category": "activity",
+      "slug": "small_group_kirtan",
+      "duration_seconds": 16.0,
+      "loop": true,
+      "prompt": "Small group kirtan with a female lead and a few soft supporting voices, harmonium and light percussion, intimate and clean.",
+      "file": "ceremonies\\indian\\ambients\\activity\\26-small_group_kirtan.mp3",
+      "timestamp_unix": 1789675402.114969
+    },
+    {
+      "category": "activity",
+      "slug": "evening_aarti_activity",
+      "duration_seconds": 17.0,
+      "loop": true,
+      "prompt": "Evening aarti devotional activity, female chant, light bells, harmonium and ritual warmth, meditative rather than celebratory.",
+      "file": "ceremonies\\indian\\ambients\\activity\\27-evening_aarti_activity.mp3",
+      "timestamp_unix": 1789675408.853381
+    },
+    {
+      "category": "activity",
+      "slug": "ashram_corridor_song",
+      "duration_seconds": 15.0,
+      "loop": true,
+      "prompt": "Subtle devotional song activity from an ashram corridor, female-led Indian meditative singing, clean and organic.",
+      "file": "ceremonies\\indian\\ambients\\activity\\28-ashram_corridor_song.mp3",
+      "timestamp_unix": 1789675414.485949
+    },
+    {
+      "category": "activity",
+      "slug": "prayer_room_harmonium",
+      "duration_seconds": 14.0,
+      "loop": true,
+      "prompt": "Quiet prayer-room activity with harmonium, low devotional singing, and occasional small bells, intimate Indian spiritual mood.",
+      "file": "ceremonies\\indian\\ambients\\activity\\29-prayer_room_harmonium.mp3",
+      "timestamp_unix": 1789675420.1581476
+    },
+    {
+      "category": "activity",
+      "slug": "meditation_hall_vocal_texture",
+      "duration_seconds": 19.0,
+      "loop": true,
+      "prompt": "Meditation-hall activity with female Indian chant textures, evolving breathy phrases, calm and immersive, no crowd chatter.",
+      "file": "ceremonies\\indian\\ambients\\activity\\30-meditation_hall_vocal_texture.mp3",
+      "timestamp_unix": 1789675426.7008872
+    },
+    {
+      "category": "space",
+      "slug": "temple_hall_dawn",
+      "duration_seconds": 22.0,
+      "loop": true,
+      "prompt": "Large Indian temple hall at dawn, gentle devotional presence, soft room tone, occasional subtle chant traces, immersive spiritual space.",
+      "file": "ceremonies\\indian\\ambients\\space\\31-temple_hall_dawn.mp3",
+      "timestamp_unix": 1789675433.5655513
+    },
+    {
+      "category": "space",
+      "slug": "stone_shrine_courtyard",
+      "duration_seconds": 20.0,
+      "loop": true,
+      "prompt": "Indian stone shrine courtyard ambience, air and architectural resonance, subtle ritual life, quiet contemplative space.",
+      "file": "ceremonies\\indian\\ambients\\space\\32-stone_shrine_courtyard.mp3",
+      "timestamp_unix": 1789675440.134081
+    },
+    {
+      "category": "space",
+      "slug": "river_ghat_sunrise",
+      "duration_seconds": 24.0,
+      "loop": true,
+      "prompt": "Sacred Indian river ghat at sunrise, meditative atmosphere, soft ritual presence, water and devotional spatial character.",
+      "file": "ceremonies\\indian\\ambients\\space\\33-river_ghat_sunrise.mp3",
+      "timestamp_unix": 1789675446.9158971
+    },
+    {
+      "category": "space",
+      "slug": "ashram_hall_noon",
+      "duration_seconds": 21.0,
+      "loop": true,
+      "prompt": "Quiet Indian ashram meditation hall, spacious interior tone, restrained devotional presence, calm and immersive.",
+      "file": "ceremonies\\indian\\ambients\\space\\34-ashram_hall_noon.mp3",
+      "timestamp_unix": 1789675453.7968097
+    },
+    {
+      "category": "space",
+      "slug": "monsoon_temple_veranda",
+      "duration_seconds": 24.0,
+      "loop": true,
+      "prompt": "Temple veranda during soft monsoon weather, Indian spiritual setting, rain texture and sheltered sacred calm.",
+      "file": "ceremonies\\indian\\ambients\\space\\35-monsoon_temple_veranda.mp3",
+      "timestamp_unix": 1789675460.683061
+    },
+    {
+      "category": "space",
+      "slug": "market_side_street",
+      "duration_seconds": 20.0,
+      "loop": true,
+      "prompt": "Indian market side-street ambience, subdued bazaar activity, cultural texture, not chaotic, useful as a meditative background color.",
+      "file": "ceremonies\\indian\\ambients\\space\\36-market_side_street.mp3",
+      "timestamp_unix": 1789675467.3396418
+    },
+    {
+      "category": "space",
+      "slug": "prayer_room_shrine_space",
+      "duration_seconds": 21.0,
+      "loop": true,
+      "prompt": "Small Indian shrine room ambience with soft resonant space, devotional stillness, occasional subtle ritual detail.",
+      "file": "ceremonies\\indian\\ambients\\space\\37-prayer_room_shrine_space.mp3",
+      "timestamp_unix": 1789675474.3018198
+    },
+    {
+      "category": "space",
+      "slug": "courtyard_with_bells",
+      "duration_seconds": 22.0,
+      "loop": true,
+      "prompt": "Indian courtyard sacred space with gentle bell presence and airy resonance, calm and contemplative.",
+      "file": "ceremonies\\indian\\ambients\\space\\38-courtyard_with_bells.mp3",
+      "timestamp_unix": 1789675481.192456
+    },
+    {
+      "category": "space",
+      "slug": "village_temple_evening",
+      "duration_seconds": 24.0,
+      "loop": true,
+      "prompt": "Rural Indian village temple in the evening, peaceful devotional atmosphere, restrained spatial life, immersive and calm.",
+      "file": "ceremonies\\indian\\ambients\\space\\39-village_temple_evening.mp3",
+      "timestamp_unix": 1789675488.0135324
+    },
+    {
+      "category": "space",
+      "slug": "festival_ground_resting",
+      "duration_seconds": 23.0,
+      "loop": true,
+      "prompt": "Indian spiritual festival ground during a quiet resting moment, soft environmental presence, meditative rather than busy.",
+      "file": "ceremonies\\indian\\ambients\\space\\40-festival_ground_resting.mp3",
+      "timestamp_unix": 1789675494.8272278
+    },
+    {
+      "category": "space",
+      "slug": "incense_room",
+      "duration_seconds": 20.0,
+      "loop": true,
+      "prompt": "Incense-filled meditation room in an Indian spiritual setting, warm enclosed acoustics, subtle devotional calm.",
+      "file": "ceremonies\\indian\\ambients\\space\\41-incense_room.mp3",
+      "timestamp_unix": 1789675501.6285028
+    },
+    {
+      "category": "space",
+      "slug": "cave_temple",
+      "duration_seconds": 24.0,
+      "loop": true,
+      "prompt": "Indian cave temple ambience, deep resonant stone acoustics, sacred stillness, subtle ritual traces.",
+      "file": "ceremonies\\indian\\ambients\\space\\42-cave_temple.mp3",
+      "timestamp_unix": 1789675508.3329062
+    },
+    {
+      "category": "space",
+      "slug": "hillside_ashram",
+      "duration_seconds": 23.0,
+      "loop": true,
+      "prompt": "Hillside Indian ashram space, meditative calm, open air and architecture together, spiritual environmental tone.",
+      "file": "ceremonies\\indian\\ambients\\space\\43-hillside_ashram.mp3",
+      "timestamp_unix": 1789675515.108686
+    },
+    {
+      "category": "space",
+      "slug": "sacred_garden",
+      "duration_seconds": 22.0,
+      "loop": true,
+      "prompt": "Sacred garden near an Indian temple, soft natural texture and contemplative spiritual atmosphere, balanced and calm.",
+      "file": "ceremonies\\indian\\ambients\\space\\44-sacred_garden.mp3",
+      "timestamp_unix": 1789675521.8434567
+    },
+    {
+      "category": "space",
+      "slug": "rain_on_temple_roof",
+      "duration_seconds": 24.0,
+      "loop": true,
+      "prompt": "Rain on an Indian temple roof, sheltered sacred ambience, softly resonant and deeply calming.",
+      "file": "ceremonies\\indian\\ambients\\space\\45-rain_on_temple_roof.mp3",
+      "timestamp_unix": 1789675528.6774533
+    },
+    {
+      "category": "space",
+      "slug": "riverside_evening_prayer_space",
+      "duration_seconds": 24.0,
+      "loop": true,
+      "prompt": "Indian riverside evening prayer space, gentle spatial devotional presence, calm water and architectural resonance.",
+      "file": "ceremonies\\indian\\ambients\\space\\46-riverside_evening_prayer_space.mp3",
+      "timestamp_unix": 1789675535.5305722
+    },
+    {
+      "category": "space",
+      "slug": "meditation_hall_after_chant",
+      "duration_seconds": 20.0,
+      "loop": true,
+      "prompt": "Indian meditation hall just after chanting, lingering resonance and stillness, spacious and contemplative.",
+      "file": "ceremonies\\indian\\ambients\\space\\47-meditation_hall_after_chant.mp3",
+      "timestamp_unix": 1789675542.0375006
+    },
+    {
+      "category": "space",
+      "slug": "palace_courtyard_devotional",
+      "duration_seconds": 22.0,
+      "loop": true,
+      "prompt": "Historic Indian palace courtyard used for devotional practice, airy acoustic character, calm ceremonial atmosphere.",
+      "file": "ceremonies\\indian\\ambients\\space\\48-palace_courtyard_devotional.mp3",
+      "timestamp_unix": 1789675548.8662057
+    },
+    {
+      "category": "space",
+      "slug": "banyan_tree_shrine",
+      "duration_seconds": 21.0,
+      "loop": true,
+      "prompt": "Small Indian shrine beneath a banyan tree, contemplative environmental texture, quiet sacred presence.",
+      "file": "ceremonies\\indian\\ambients\\space\\49-banyan_tree_shrine.mp3",
+      "timestamp_unix": 1789675555.5613956
+    },
+    {
+      "category": "space",
+      "slug": "temple_steps_night",
+      "duration_seconds": 23.0,
+      "loop": true,
+      "prompt": "Temple steps at night in an Indian spiritual setting, subtle room-and-outdoor blend, restrained devotional atmosphere.",
+      "file": "ceremonies\\indian\\ambients\\space\\50-temple_steps_night.mp3",
+      "timestamp_unix": 1789675562.2665787
+    }
+  ]
+}

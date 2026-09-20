@@ -1,0 +1,496 @@
+{
+  "files": {
+    "../instruments/handpan/handpan-001-spacious-low-anchor-d010df9ee638.mp3": {
+      "duration_seconds": 125.04,
+      "is_layered_event": false,
+      "modified_ns": 1789774723436667500,
+      "sample_rate": 44100,
+      "size_bytes": 3001005
+    },
+    "../instruments/handpan/handpan-002-syncopated-evolving-motif-713bdb2df37c.mp3": {
+      "duration_seconds": 271.03201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1789774749382904900,
+      "sample_rate": 44100,
+      "size_bytes": 6504813
+    },
+    "../instruments/handpan/handpan-003-gentle-pulse-upper-replies-8bdc4ef8f5c7.mp3": {
+      "duration_seconds": 158.04,
+      "is_layered_event": false,
+      "modified_ns": 1789774766882643600,
+      "sample_rate": 44100,
+      "size_bytes": 3793005
+    },
+    "../instruments/handpan/handpan-004-rocking-evolving-motif-c5fd7a2c19e5.mp3": {
+      "duration_seconds": 289.03201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1789774795250483100,
+      "sample_rate": 44100,
+      "size_bytes": 6936813
+    },
+    "../instruments/handpan/handpan-005-rocking-upper-replies-f2676319566d.mp3": {
+      "duration_seconds": 188.04,
+      "is_layered_event": false,
+      "modified_ns": 1789774816314694400,
+      "sample_rate": 44100,
+      "size_bytes": 4513005
+    },
+    "../instruments/handpan/handpan-006-gentle-pulse-evolving-motif-b6a3bc06a9fe.mp3": {
+      "duration_seconds": 222.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1789774839140355500,
+      "sample_rate": 44100,
+      "size_bytes": 5328621
+    },
+    "../instruments/handpan/handpan-007-flowing-resonant-dialogue-79f60befc6fb.mp3": {
+      "duration_seconds": 175.03201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1789774859719120600,
+      "sample_rate": 44100,
+      "size_bytes": 4200813
+    },
+    "../instruments/handpan/handpan-008-syncopated-low-anchor-67dae09212f3.mp3": {
+      "duration_seconds": 192.95678004535148,
+      "is_layered_event": false,
+      "modified_ns": 1789779091440664000,
+      "sample_rate": 44100,
+      "size_bytes": 4529856
+    },
+    "../instruments/handpan/handpan-009-syncopated-resonant-dialogue-7bd8dbc2e4d1.mp3": {
+      "duration_seconds": 165.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1789774906827846700,
+      "sample_rate": 44100,
+      "size_bytes": 3960621
+    },
+    "../instruments/handpan/handpan-010-spacious-upper-replies-5067aee045d2.mp3": {
+      "duration_seconds": 134.04,
+      "is_layered_event": false,
+      "modified_ns": 1789774921946476600,
+      "sample_rate": 44100,
+      "size_bytes": 3217005
+    },
+    "../instruments/handpan/handpan-011-gentle-pulse-resonant-dialogue-6fe7687badaa.mp3": {
+      "duration_seconds": 122.04,
+      "is_layered_event": false,
+      "modified_ns": 1789774938581387400,
+      "sample_rate": 44100,
+      "size_bytes": 2929005
+    },
+    "../instruments/handpan/handpan-012-flowing-upper-replies-816009489802.mp3": {
+      "duration_seconds": 269.04,
+      "is_layered_event": false,
+      "modified_ns": 1789774967705800800,
+      "sample_rate": 44100,
+      "size_bytes": 6457005
+    },
+    "../instruments/handpan/handpan-013-rocking-resonant-dialogue-3317ad6acc73.mp3": {
+      "duration_seconds": 275.04,
+      "is_layered_event": false,
+      "modified_ns": 1789774995232880700,
+      "sample_rate": 44100,
+      "size_bytes": 6601005
+    },
+    "../instruments/handpan/handpan-014-rocking-low-anchor-ecc57ed33883.mp3": {
+      "duration_seconds": 261.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1789775028173418300,
+      "sample_rate": 44100,
+      "size_bytes": 6264621
+    },
+    "../instruments/handpan/handpan-015-spacious-resonant-dialogue-58bcd99d9cd3.mp3": {
+      "duration_seconds": 288.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1789775056225604300,
+      "sample_rate": 44100,
+      "size_bytes": 6912621
+    },
+    "../instruments/handpan/handpan-016-spacious-evolving-motif-49825105aa6b.mp3": {
+      "duration_seconds": 291.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1789775082537056000,
+      "sample_rate": 44100,
+      "size_bytes": 6984621
+    },
+    "../instruments/handpan/handpan-017-flowing-evolving-motif-1388d060eb9f.mp3": {
+      "duration_seconds": 162.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1789775102981733700,
+      "sample_rate": 44100,
+      "size_bytes": 3888621
+    },
+    "../instruments/handpan/handpan-018-flowing-low-anchor-8e4fa82b1133.mp3": {
+      "duration_seconds": 198.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1789775122776582400,
+      "sample_rate": 44100,
+      "size_bytes": 4752621
+    },
+    "../instruments/handpan/handpan-019-gentle-pulse-low-anchor-aa5fdea5175a.mp3": {
+      "duration_seconds": 134.04,
+      "is_layered_event": false,
+      "modified_ns": 1789775138879162300,
+      "sample_rate": 44100,
+      "size_bytes": 3217005
+    },
+    "../instruments/handpan/handpan-020-syncopated-upper-replies-14db15d1fe09.mp3": {
+      "duration_seconds": 142.03201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1789775154494897100,
+      "sample_rate": 44100,
+      "size_bytes": 3408813
+    },
+    "activity/11-female_kirtan_harmonium_01.mp3": {
+      "duration_seconds": 14.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675309013810100,
+      "sample_rate": 44100,
+      "size_bytes": 224906
+    },
+    "activity/12-female_kirtan_harmonium_02.mp3": {
+      "duration_seconds": 16.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675315341609600,
+      "sample_rate": 44100,
+      "size_bytes": 257088
+    },
+    "activity/13-female_om_drone.mp3": {
+      "duration_seconds": 15.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675321149444100,
+      "sample_rate": 44100,
+      "size_bytes": 241206
+    },
+    "activity/14-female_shanti_shruti_box.mp3": {
+      "duration_seconds": 16.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675326954659500,
+      "sample_rate": 44100,
+      "size_bytes": 257088
+    },
+    "activity/15-tanpura_female_vocal.mp3": {
+      "duration_seconds": 18.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675333218670900,
+      "sample_rate": 44100,
+      "size_bytes": 289271
+    },
+    "activity/16-kirtan_with_soft_claps.mp3": {
+      "duration_seconds": 16.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675339071228100,
+      "sample_rate": 44100,
+      "size_bytes": 257088
+    },
+    "activity/17-bansuri_and_humming.mp3": {
+      "duration_seconds": 15.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675344933201500,
+      "sample_rate": 44100,
+      "size_bytes": 241206
+    },
+    "activity/18-harmonium_drone_room.mp3": {
+      "duration_seconds": 14.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675351268926200,
+      "sample_rate": 44100,
+      "size_bytes": 224906
+    },
+    "activity/19-handpan_indian_mood.mp3": {
+      "duration_seconds": 18.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675357800227600,
+      "sample_rate": 44100,
+      "size_bytes": 289271
+    },
+    "activity/20-singing_bowls_indian_prayer.mp3": {
+      "duration_seconds": 16.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675363784374000,
+      "sample_rate": 44100,
+      "size_bytes": 257088
+    },
+    "activity/21-shruti_box_female_vocables.mp3": {
+      "duration_seconds": 18.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675370108686600,
+      "sample_rate": 44100,
+      "size_bytes": 289271
+    },
+    "activity/22-tabla_and_humming.mp3": {
+      "duration_seconds": 14.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675376081410400,
+      "sample_rate": 44100,
+      "size_bytes": 224906
+    },
+    "activity/23-devotional_hum_tanpura.mp3": {
+      "duration_seconds": 17.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675382712632800,
+      "sample_rate": 44100,
+      "size_bytes": 272971
+    },
+    "activity/24-morning_temple_chanting.mp3": {
+      "duration_seconds": 20.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675389565185800,
+      "sample_rate": 44100,
+      "size_bytes": 321036
+    },
+    "activity/25-riverbank_mantra_activity.mp3": {
+      "duration_seconds": 18.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675395955230000,
+      "sample_rate": 44100,
+      "size_bytes": 289271
+    },
+    "activity/26-small_group_kirtan.mp3": {
+      "duration_seconds": 16.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675402114969100,
+      "sample_rate": 44100,
+      "size_bytes": 257088
+    },
+    "activity/27-evening_aarti_activity.mp3": {
+      "duration_seconds": 17.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675408852379300,
+      "sample_rate": 44100,
+      "size_bytes": 272971
+    },
+    "activity/28-ashram_corridor_song.mp3": {
+      "duration_seconds": 15.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675414485948800,
+      "sample_rate": 44100,
+      "size_bytes": 241206
+    },
+    "activity/29-prayer_room_harmonium.mp3": {
+      "duration_seconds": 14.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675420157271600,
+      "sample_rate": 44100,
+      "size_bytes": 224906
+    },
+    "activity/30-meditation_hall_vocal_texture.mp3": {
+      "duration_seconds": 19.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675426700887400,
+      "sample_rate": 44100,
+      "size_bytes": 305154
+    },
+    "event/01-single_temple_bell.mp3": {
+      "duration_seconds": 3.0,
+      "is_layered_event": true,
+      "modified_ns": 1789675272873451100,
+      "sample_rate": 44100,
+      "size_bytes": 48945
+    },
+    "event/02-manjira_chime_pair.mp3": {
+      "duration_seconds": 2.48,
+      "is_layered_event": true,
+      "modified_ns": 1789675276139241100,
+      "sample_rate": 44100,
+      "size_bytes": 40586
+    },
+    "event/03-gentle_conch_call.mp3": {
+      "duration_seconds": 4.0,
+      "is_layered_event": true,
+      "modified_ns": 1789675279208037400,
+      "sample_rate": 44100,
+      "size_bytes": 65245
+    },
+    "event/04-female_om_exhale.mp3": {
+      "duration_seconds": 4.48,
+      "is_layered_event": true,
+      "modified_ns": 1789675283000679900,
+      "sample_rate": 44100,
+      "size_bytes": 72768
+    },
+    "event/05-female_shanti_fragment.mp3": {
+      "duration_seconds": 5.0,
+      "is_layered_event": true,
+      "modified_ns": 1789675286656230400,
+      "sample_rate": 44100,
+      "size_bytes": 81128
+    },
+    "event/06-hare_krishna_call_fragment.mp3": {
+      "duration_seconds": 5.48,
+      "is_layered_event": true,
+      "modified_ns": 1789675290746515200,
+      "sample_rate": 44100,
+      "size_bytes": 88651
+    },
+    "event/07-harmonium_flourish.mp3": {
+      "duration_seconds": 4.48,
+      "is_layered_event": true,
+      "modified_ns": 1789675293678280500,
+      "sample_rate": 44100,
+      "size_bytes": 72768
+    },
+    "event/08-soft_tabla_finger_flourish.mp3": {
+      "duration_seconds": 4.0,
+      "is_layered_event": true,
+      "modified_ns": 1789675296681897200,
+      "sample_rate": 44100,
+      "size_bytes": 65245
+    },
+    "event/09-tiny_puja_bells.mp3": {
+      "duration_seconds": 3.48,
+      "is_layered_event": true,
+      "modified_ns": 1789675299733824600,
+      "sample_rate": 44100,
+      "size_bytes": 56886
+    },
+    "event/10-mantra_murmur_tease.mp3": {
+      "duration_seconds": 6.0,
+      "is_layered_event": true,
+      "modified_ns": 1789675303181690200,
+      "sample_rate": 44100,
+      "size_bytes": 97010
+    },
+    "space/31-temple_hall_dawn.mp3": {
+      "duration_seconds": 22.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675433564584200,
+      "sample_rate": 44100,
+      "size_bytes": 353219
+    },
+    "space/32-stone_shrine_courtyard.mp3": {
+      "duration_seconds": 20.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675440134080800,
+      "sample_rate": 44100,
+      "size_bytes": 321036
+    },
+    "space/33-river_ghat_sunrise.mp3": {
+      "duration_seconds": 24.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675446914892200,
+      "sample_rate": 44100,
+      "size_bytes": 384984
+    },
+    "space/34-ashram_hall_noon.mp3": {
+      "duration_seconds": 21.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675453796809600,
+      "sample_rate": 44100,
+      "size_bytes": 336919
+    },
+    "space/35-monsoon_temple_veranda.mp3": {
+      "duration_seconds": 24.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675460682060600,
+      "sample_rate": 44100,
+      "size_bytes": 384984
+    },
+    "space/36-market_side_street.mp3": {
+      "duration_seconds": 20.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675467339641800,
+      "sample_rate": 44100,
+      "size_bytes": 321036
+    },
+    "space/37-prayer_room_shrine_space.mp3": {
+      "duration_seconds": 21.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675474301819800,
+      "sample_rate": 44100,
+      "size_bytes": 336919
+    },
+    "space/38-courtyard_with_bells.mp3": {
+      "duration_seconds": 22.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675481192455900,
+      "sample_rate": 44100,
+      "size_bytes": 353219
+    },
+    "space/39-village_temple_evening.mp3": {
+      "duration_seconds": 24.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675488013532400,
+      "sample_rate": 44100,
+      "size_bytes": 384984
+    },
+    "space/40-festival_ground_resting.mp3": {
+      "duration_seconds": 23.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675494826179500,
+      "sample_rate": 44100,
+      "size_bytes": 369102
+    },
+    "space/41-incense_room.mp3": {
+      "duration_seconds": 20.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675501627468700,
+      "sample_rate": 44100,
+      "size_bytes": 321036
+    },
+    "space/42-cave_temple.mp3": {
+      "duration_seconds": 24.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675508332906200,
+      "sample_rate": 44100,
+      "size_bytes": 384984
+    },
+    "space/43-hillside_ashram.mp3": {
+      "duration_seconds": 23.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675515107688800,
+      "sample_rate": 44100,
+      "size_bytes": 369102
+    },
+    "space/44-sacred_garden.mp3": {
+      "duration_seconds": 22.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675521842451300,
+      "sample_rate": 44100,
+      "size_bytes": 353219
+    },
+    "space/45-rain_on_temple_roof.mp3": {
+      "duration_seconds": 24.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675528677453300,
+      "sample_rate": 44100,
+      "size_bytes": 384984
+    },
+    "space/46-riverside_evening_prayer_space.mp3": {
+      "duration_seconds": 24.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675535529578000,
+      "sample_rate": 44100,
+      "size_bytes": 384984
+    },
+    "space/47-meditation_hall_after_chant.mp3": {
+      "duration_seconds": 20.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675542037500600,
+      "sample_rate": 44100,
+      "size_bytes": 321036
+    },
+    "space/48-palace_courtyard_devotional.mp3": {
+      "duration_seconds": 22.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675548866205600,
+      "sample_rate": 44100,
+      "size_bytes": 353219
+    },
+    "space/49-banyan_tree_shrine.mp3": {
+      "duration_seconds": 21.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675555561395700,
+      "sample_rate": 44100,
+      "size_bytes": 336919
+    },
+    "space/50-temple_steps_night.mp3": {
+      "duration_seconds": 23.0,
+      "is_layered_event": false,
+      "modified_ns": 1789675562266578700,
+      "sample_rate": 44100,
+      "size_bytes": 369102
+    }
+  },
+  "layer_threshold_seconds": 10.0,
+  "version": 1
+}

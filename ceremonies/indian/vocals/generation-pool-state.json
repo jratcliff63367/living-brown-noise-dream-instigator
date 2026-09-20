@@ -1,0 +1,52 @@
+{
+  "archetype_pool": [
+    "flowing_melodic",
+    "bhajan_devotional",
+    "intricate_melisma",
+    "drone_chant",
+    "sparse_devotional",
+    "intense_devotional",
+    "kirtan_pulsed",
+    "ecstatic_devotional",
+    "sparse_devotional",
+    "mantra_hare_krishna",
+    "classical_alap",
+    "call_and_response_solo"
+  ],
+  "condition_strength_pool": [
+    "medium",
+    "xhigh",
+    "high",
+    "high",
+    "high",
+    "high",
+    "medium",
+    "medium",
+    "high",
+    "xhigh"
+  ],
+  "last_archetype": "breathwork",
+  "last_condition_strength": "xhigh",
+  "last_reference_key": "vocal03-ref-01-resonant-sustain.mp3|xfKvioJZc4qpo09o84FB_upload",
+  "reference_pool": [
+    "vocal03-ref-11-late-resonance.mp3|FuETRlu8vvQHiah6tOMT_upload",
+    "vocal02-ref-07-airy-breathwork.mp3|flBqfIst776evWpRLTEo_upload",
+    "vocal02-ref-09-expressive-midsection.mp3|Yz78rMIMuFve1shui9zT_upload",
+    "vocal01-ref-09-midlate-expression.mp3|bBTSzV99t7paqHFRKZM1_upload",
+    "vocal02-ref-08-breathwork-transition.mp3|8h5fezNHVroFZRbK0zEd_upload",
+    "vocal03-ref-06-breath-release.mp3|fGYeoc6Loly3LvVhQiL5_upload",
+    "vocal03-ref-09-expressive-late-middle.mp3|uQVIQcwdu2Z0ys7tyE8J_upload",
+    "vocal03-ref-04-breathwork-air.mp3|kvqzc1hqG2mD5QA4bzqZ_upload",
+    "vocal03-ref-07-full-dynamic-vocal.mp3|eOchm1ZTlMuOlUrB6Kgq_upload",
+    "vocal02-ref-12-resonant-and-airy.mp3|unzYSNRFUo9wD7GcFqik_upload",
+    "vocal01-ref-11-strong-late-vocal.mp3|ZJaP3qK14b8ZUk3qtkzu_upload",
+    "vocal02-ref-03-ornamented-vocal.mp3|jOHPIzPkhsy4Amp0F7zl_upload",
+    "vocal01-ref-04-breath-contrast.mp3|uIG3fOg5gs15H8KGDtdB_upload",
+    "vocal01-ref-03-rich-phrasing.mp3|ex0EclQ8cBAG2THJ8rbO_upload",
+    "vocal02-ref-01-natural-phrasing.mp3|AYuUccn56P9fK03GCAHT_upload",
+    "vocal03-ref-02-expressive-phrase.mp3|XSFK9v3OlLX6gJUUMoSe_upload",
+    "vocal03-ref-05-rich-midrange.mp3|hgNXkOeo3Q7BFSjH6IVm_upload",
+    "vocal03-ref-10-breath-rich-vocal.mp3|iB4ronUeStroe6Vp10m0_upload"
+  ],
+  "updated_utc": "2026-09-18T05:05:56.227609+00:00"
+}

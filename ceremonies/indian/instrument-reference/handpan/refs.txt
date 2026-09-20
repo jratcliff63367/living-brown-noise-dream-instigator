@@ -1,0 +1,22 @@
+ Volume in drive D is Data
+ Volume Serial Number is 4A48-F88C
+
+ Directory of D:\github\living-brown-noise-dream-instigator\ceremonies\indian\instrument-reference\handpan
+
+09/18/2026  01:06 PM    <DIR>          .
+09/18/2026  12:40 PM    <DIR>          ..
+09/18/2026  12:40 PM           748,834 handpan-ref01.mp3
+09/18/2026  12:43 PM         1,257,423 handpan-ref02.mp3
+09/18/2026  12:46 PM         1,674,656 handpan-ref03.mp3
+09/18/2026  12:48 PM         1,525,356 handpan-ref04.mp3
+09/18/2026  12:50 PM         1,810,765 handpan-ref05.mp3
+09/18/2026  12:52 PM         1,648,709 handpan-ref06.mp3
+09/18/2026  12:55 PM           731,251 handpan-ref07.mp3
+09/18/2026  12:56 PM           245,992 handpan-ref08.mp3
+09/18/2026  12:57 PM           665,986 handpan-ref09.mp3
+09/18/2026  12:59 PM         1,472,955 handpan-ref10.mp3
+09/18/2026  01:02 PM         1,440,000 handpan-ref11.mp3
+09/18/2026  01:03 PM         1,179,693 handpan-ref12.mp3
+09/18/2026  01:06 PM                 0 refs.txt
+              13 File(s)     14,401,620 bytes
+               2 Dir(s)  859,259,723,776 bytes free

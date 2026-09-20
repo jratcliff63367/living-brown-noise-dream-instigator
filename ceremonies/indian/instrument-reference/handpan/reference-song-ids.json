@@ -1,0 +1,122 @@
+{
+  "files": {
+    "handpan-ref01.mp3": {
+      "filename": "handpan-ref01.mp3",
+      "mtime_ns": 1789771241055799500,
+      "reused_from_identical_hash": false,
+      "sha256": "df801db54c0bba8f996339cd62f226a4d0899689a2a7113d99473733ce07a0eb",
+      "size_bytes": 748834,
+      "song_id": "Tfneve0YYdhT40LJLVFw_upload",
+      "uploaded_utc": "2026-09-18T23:14:04.640785+00:00"
+    },
+    "handpan-ref02.mp3": {
+      "filename": "handpan-ref02.mp3",
+      "mtime_ns": 1789771426610495500,
+      "reused_from_identical_hash": false,
+      "sha256": "c4c8073045cb50f1c0780bf664777576e94dacf4ca9270f201cde72a18d041b1",
+      "size_bytes": 1257423,
+      "song_id": "z5hQFxtOzOSf12KpRGPk_upload",
+      "uploaded_utc": "2026-09-18T23:14:09.000365+00:00"
+    },
+    "handpan-ref03.mp3": {
+      "filename": "handpan-ref03.mp3",
+      "mtime_ns": 1789771608017890500,
+      "reused_from_identical_hash": false,
+      "sha256": "2d447818ca32e124188a8ee519576c95159dd2c64eed33932e8461310378fe58",
+      "size_bytes": 1674656,
+      "song_id": "zv8yvMbXppTe0WUQurHF_upload",
+      "uploaded_utc": "2026-09-18T23:14:14.888916+00:00"
+    },
+    "handpan-ref04.mp3": {
+      "filename": "handpan-ref04.mp3",
+      "mtime_ns": 1789771695360852700,
+      "reused_from_identical_hash": false,
+      "sha256": "582456d1863a88f81997ee419a6da489b3bfea1c842fca8ba6cd0263549e799c",
+      "size_bytes": 1525356,
+      "song_id": "uWcH7lILC3G9qaCAxC9i_upload",
+      "uploaded_utc": "2026-09-18T23:14:20.329705+00:00"
+    },
+    "handpan-ref05.mp3": {
+      "filename": "handpan-ref05.mp3",
+      "mtime_ns": 1789771852035581600,
+      "reused_from_identical_hash": false,
+      "sha256": "9174f2cc2a9776178598479c21419312ed36b3858fd5885f5d584e079e17f1c4",
+      "size_bytes": 1810765,
+      "song_id": "BXm1LkaF04roLaKBdhbj_upload",
+      "uploaded_utc": "2026-09-18T23:14:25.796367+00:00"
+    },
+    "handpan-ref06.mp3": {
+      "filename": "handpan-ref06.mp3",
+      "mtime_ns": 1789771961892380200,
+      "reused_from_identical_hash": false,
+      "sha256": "d1f1b3e83464b8016871982cbd8caeef26e05cd00a95423be0213017d419f913",
+      "size_bytes": 1648709,
+      "song_id": "0VbgE8EEZy07XO57UX5L_upload",
+      "uploaded_utc": "2026-09-18T23:14:32.117994+00:00"
+    },
+    "handpan-ref07.mp3": {
+      "filename": "handpan-ref07.mp3",
+      "mtime_ns": 1789772158291939300,
+      "reused_from_identical_hash": false,
+      "sha256": "6a215abb60d556783b41aea8a31233c387dcc7217ebb4bdcfeffc639ade316a0",
+      "size_bytes": 731251,
+      "song_id": "TmDp4iN3FMTtFPr2tvHU_upload",
+      "uploaded_utc": "2026-09-18T23:14:35.385528+00:00"
+    },
+    "handpan-ref08.mp3": {
+      "filename": "handpan-ref08.mp3",
+      "mtime_ns": 1789773720744843200,
+      "reused_from_identical_hash": false,
+      "sha256": "ef68a163cd2091b06ef6cae640cd7766e11842614bfd75f35f4c6dbe2ad8a0a0",
+      "size_bytes": 765256,
+      "song_id": "XX8uLFptoZumF3k6I1dY_upload",
+      "uploaded_utc": "2026-09-18T23:22:06.991798+00:00"
+    },
+    "handpan-ref09.mp3": {
+      "filename": "handpan-ref09.mp3",
+      "mtime_ns": 1789772267056582200,
+      "reused_from_identical_hash": false,
+      "sha256": "8dc48a4fdd92dd2b3b0d651c67855e7dc5db9bbe903881855281c48e740e99d6",
+      "size_bytes": 665986,
+      "song_id": "6MIPiidZDLG5JTiJNOSE_upload",
+      "uploaded_utc": "2026-09-18T23:15:10.111596+00:00"
+    },
+    "handpan-ref10.mp3": {
+      "filename": "handpan-ref10.mp3",
+      "mtime_ns": 1789772361202039800,
+      "reused_from_identical_hash": false,
+      "sha256": "bba3a44ac626cb173d02c55073847d5daef022d30798399d3afca104005d0f66",
+      "size_bytes": 1472955,
+      "song_id": "WpzPmJlTllTcf9oIRuC7_upload",
+      "uploaded_utc": "2026-09-18T23:15:15.955977+00:00"
+    },
+    "handpan-ref11.mp3": {
+      "filename": "handpan-ref11.mp3",
+      "mtime_ns": 1789772530370401800,
+      "reused_from_identical_hash": false,
+      "sha256": "bb10ad3743f57de60020f23a532d2b2c7d6cde6e15ed7283273c6c3204798180",
+      "size_bytes": 1440000,
+      "song_id": "1mGRROe8nNyY2BCecRuf_upload",
+      "uploaded_utc": "2026-09-18T23:15:21.287147+00:00"
+    },
+    "handpan-ref12.mp3": {
+      "filename": "handpan-ref12.mp3",
+      "mtime_ns": 1789772631329492000,
+      "reused_from_identical_hash": false,
+      "sha256": "1da5b26c0a86cf2c27e411314a0b546f96a3b60cdeacddbd2471b4b94dace07f",
+      "size_bytes": 1179693,
+      "song_id": "GIkqwAFDA2bGvUSVWztQ_upload",
+      "uploaded_utc": "2026-09-18T23:15:25.475515+00:00"
+    }
+  },
+  "last_run_summary": {
+    "failed": 0,
+    "files_seen": 12,
+    "skipped_or_reused": 11,
+    "uploaded": 1
+  },
+  "last_scan_utc": "2026-09-18T23:22:08.010048+00:00",
+  "last_successful_upload_utc": "2026-09-18T23:22:06.991798+00:00",
+  "reference_directory": "ceremonies\\indian\\instrument-reference\\handpan",
+  "schema_version": 1
+}

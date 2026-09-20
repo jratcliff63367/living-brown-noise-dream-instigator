@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "style": "indian",
+  "instrument": "handpan",
+  "generations": [
+    {
+      "created_utc": "2026-09-18T23:36:59.218063+00:00",
+      "filename": "handpan-001-flowing-evolving-motif-94280e96533c.mp3",
+      "status": "pending",
+      "reference_filename": "handpan-ref08.mp3",
+      "reference_song_id": "XX8uLFptoZumF3k6I1dY_upload",
+      "reference_sha256": "ef68a163cd2091b06ef6cae640cd7766e11842614bfd75f35f4c6dbe2ad8a0a0",
+      "archetype": "flowing-evolving-motif",
+      "duration_seconds_requested": 121,
+      "condition_strength": "high",
+      "model_id": "music_v2_5",
+      "output_format": "mp3_48000_192",
+      "composition_plan": {
+        "chunks": [
+          {
+            "text": "",
+            "duration_ms": 61000,
+            "positive_styles": [
+              "Solo acoustic handpan, one human player, instrumental only",
+              "Natural tuned steel resonance, rounded fingertip attacks, delicate human timing variation",
+              "Calm background accompaniment with restrained dynamics and a stable tonal center",
+              "Clean intimate recording, natural note decays, consistent recording perspective",
+              "Maintain one coherent playing style throughout; no dramatic intro, climax, or finale",
+              "Flowing melodic figures shaped by the reference rhythmic feel, relaxed alternating hands, smooth connected phrasing without a build-up.",
+              "Introduce a small memorable melodic motif; change one note or accent at a time across the performance while retaining its identity."
+            ],
+            "negative_styles": [
+              "vocals",
+              "singing",
+              "chanting",
+              "speech",
+              "humming",
+              "choir",
+              "other instruments",
+              "drum kit",
+              "tabla",
+              "harmonium",
+              "singing bowls",
+              "synthesizers",
+              "ambient pads",
+              "backing track",
+              "orchestra",
+              "aggressive slaps",
+              "virtuosic fast fills",
+              "cinematic build-up",
+              "artificial stereo movement",
+              "heavy reverb",
+              "audience noise"
+            ],
+            "context_adherence": "high",
+            "conditioning_ref": {
+              "song_id": "XX8uLFptoZumF3k6I1dY_upload",
+              "range": {
+                "start_ms": 0,
+                "end_ms": 18000
+              }
+            },
+            "condition_strength": "high"
+          },
+          {
+            "text": "",
+            "duration_ms": 60000,
+            "positive_styles": [
+              "Solo acoustic handpan, one human player, instrumental only",
+              "Natural tuned steel resonance, rounded fingertip attacks, delicate human timing variation",
+              "Calm background accompaniment with restrained dynamics and a stable tonal center",
+              "Clean intimate recording, natural note decays, consistent recording perspective",
+              "Maintain one coherent playing style throughout; no dramatic intro, climax, or finale",
+              "Flowing melodic figures shaped by the reference rhythmic feel, relaxed alternating hands, smooth connected phrasing without a build-up.",
+              "Introduce a small memorable melodic motif; change one note or accent at a time across the performance while retaining its identity."
+            ],
+            "negative_styles": [
+              "vocals",
+              "singing",
+              "chanting",
+              "speech",
+              "humming",
+              "choir",
+              "other instruments",
+              "drum kit",
+              "tabla",
+              "harmonium",
+              "singing bowls",
+              "synthesizers",
+              "ambient pads",
+              "backing track",
+              "orchestra",
+              "aggressive slaps",
+              "virtuosic fast fills",
+              "cinematic build-up",
+              "artificial stereo movement",
+              "heavy reverb",
+              "audience noise"
+            ],
+            "context_adherence": "high"
+          }
+        ]
+      }
+    }
+  ]
+}

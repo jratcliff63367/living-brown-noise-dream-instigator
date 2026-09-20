@@ -1,0 +1,365 @@
+{
+  "files": {
+    "vocal01-ref-01-breath-texture.mp3": {
+      "filename": "vocal01-ref-01-breath-texture.mp3",
+      "mtime_ns": 1789690138284479300,
+      "reused_from_identical_hash": false,
+      "sha256": "4355e887bf3c80f509f20188e99dd9fe2adc781ed07324839c714f65f7d2db6c",
+      "size_bytes": 622604,
+      "song_id": "uHru4eekasfP4j0eQqS6_upload",
+      "uploaded_utc": "2026-09-18T00:22:34.629060+00:00"
+    },
+    "vocal01-ref-02-strong-resonant.mp3": {
+      "filename": "vocal01-ref-02-strong-resonant.mp3",
+      "mtime_ns": 1789690138835481100,
+      "reused_from_identical_hash": false,
+      "sha256": "260c3aef3d93d407db38d8fcc25724a503a185286e302d1758683a09a7df5fad",
+      "size_bytes": 620972,
+      "song_id": "k9ySRRE7tgPRF0rqgldM_upload",
+      "uploaded_utc": "2026-09-18T00:22:37.099900+00:00"
+    },
+    "vocal01-ref-03-rich-phrasing.mp3": {
+      "filename": "vocal01-ref-03-rich-phrasing.mp3",
+      "mtime_ns": 1789690139134508000,
+      "reused_from_identical_hash": false,
+      "sha256": "2b1aef328937d1553c2f233c79b568596b1b84e90ee9af691572bb3098d7772d",
+      "size_bytes": 617996,
+      "song_id": "ex0EclQ8cBAG2THJ8rbO_upload",
+      "uploaded_utc": "2026-09-18T00:22:39.813054+00:00"
+    },
+    "vocal01-ref-04-breath-contrast.mp3": {
+      "filename": "vocal01-ref-04-breath-contrast.mp3",
+      "mtime_ns": 1789690139434938700,
+      "reused_from_identical_hash": false,
+      "sha256": "ef09e95fe647ae03c68de94b032d7467591e2c38c33f6afb637eca8d5168ee9e",
+      "size_bytes": 624908,
+      "song_id": "uIG3fOg5gs15H8KGDtdB_upload",
+      "uploaded_utc": "2026-09-18T00:22:42.646039+00:00"
+    },
+    "vocal01-ref-05-expressive-vocal.mp3": {
+      "filename": "vocal01-ref-05-expressive-vocal.mp3",
+      "mtime_ns": 1789690139771944400,
+      "reused_from_identical_hash": false,
+      "sha256": "2507cbd8ef30b3f2c2b6da142ca3511d67cfe9907a15f65eb7887c818b2f716c",
+      "size_bytes": 620588,
+      "song_id": "r3G59z3FQwO204ZwRdjQ_upload",
+      "uploaded_utc": "2026-09-18T00:22:45.739383+00:00"
+    },
+    "vocal01-ref-06-breathwork.mp3": {
+      "filename": "vocal01-ref-06-breathwork.mp3",
+      "mtime_ns": 1789690140080797500,
+      "reused_from_identical_hash": false,
+      "sha256": "210b6c869789ddb7e7dd84a39f08033873ed79b413014922dcf4486bec335970",
+      "size_bytes": 625676,
+      "song_id": "tU5OrBmxnvzMqtxSuNQL_upload",
+      "uploaded_utc": "2026-09-18T00:22:48.705106+00:00"
+    },
+    "vocal01-ref-07-dynamic-phrasing.mp3": {
+      "filename": "vocal01-ref-07-dynamic-phrasing.mp3",
+      "mtime_ns": 1789690140405146800,
+      "reused_from_identical_hash": false,
+      "sha256": "33b13348dfd86cc44883db7ef3a1573c61a4be194f3df546f5df21f3765e2638",
+      "size_bytes": 619244,
+      "song_id": "T4X17Yw4Bnr5UxsH0p9v_upload",
+      "uploaded_utc": "2026-09-18T00:22:51.430682+00:00"
+    },
+    "vocal01-ref-08-full-register.mp3": {
+      "filename": "vocal01-ref-08-full-register.mp3",
+      "mtime_ns": 1789690140745611000,
+      "reused_from_identical_hash": false,
+      "sha256": "601c969987c89bc14a4bd52c695bf5563a5a6bfe2a90bc2ba8a1dc3c46c5f302",
+      "size_bytes": 622604,
+      "song_id": "jZwU1dOXtjeWzy8MHQAf_upload",
+      "uploaded_utc": "2026-09-18T00:22:54.425016+00:00"
+    },
+    "vocal01-ref-09-midlate-expression.mp3": {
+      "filename": "vocal01-ref-09-midlate-expression.mp3",
+      "mtime_ns": 1789690141096948800,
+      "reused_from_identical_hash": false,
+      "sha256": "989e41beb9e78723611056c06246fc216702a1da07e0f7425a0e9e7e12b9a5c8",
+      "size_bytes": 620012,
+      "song_id": "bBTSzV99t7paqHFRKZM1_upload",
+      "uploaded_utc": "2026-09-18T00:22:57.253258+00:00"
+    },
+    "vocal01-ref-10-air-and-breath.mp3": {
+      "filename": "vocal01-ref-10-air-and-breath.mp3",
+      "mtime_ns": 1789690141489106900,
+      "reused_from_identical_hash": false,
+      "sha256": "5102ce7921ded4a6db0d7c22be719e1918fdb48d14a0eb555d386ab1deb6d672",
+      "size_bytes": 621356,
+      "song_id": "UFhH2UjHaPifWothvsDo_upload",
+      "uploaded_utc": "2026-09-18T00:23:00.227173+00:00"
+    },
+    "vocal01-ref-11-strong-late-vocal.mp3": {
+      "filename": "vocal01-ref-11-strong-late-vocal.mp3",
+      "mtime_ns": 1789690141852612100,
+      "reused_from_identical_hash": false,
+      "sha256": "28d0d69e56763e0283e02da71e9525b6943e01b98f6fe8ea3f033a27cf642ec2",
+      "size_bytes": 618956,
+      "song_id": "ZJaP3qK14b8ZUk3qtkzu_upload",
+      "uploaded_utc": "2026-09-18T00:23:03.775992+00:00"
+    },
+    "vocal01-ref-12-late-breathwork.mp3": {
+      "filename": "vocal01-ref-12-late-breathwork.mp3",
+      "mtime_ns": 1789690142231612200,
+      "reused_from_identical_hash": false,
+      "sha256": "0ebc09742fe49949b6038943273ffbcbb287ae0815c20c74c05a872d7a75c46a",
+      "size_bytes": 623516,
+      "song_id": "YXGDQZJ0CKqNI9mDdyI9_upload",
+      "uploaded_utc": "2026-09-18T00:23:07.236189+00:00"
+    },
+    "vocal01-ref-13-closing-register.mp3": {
+      "filename": "vocal01-ref-13-closing-register.mp3",
+      "mtime_ns": 1789690142642503500,
+      "reused_from_identical_hash": false,
+      "sha256": "e287277e8387aebc44ddb968fa2a95dfdaac0dbc7257a147ec41e39e5a52a6eb",
+      "size_bytes": 621452,
+      "song_id": "xTsbXq8nIzLBWWagQ2Gt_upload",
+      "uploaded_utc": "2026-09-18T00:23:10.240385+00:00"
+    },
+    "vocal02-ref-01-natural-phrasing.mp3": {
+      "filename": "vocal02-ref-01-natural-phrasing.mp3",
+      "mtime_ns": 1789690156886301000,
+      "reused_from_identical_hash": false,
+      "sha256": "0c9e4f7e62cef86bb21067c0eb2fad331f552d83e73ecd9d9a2054b93efc5fe3",
+      "size_bytes": 634700,
+      "song_id": "AYuUccn56P9fK03GCAHT_upload",
+      "uploaded_utc": "2026-09-18T00:23:13.300690+00:00"
+    },
+    "vocal02-ref-02-full-resonant.mp3": {
+      "filename": "vocal02-ref-02-full-resonant.mp3",
+      "mtime_ns": 1789690157179303800,
+      "reused_from_identical_hash": false,
+      "sha256": "614ea8bdf848236704b6ec47e3066e246295686c6250da59bccbadec16ea3b21",
+      "size_bytes": 645644,
+      "song_id": "NKbbE9wmOqWSAcoJrVmi_upload",
+      "uploaded_utc": "2026-09-18T00:23:16.712039+00:00"
+    },
+    "vocal02-ref-03-ornamented-vocal.mp3": {
+      "filename": "vocal02-ref-03-ornamented-vocal.mp3",
+      "mtime_ns": 1789690157476480000,
+      "reused_from_identical_hash": false,
+      "sha256": "f559d38f9855aa31dc1ab60ca59f7970fe17ddb81b5c34649f189b46b8b56465",
+      "size_bytes": 660332,
+      "song_id": "jOHPIzPkhsy4Amp0F7zl_upload",
+      "uploaded_utc": "2026-09-18T00:23:21.044420+00:00"
+    },
+    "vocal02-ref-04-breath-and-air.mp3": {
+      "filename": "vocal02-ref-04-breath-and-air.mp3",
+      "mtime_ns": 1789690157769483800,
+      "reused_from_identical_hash": false,
+      "sha256": "30eb79814ba4ce74eff4610efcb2480e95dae3d9f218fb2e48581dcfa0a8d9a4",
+      "size_bytes": 663692,
+      "song_id": "Ku6ooT8jA8rYwxkuN7sY_upload",
+      "uploaded_utc": "2026-09-18T00:23:24.555983+00:00"
+    },
+    "vocal02-ref-05-dynamic-register.mp3": {
+      "filename": "vocal02-ref-05-dynamic-register.mp3",
+      "mtime_ns": 1789690158475618500,
+      "reused_from_identical_hash": false,
+      "sha256": "490607a5db56c2822f1f29c94f9ea42bc4fff4e11d1c823c176cbcab2b38b6d1",
+      "size_bytes": 652460,
+      "song_id": "dbiCfGERp5sNRFJF1ut7_upload",
+      "uploaded_utc": "2026-09-18T00:23:27.716406+00:00"
+    },
+    "vocal02-ref-06-sustained-richness.mp3": {
+      "filename": "vocal02-ref-06-sustained-richness.mp3",
+      "mtime_ns": 1789690159171454200,
+      "reused_from_identical_hash": false,
+      "sha256": "64488c1e44edb3fc21cb5f68b3a214d225e4d4fd0f39d933466166b244234c11",
+      "size_bytes": 632876,
+      "song_id": "0wIVZLEigVzIlJKmdHrX_upload",
+      "uploaded_utc": "2026-09-18T00:23:30.884838+00:00"
+    },
+    "vocal02-ref-07-airy-breathwork.mp3": {
+      "filename": "vocal02-ref-07-airy-breathwork.mp3",
+      "mtime_ns": 1789690159875779500,
+      "reused_from_identical_hash": false,
+      "sha256": "a2150aac00823296b6eddb8010611e16d476a02f5e4d0d60acef8db5d46d9dca",
+      "size_bytes": 663692,
+      "song_id": "flBqfIst776evWpRLTEo_upload",
+      "uploaded_utc": "2026-09-18T00:23:34.174345+00:00"
+    },
+    "vocal02-ref-08-breathwork-transition.mp3": {
+      "filename": "vocal02-ref-08-breathwork-transition.mp3",
+      "mtime_ns": 1789690160587687200,
+      "reused_from_identical_hash": false,
+      "sha256": "f24c59168130a88698a50db17a68124a9769ed223ce59566a60251e2b0124e22",
+      "size_bytes": 655724,
+      "song_id": "8h5fezNHVroFZRbK0zEd_upload",
+      "uploaded_utc": "2026-09-18T00:23:37.511775+00:00"
+    },
+    "vocal02-ref-09-expressive-midsection.mp3": {
+      "filename": "vocal02-ref-09-expressive-midsection.mp3",
+      "mtime_ns": 1789690161355498300,
+      "reused_from_identical_hash": false,
+      "sha256": "fa8b20ab604ede64afd384e0b2012d2546c860007442ac97090d67e858914d16",
+      "size_bytes": 634028,
+      "song_id": "Yz78rMIMuFve1shui9zT_upload",
+      "uploaded_utc": "2026-09-18T00:23:40.722603+00:00"
+    },
+    "vocal02-ref-10-breath-rich.mp3": {
+      "filename": "vocal02-ref-10-breath-rich.mp3",
+      "mtime_ns": 1789690162082566000,
+      "reused_from_identical_hash": false,
+      "sha256": "1bd43cca28a9a88e11847d3f7ace5bd0943b20aa08ee7218aa7ceff5bf4c112a",
+      "size_bytes": 656492,
+      "song_id": "xAGxfgHKR7AYR0u753TB_upload",
+      "uploaded_utc": "2026-09-18T00:23:44.143931+00:00"
+    },
+    "vocal02-ref-11-strong-late-phrase.mp3": {
+      "filename": "vocal02-ref-11-strong-late-phrase.mp3",
+      "mtime_ns": 1789690162823222700,
+      "reused_from_identical_hash": false,
+      "sha256": "95b42177bdf4d35c5780131ec2a64dba89372821dae6a538c3bc29848ed96ac9",
+      "size_bytes": 650156,
+      "song_id": "E6ytEdyDDYWGSSMIqVdw_upload",
+      "uploaded_utc": "2026-09-18T00:23:47.583378+00:00"
+    },
+    "vocal02-ref-12-resonant-and-airy.mp3": {
+      "filename": "vocal02-ref-12-resonant-and-airy.mp3",
+      "mtime_ns": 1789690163565220400,
+      "reused_from_identical_hash": false,
+      "sha256": "56ef75f334df1ced306b4a6b5ad9980b40b181d17ad76f8f7eb6ba001cc1ac3b",
+      "size_bytes": 659852,
+      "song_id": "unzYSNRFUo9wD7GcFqik_upload",
+      "uploaded_utc": "2026-09-18T00:23:50.622562+00:00"
+    },
+    "vocal02-ref-13-breath-texture.mp3": {
+      "filename": "vocal02-ref-13-breath-texture.mp3",
+      "mtime_ns": 1789690164313829600,
+      "reused_from_identical_hash": false,
+      "sha256": "cb8546282729317014f074f679eb527fecee4b23b7e2d6935ca696805d1be79d",
+      "size_bytes": 657452,
+      "song_id": "dawmD2rWNjmeYTG1iXJ7_upload",
+      "uploaded_utc": "2026-09-18T00:23:54.086316+00:00"
+    },
+    "vocal03-ref-01-resonant-sustain.mp3": {
+      "filename": "vocal03-ref-01-resonant-sustain.mp3",
+      "mtime_ns": 1789690397537403600,
+      "reused_from_identical_hash": false,
+      "sha256": "587f2c80b65448b16d4a69efec9275d599a49702a82abf8fe218c288daa95927",
+      "size_bytes": 554348,
+      "song_id": "xfKvioJZc4qpo09o84FB_upload",
+      "uploaded_utc": "2026-09-18T00:23:56.909943+00:00"
+    },
+    "vocal03-ref-02-expressive-phrase.mp3": {
+      "filename": "vocal03-ref-02-expressive-phrase.mp3",
+      "mtime_ns": 1789690398201404600,
+      "reused_from_identical_hash": false,
+      "sha256": "f331301e60838e1bc4abc32d9bf84c507c74adeff3f0b88039983c7012ba9b2e",
+      "size_bytes": 575708,
+      "song_id": "XSFK9v3OlLX6gJUUMoSe_upload",
+      "uploaded_utc": "2026-09-18T00:24:00.357845+00:00"
+    },
+    "vocal03-ref-03-ornamented-vocal.mp3": {
+      "filename": "vocal03-ref-03-ornamented-vocal.mp3",
+      "mtime_ns": 1789690398937636600,
+      "reused_from_identical_hash": false,
+      "sha256": "5e73efa3a69fd410e0a15a1c7ad24a7ea67490a286a0025e50b961a9ffa203e8",
+      "size_bytes": 588428,
+      "song_id": "11WDnsRfE1QHm0p4UK2V_upload",
+      "uploaded_utc": "2026-09-18T00:24:03.390123+00:00"
+    },
+    "vocal03-ref-04-breathwork-air.mp3": {
+      "filename": "vocal03-ref-04-breathwork-air.mp3",
+      "mtime_ns": 1789690399632894000,
+      "reused_from_identical_hash": false,
+      "sha256": "02c417f2b353a9623cb9ba3f4bd40a3163f1eec39c9559913b284bb7b44e1d55",
+      "size_bytes": 586700,
+      "song_id": "kvqzc1hqG2mD5QA4bzqZ_upload",
+      "uploaded_utc": "2026-09-18T00:24:06.625627+00:00"
+    },
+    "vocal03-ref-05-rich-midrange.mp3": {
+      "filename": "vocal03-ref-05-rich-midrange.mp3",
+      "mtime_ns": 1789690400311354900,
+      "reused_from_identical_hash": false,
+      "sha256": "af767a43b247546dbe2f929e48951c4480d3fdd65e35b734af11c7c9423fed55",
+      "size_bytes": 588812,
+      "song_id": "hgNXkOeo3Q7BFSjH6IVm_upload",
+      "uploaded_utc": "2026-09-18T00:24:09.918066+00:00"
+    },
+    "vocal03-ref-06-breath-release.mp3": {
+      "filename": "vocal03-ref-06-breath-release.mp3",
+      "mtime_ns": 1789690401028915900,
+      "reused_from_identical_hash": false,
+      "sha256": "19da0ea2dccde26718e3835834a952f4f46541f6a19fe89093dbfd1610547408",
+      "size_bytes": 577964,
+      "song_id": "fGYeoc6Loly3LvVhQiL5_upload",
+      "uploaded_utc": "2026-09-18T00:24:12.849514+00:00"
+    },
+    "vocal03-ref-07-full-dynamic-vocal.mp3": {
+      "filename": "vocal03-ref-07-full-dynamic-vocal.mp3",
+      "mtime_ns": 1789690401735997100,
+      "reused_from_identical_hash": false,
+      "sha256": "9798e31b4470d827a804b0eb86459aefb8dc06aa0ecfac747334793da6a3484d",
+      "size_bytes": 581804,
+      "song_id": "eOchm1ZTlMuOlUrB6Kgq_upload",
+      "uploaded_utc": "2026-09-18T00:24:15.884697+00:00"
+    },
+    "vocal03-ref-08-register-variation.mp3": {
+      "filename": "vocal03-ref-08-register-variation.mp3",
+      "mtime_ns": 1789690402423812000,
+      "reused_from_identical_hash": false,
+      "sha256": "a06bb28a301dbfea5c483770d68cc02933c6bd93fd97afd263cc0c22b1579afa",
+      "size_bytes": 590396,
+      "song_id": "BqvHfSoHacKMOH3NUvB6_upload",
+      "uploaded_utc": "2026-09-18T00:24:18.649918+00:00"
+    },
+    "vocal03-ref-09-expressive-late-middle.mp3": {
+      "filename": "vocal03-ref-09-expressive-late-middle.mp3",
+      "mtime_ns": 1789690403163123800,
+      "reused_from_identical_hash": false,
+      "sha256": "0aef00878bccde2d68559d7782c4cb4676b5eb19280608154f479aaaf4565a2f",
+      "size_bytes": 570572,
+      "song_id": "uQVIQcwdu2Z0ys7tyE8J_upload",
+      "uploaded_utc": "2026-09-18T00:24:21.933270+00:00"
+    },
+    "vocal03-ref-10-breath-rich-vocal.mp3": {
+      "filename": "vocal03-ref-10-breath-rich-vocal.mp3",
+      "mtime_ns": 1789690403855153700,
+      "reused_from_identical_hash": false,
+      "sha256": "d011603ae296cae2c4b0d1e7521da80e54ce7d48b19eb1d5634057e825327938",
+      "size_bytes": 584492,
+      "song_id": "iB4ronUeStroe6Vp10m0_upload",
+      "uploaded_utc": "2026-09-18T00:24:24.919290+00:00"
+    },
+    "vocal03-ref-11-late-resonance.mp3": {
+      "filename": "vocal03-ref-11-late-resonance.mp3",
+      "mtime_ns": 1789690404560229200,
+      "reused_from_identical_hash": false,
+      "sha256": "f3d04bb0f1608194c44417ae905014f9d4a3c87889d1cf993a86326394b1e208",
+      "size_bytes": 581132,
+      "song_id": "FuETRlu8vvQHiah6tOMT_upload",
+      "uploaded_utc": "2026-09-18T00:24:27.854896+00:00"
+    },
+    "vocal03-ref-12-soft-breathwork.mp3": {
+      "filename": "vocal03-ref-12-soft-breathwork.mp3",
+      "mtime_ns": 1789690405290720600,
+      "reused_from_identical_hash": false,
+      "sha256": "14aa9609d46607fbbed558353f8a29f7465c485d4ceb065aebf4466badd7c58c",
+      "size_bytes": 597260,
+      "song_id": "khFUNS47P7IxhkwnRnJ2_upload",
+      "uploaded_utc": "2026-09-18T00:24:31.230905+00:00"
+    },
+    "vocal03-ref-13-closing-full-voice.mp3": {
+      "filename": "vocal03-ref-13-closing-full-voice.mp3",
+      "mtime_ns": 1789690405996529500,
+      "reused_from_identical_hash": false,
+      "sha256": "e764af470f2609b59eabe107d3a7f11115f8b7fbca32d274eb8e0416da279d47",
+      "size_bytes": 597452,
+      "song_id": "FeKMzRZWy3VCsQQM5wru_upload",
+      "uploaded_utc": "2026-09-18T00:24:35.063253+00:00"
+    }
+  },
+  "last_run_summary": {
+    "failed": 0,
+    "files_seen": 39,
+    "skipped_or_reused": 0,
+    "uploaded": 39
+  },
+  "last_scan_utc": "2026-09-18T00:24:36.096957+00:00",
+  "last_successful_upload_utc": "2026-09-18T00:24:35.063253+00:00",
+  "reference_directory": "ceremonies\\indian\\vocal-reference",
+  "schema_version": 1
+}
