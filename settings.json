@@ -128,7 +128,7 @@
     "subliminal_emergence_seconds": 90.0,
     "transition_seconds": 12.0
   },
-  "meditation_panel_expanded": true,
+  "meditation_panel_expanded": false,
   "metabolism": {
     "breath_gain_max_db": 5.5,
     "breath_gain_min_db": 0.9,
