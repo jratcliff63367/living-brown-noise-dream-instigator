@@ -4463,6 +4463,13 @@ class DreamMotif3DEngine:
             spec.far_distance_calibrated,
         )
         self.dominant_index = 0
+        # One shared cadence: two spatial slots must not double the rate.
+        # This clock advances only during enabled, non-ceremony playback.
+        self.ambient_wait_seconds = float(self.rng.uniform(120.0, 300.0))
+        self.ambient_passage_audio = None
+        self.ambient_passage_position = 0
+        self.ambient_passage_slot = None
+
 
         self.scene = self.SCENE_REST
         self.scene_elapsed = 0.0
@@ -4754,7 +4761,7 @@ class DreamMotif3DEngine:
 
                     self._remember_ambient_asset(slot, asset.path)
                     self._journal(
-                        "AMBIENT_START",
+                        "AMBIENT_LOADED",
                         f"motif={slot.motif.name}; "
                         f"asset={asset.path.name}; "
                         f"duration={len(slot.audio) / self.sample_rate:.2f}s",
@@ -4801,6 +4808,76 @@ class DreamMotif3DEngine:
             f"motif={slot.motif.name if slot.motif else 'none'}; "
             f"{previous_name} -> {incoming_name}",
         )
+
+    def _render_ambient_passage(self, frame_count, spec):
+        """Render one recording, followed by 2–5 minutes of real silence.
+
+        Snapshot the audio so catalogue/role changes cannot replace a passage
+        midway through. Preloading is independent of actual audible starts.
+        """
+        output = np.zeros(frame_count, dtype=np.float32)
+        index = self.ambient_passage_slot
+        if self.ambient_passage_audio is None:
+            if self.events:
+                # Featured effects also earn a full quiet interval afterward.
+                self.ambient_wait_seconds = max(self.ambient_wait_seconds, 120.0)
+                return None, output
+            self.ambient_wait_seconds = max(
+                0.0, self.ambient_wait_seconds - frame_count / self.sample_rate
+            )
+            if self.ambient_wait_seconds > 0.0 and not spec.testing:
+                return None, output
+            # Give a due featured effect its opportunity before a bed clip.
+            if (spec.featured_events_enabled and self.next_event_seconds <= 0.0
+                    and (spec.testing or self.creepy_window >= 0.48)
+                    and self.scene in {self.SCENE_DEVELOP, self.SCENE_REVEAL,
+                                       self.SCENE_AFTERIMAGE}
+                    and (spec.testing or self.scene_elapsed >= self.event_scene_grace_seconds)):
+                return None, output
+            index = self.dominant_index
+            slot = self.slots[index]
+            if slot.exposure < self.MIN_PLAYING_EXPOSURE:
+                return None, output
+            if not self._ensure_slot_audio(slot, AudioAssetManager.PRIORITY_HIGH):
+                return None, output
+            if slot.audio is None or len(slot.audio) == 0:
+                return None, output
+            self.ambient_passage_audio = slot.audio
+            self.ambient_passage_position = 0
+            self.ambient_passage_slot = index
+            self._journal(
+                "AMBIENT_PASSAGE_START",
+                f"asset={slot.current_asset_path}; "
+                f"duration={len(slot.audio) / self.sample_rate:.2f}s",
+            )
+            # Consume this recording without crossfading into its successor.
+            slot.audio = None
+            slot.current_asset_path = None
+            slot.read_position = 0
+            if slot.next_audio is not None:
+                self._promote_next_ambient(slot)
+            elif slot.next_pending_asset is not None:
+                slot.pending_asset = slot.next_pending_asset
+                slot.next_pending_asset = None
+
+        audio = self.ambient_passage_audio
+        start = self.ambient_passage_position
+        take = min(frame_count, len(audio) - start)
+        positions = start + np.arange(take)
+        fade = max(1, min(int(spec.ambient_clip_fade_seconds * self.sample_rate),
+                          len(audio) // 4))
+        envelope = np.sin(np.clip(positions / fade, 0, 1) * math.pi / 2)
+        envelope *= np.sin(np.clip((len(audio) - 1 - positions) / fade, 0, 1)
+                           * math.pi / 2)
+        output[:take] = audio[start:start + take] * envelope
+        self.ambient_passage_position += take
+        if self.ambient_passage_position >= len(audio):
+            self.ambient_passage_audio = None
+            self.ambient_passage_slot = None
+            self.ambient_wait_seconds = float(self.rng.uniform(120.0, 300.0))
+            self._journal("AMBIENT_PASSAGE_END",
+                          f"quiet_interval={self.ambient_wait_seconds:.1f}s")
+        return index, output
 
     def _render_loop(self, slot, frame_count):
         output = np.zeros(frame_count, dtype=np.float32)
@@ -6214,6 +6291,9 @@ class DreamMotif3DEngine:
         )
 
         stereo = np.zeros((frame_count, 2), dtype=np.float32)
+        passage_index, passage_audio = (None, None)
+        if not manual_enabled:
+            passage_index, passage_audio = self._render_ambient_passage(frame_count, spec)
         for index, slot in enumerate(self.slots):
             self._ensure_slot_audio(
                 slot,
@@ -6290,9 +6370,10 @@ class DreamMotif3DEngine:
                     * slot.exposure
                 )
 
-            stereo += slot.source.process_mono(
-                self._render_loop(slot, frame_count) * gain
-            )
+            mono = (self._render_loop(slot, frame_count) if manual_enabled
+                    else passage_audio if index == passage_index
+                    else np.zeros(frame_count, dtype=np.float32))
+            stereo += slot.source.process_mono(mono * gain)
 
         if manual_enabled:
             if manual_kind == "layered event":
@@ -6308,6 +6389,9 @@ class DreamMotif3DEngine:
             event_allowed = (
                 spec.featured_events_enabled
                 and not self.events
+                and self.ambient_passage_audio is None
+                and passage_index is None
+                and (spec.testing or self.ambient_wait_seconds <= 0.0)
                 and (spec.testing or quiet >= 0.48)
                 and self.scene in {
                     self.SCENE_DEVELOP,
