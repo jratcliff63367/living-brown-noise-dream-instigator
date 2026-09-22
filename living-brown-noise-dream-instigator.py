@@ -30,10 +30,12 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QMainWindow,
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSlider,
     QToolButton,
     QVBoxLayout,
@@ -12572,7 +12574,20 @@ class MainWindow(QMainWindow):
         breath_form.addRow("", reset_button)
 
         controls_layout.addWidget(self.breath_panel)
-        layout.addWidget(controls_box)
+
+        # Expanded panels grow the scroll contents rather than the window.
+        # Recompute the content limits when panels are opened or closed.
+        controls_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
+        self.settings_scroll_area = QScrollArea()
+        self.settings_scroll_area.setWidgetResizable(True)
+        self.settings_scroll_area.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.settings_scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.settings_scroll_area.setWidget(controls_box)
+        layout.addWidget(self.settings_scroll_area, 1)
 
         # ------------------------------------------------------------------
         # Transport
@@ -12667,7 +12682,8 @@ class MainWindow(QMainWindow):
         )
 
         layout.addWidget(status_box)
-        layout.addStretch()
+        # The settings viewport takes surplus height; transport, export, and
+        # live status remain outside it and are always accessible.
 
         # ------------------------------------------------------------------
         # Signals

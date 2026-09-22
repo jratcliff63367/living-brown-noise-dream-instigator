@@ -1,0 +1,68 @@
+{
+  "files": {
+    "throat-singing-ref01.mp3": {
+      "filename": "throat-singing-ref01.mp3",
+      "mtime_ns": 1790034848586757600,
+      "reused_from_identical_hash": false,
+      "sha256": "75b8d09e26f71a995267d035d38b4afddb559ed6b0ad618dc50b8bc1ee08c3dc",
+      "size_bytes": 519764,
+      "song_id": "HrubZxFWLovOMH30vi6Q_upload",
+      "uploaded_utc": "2026-09-22T00:52:54.538937+00:00"
+    },
+    "throat-singing-ref02.mp3": {
+      "filename": "throat-singing-ref02.mp3",
+      "mtime_ns": 1790037623130399600,
+      "reused_from_identical_hash": false,
+      "sha256": "84f71a95b330061efbb6f1699714d38212c546b2e0662abae3cc26fa49e1e18b",
+      "size_bytes": 1016931,
+      "song_id": "h24vetM2JSh8IXrmYiB2_upload",
+      "uploaded_utc": "2026-09-22T00:52:58.956849+00:00"
+    },
+    "throat-singing-ref03.mp3": {
+      "filename": "throat-singing-ref03.mp3",
+      "mtime_ns": 1790037735645745400,
+      "reused_from_identical_hash": false,
+      "sha256": "a3a791f884dd6e2cb076f19e854f4fb5dd22e0750e142793a58eb3857e174216",
+      "size_bytes": 1459010,
+      "song_id": "jMngXgwfv2BHiZRgL6Nu_upload",
+      "uploaded_utc": "2026-09-22T00:53:03.568097+00:00"
+    },
+    "throat-singing-ref04.mp3": {
+      "filename": "throat-singing-ref04.mp3",
+      "mtime_ns": 1790037879427337900,
+      "reused_from_identical_hash": false,
+      "sha256": "7888719cb0bcad553da9781927f9ee9bea708885b6c6a06d8358f644777518c2",
+      "size_bytes": 972972,
+      "song_id": "1PlPsOhcWAEFgqXIft6k_upload",
+      "uploaded_utc": "2026-09-22T00:53:07.767150+00:00"
+    },
+    "throat-singing-ref05.mp3": {
+      "filename": "throat-singing-ref05.mp3",
+      "mtime_ns": 1790038037482362100,
+      "reused_from_identical_hash": false,
+      "sha256": "d1695eac0573f930c777ddc5d25f8231717370f9f02612c767e859ef2c69d97d",
+      "size_bytes": 1570371,
+      "song_id": "dqrvpnb6iM4OPjXSUDML_upload",
+      "uploaded_utc": "2026-09-22T00:53:13.122366+00:00"
+    },
+    "throat-singing-ref06.mp3": {
+      "filename": "throat-singing-ref06.mp3",
+      "mtime_ns": 1790038152415476900,
+      "reused_from_identical_hash": false,
+      "sha256": "feb866da4e7c209ee037d4850faeff63d5f591dbc12a2b229b2e06cfb4f42f57",
+      "size_bytes": 1378499,
+      "song_id": "op6rxpDTN8YcANsdJfBG_upload",
+      "uploaded_utc": "2026-09-22T00:53:18.167977+00:00"
+    }
+  },
+  "last_run_summary": {
+    "failed": 0,
+    "files_seen": 6,
+    "skipped_or_reused": 0,
+    "uploaded": 6
+  },
+  "last_scan_utc": "2026-09-22T00:53:19.292447+00:00",
+  "last_successful_upload_utc": "2026-09-22T00:53:18.167977+00:00",
+  "reference_directory": "ceremonies\\indian\\instrument-reference\\throat-singing",
+  "schema_version": 1
+}

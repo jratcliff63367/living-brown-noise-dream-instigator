@@ -1,1257 +1,402 @@
 #!/usr/bin/env python3
+"""Generate 50 Latin female vocal tracks: the original 40 plus ten female-reverb tracks.
+The female-reverb additions use Byzantine-inspired singing and warm spacious reverberation.
+Requested duration: 120-300 seconds. Existing vocal files and manifests are preserved.
+Place beside eleven-labs.txt in the project root.
+Install: python -m pip install requests mutagen
+Run: python generate_indian_vocals.py
+Optional: --count 1 for audition, --dry-run to inspect plans without API calls.
+COUNT is the target total, capped at 50. Reruns finish the batch rather than adding 50 more.
+Reuses the original Latin manifest: 40 completed tracks leave only ten additions.
+Shuffle bags persist between runs. Pending/uncertain requests require manifest review.
+Uses the composition-plan format of generate_indian_vocals.py.
 """
-Generate Indian solo-female vocal ceremony source clips with ElevenLabs Music v2.5.
-
-The script uses:
-    ./eleven-labs.txt
-    ./ceremonies/indian/vocal-reference/reference-song-ids.json
-
-and writes generated vocals to:
-    ./ceremonies/indian/vocals/
-
-The important configuration value is NUM_CLIPS_TO_GENERATE near the top.
-Start with 1 while tuning. When satisfied, change it to 50.
-
-Design goals
-------------
-- Solo female voice only.
-- Strongly natural / human vocal production.
-- No instruments.
-- Mostly non-lexical chanting/vocalisation.
-- A minority of explicit mantra material such as Om / Om Shanti / Hare Krishna.
-- Wide stylistic variety inside a coherent Indian devotional / meditative family.
-- Every generation is conditioned on one previously uploaded vocal reference.
-- References and vocal archetypes are selected from persistent "random number
-  pools" (shuffle bags), so every item is used before the pool refills.
-- Generated durations vary from 2 to 5 minutes.
-- Every generation is logged with the exact reference, archetype, plan,
-  duration, output filename, and API song-id if returned.
-
-Requirements
-------------
-    pip install requests
-
-Usage
------
-    python generate_indian_vocals.py
-
-Notes
------
-ElevenLabs Music v2/v2.5 audio-reference conditioning is supplied through
-composition-plan chunks. The first chunk is conditioned on the uploaded
-reference; that first chunk influences the later chunks in the same generation.
-"""
-
 from __future__ import annotations
-
+import argparse
 import hashlib
+import io
 import json
+import os
 import random
 import re
+import sys
+import tempfile
 import time
-import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
 
-import requests
-
-
-# ============================================================================
-# USER CONFIGURATION
-# ============================================================================
-
-# TEXT FIELD SAFETY:
-# Composition-plan `text` is treated as lyrics. This script NEVER puts
-# descriptive prompt prose there; all such guidance goes in style fields.
-
-
-# Start with 1 while we tune the recipe. Change to 50 for the production run.
-NUM_CLIPS_TO_GENERATE = 10
-
-# Requested final clip length.
+NUM_CLIPS_TO_GENERATE = 50
 MIN_DURATION_SECONDS = 120
 MAX_DURATION_SECONDS = 300
+MODEL_ID = 'music_v2_5'
+OUTPUT_FORMAT = 'mp3_48000_192'
+REFERENCE_SLICE_SECONDS = 18
+ROOT = Path(__file__).resolve().parent
+REFERENCE_DIR = ROOT / 'ceremonies/indian/vocal-reference'
+OUTPUT_DIR = ROOT / 'ceremonies/indian/vocals'
+API_URL = 'https://api.elevenlabs.io/v1/music'
 
-# Conditioning reference slice. Our extracted references are ~20 seconds long;
-# 18 seconds gives a little safety margin around MP3 duration rounding.
-REFERENCE_START_MS = 0
-REFERENCE_END_MS = 18_000
-
-# "low", "medium", "high", or "xhigh".
-# High is deliberate: the reference is primarily there to carry natural human
-# vocal physiology/performance character that text prompts alone did poorly.
-# Reference-conditioning strength is deliberately varied to broaden the bank.
-# This is a shuffle bag: every 20 generations contain exactly
-# 7 medium, 10 high, and 3 xhigh strengths, in shuffled order.
-CONDITION_STRENGTH_POOL_TEMPLATE = (
-    ["medium"] * 7
-    + ["high"] * 10
-    + ["xhigh"] * 3
-)
-
-MODEL_ID = "music_v2_5"
-OUTPUT_FORMAT = "mp3_48000_192"
-
-# Pause between paid generations.
-PAUSE_BETWEEN_GENERATIONS_SECONDS = 2.0
-
-# API robustness.
-REQUEST_TIMEOUT_SECONDS = 1200
-MAX_RETRIES = 3
-RETRY_BACKOFF_SECONDS = 8.0
-
-
-# ============================================================================
-# PATHS
-# ============================================================================
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-API_KEY_PATH = SCRIPT_DIR / "eleven-labs.txt"
-
-STYLE_DIR = SCRIPT_DIR / "ceremonies" / "indian"
-REFERENCE_DIR = STYLE_DIR / "vocal-reference"
-REFERENCE_REGISTRY_PATH = REFERENCE_DIR / "reference-song-ids.json"
-
-OUTPUT_DIR = STYLE_DIR / "vocals"
-MANIFEST_PATH = OUTPUT_DIR / "generation-manifest.json"
-POOL_STATE_PATH = OUTPUT_DIR / "generation-pool-state.json"
-
-API_URL = "https://api.elevenlabs.io/v1/music"
-
-
-# ============================================================================
-# VOCAL DESIGN
-# ============================================================================
-
-# Constant anchor applied to every generation. This is intentionally specific:
-# earlier text-only generations tended to fall into a polished/synthetic
-# "ethereal AI meditation voice" attractor.
-HUMAN_ANCHOR_STYLES = [
-    "one exceptional solo female vocalist",
-    "unmistakably natural acoustic human voice",
-    "rich human vocal formants and harmonic complexity",
-    "organic breath support and natural inhalations",
-    "subtle human pitch and timing micro-variation",
-    "natural vibrato rather than synthetic modulation",
-    "physical throat mouth and chest resonance",
-    "expressive human dynamics",
-    "Indian devotional and classical vocal character",
-    "high fidelity intimate vocal recording",
-]
-
-GLOBAL_NEGATIVE_STYLES = [
-    "male voice",
-    "choir",
-    "duet",
-    "multiple singers",
-    "instruments",
-    "percussion",
-    "harmonium",
-    "tanpura",
-    "drums",
-    "synthesizers",
-    "vocoder",
-    "autotune",
-    "robotic voice",
-    "synthetic voice",
-    "computerized vocal tone",
-    "artificial vocal doubling",
-    "vocal pad",
-    "pop production",
-    "spoken meditation guidance",
-    "spoken word",
-    "narration",
-    "speech",
-    "non-mantra English lyrics",
-    "descriptive lyrics",
-    "instructional words",
-]
-
-
-# Each archetype is intentionally mechanically different. The persistent pool
-# ensures all archetypes are used before repeating.
-ARCHETYPES: Dict[str, Dict[str, Any]] = {
-    "flowing_melodic": {
-        "styles": [
-            "flowing legato non-lexical vocalisation",
-            "long melodic arcs",
-            "warm mid register",
-            "graceful Indian melisma",
-            "fluid pitch bends",
-            "moderate natural vibrato",
-        ],
-        "direction": (
-            "Sing continuously in invented non-lexical syllables and open vowels. "
-            "Favor long flowing phrases, graceful ornaments, and natural breathing."
-        ),
-        "duration_bias": "long",
-        "lexical_mode": "nonlexical",
-    },
-
-    "classical_alap": {
-        "styles": [
-            "Indian classical alap inspired solo vocal improvisation",
-            "free rhythm",
-            "slow exploratory melodic development",
-            "microtonal pitch bends",
-            "ornamented sustained notes",
-            "unhurried raga-like phrase shaping",
-        ],
-        "direction": (
-            "Use only non-lexical vocalisation. Explore the melodic space slowly and freely "
-            "with long evolving phrases, meend-like glides, ornamented sustains, and no fixed pulse."
-        ),
-        "duration_bias": "long",
-        "lexical_mode": "nonlexical",
-    },
-
-    "bhajan_devotional": {
-        "styles": [
-            "solo female bhajan inspired devotional singing",
-            "warm direct melody",
-            "simple emotionally sincere phrase shapes",
-            "gentle ornamentation",
-            "clear natural diction-like articulation without real lyrics",
-            "human devotional warmth",
-        ],
-        "direction": (
-            "Use non-lexical devotional vocalisation with simpler memorable phrase shapes, "
-            "warm emotional delivery, and less ornament density than classical improvisation."
-        ),
-        "duration_bias": "medium",
-        "lexical_mode": "nonlexical",
-    },
-
-    "kirtan_pulsed": {
-        "styles": [
-            "solo female kirtan inspired chant",
-            "clear repeating pulse",
-            "short call-like melodic phrases",
-            "rhythmic repetition with evolving variation",
-            "bright devotional energy",
-            "a cappella vocal pulse",
-        ],
-        "direction": (
-            "Use invented syllables only. Favor short repeated chant-like phrases with a gentle "
-            "internal pulse, subtle variation, and human rhythmic lift."
-        ),
-        "duration_bias": "short",
-        "lexical_mode": "nonlexical",
-    },
-
-    "breathwork": {
-        "styles": [
-            "breath-work integrated into singing",
-            "audible inhalations and exhalations",
-            "sigh-like releases",
-            "airy transitions into full resonant tone",
-            "intimate close human performance",
-            "slow spacious phrasing",
-        ],
-        "direction": (
-            "Use non-lexical sung sounds with breath as an important expressive part "
-            "of the performance: audible inhalations, soft exhalations, sigh-like "
-            "releases, breath-to-tone transitions, and occasional humming."
-        ),
-        "duration_bias": "medium",
-        "lexical_mode": "nonlexical",
-    },
-
-    "drone_chant": {
-        "styles": [
-            "narrow-range drone chant",
-            "very long sustained vowels",
-            "slow pitch drift around a tonal center",
-            "rich human overtone resonance",
-            "minimal melodic movement",
-            "deep meditative continuity",
-        ],
-        "direction": (
-            "Use non-lexical sustained vowels and humming around a narrow tonal center. "
-            "Let individual tones last unusually long with subtle natural movement."
-        ),
-        "duration_bias": "long",
-        "lexical_mode": "nonlexical",
-    },
-
-    "low_resonant": {
-        "styles": [
-            "low female contralto register",
-            "deep chest resonance",
-            "slow sustained tones",
-            "rich overtone body",
-            "grounded devotional presence",
-            "minimal ornamentation",
-        ],
-        "direction": (
-            "Use invented non-lexical syllables and sustained vowels. Stay mostly in "
-            "a low, resonant female register with deep chest support and slow phrases."
-        ),
-        "duration_bias": "medium",
-        "lexical_mode": "nonlexical",
-    },
-
-    "high_clear": {
-        "styles": [
-            "clear high female head voice",
-            "pure ringing acoustic tone",
-            "light natural ornament",
-            "wide open vowels",
-            "controlled breath support",
-            "sparse luminous phrasing",
-        ],
-        "direction": (
-            "Use non-lexical sung vowels and invented syllables. Favor a clear high "
-            "head voice with spacious phrases, clean attacks, and natural breath."
-        ),
-        "duration_bias": "medium",
-        "lexical_mode": "nonlexical",
-    },
-
-    "intricate_melisma": {
-        "styles": [
-            "intricate Indian classical inspired melisma",
-            "rapid grace-note turns",
-            "microtonal pitch inflection",
-            "fluid ornamentation",
-            "virtuosic natural breath control",
-            "free rhythmic phrasing",
-        ],
-        "direction": (
-            "Perform elaborate non-lexical melodic improvisation with intricate "
-            "ornaments, pitch bends, grace-note turns, and highly human phrasing."
-        ),
-        "duration_bias": "medium",
-        "lexical_mode": "nonlexical",
-    },
-
-    "rhythmic_syllables": {
-        "styles": [
-            "rhythmically articulated invented syllables",
-            "precise consonant attacks",
-            "voice functioning as rhythm and melody",
-            "irregular evolving phrase lengths",
-            "rapid register changes",
-            "virtuosic a cappella delivery",
-        ],
-        "direction": (
-            "Use invented syllables only. Alternate pitched chant with rhythmically "
-            "articulated vocal patterns, crisp consonants, short bursts, breath, and "
-            "occasional sustained tones. Keep it human and organic."
-        ),
-        "duration_bias": "short",
-        "lexical_mode": "nonlexical",
-    },
-
-    "sparse_devotional": {
-        "styles": [
-            "very sparse devotional vocalisation",
-            "long silences between phrases",
-            "slow sustained notes",
-            "subtle natural vibrato",
-            "soft breath-supported entrances",
-            "intimate contemplative singing",
-        ],
-        "direction": (
-            "Use non-lexical vocal sounds. Sing only occasional slow phrases with "
-            "meaningful silence, long sustains, gentle entrances, and natural breath."
-        ),
-        "duration_bias": "long",
-        "lexical_mode": "nonlexical",
-    },
-
-    "intense_devotional": {
-        "styles": [
-            "emotionally intense devotional female singing",
-            "strong dynamic swells",
-            "rich chest to head register transitions",
-            "passionate natural ornamentation",
-            "powerful but controlled breath support",
-            "human expressive irregularity",
-        ],
-        "direction": (
-            "Use non-lexical devotional vocalisation with strong emotional dynamics, "
-            "full resonant phrases, register changes, and expressive ornamentation. "
-            "Remain meditative rather than pop or theatrical."
-        ),
-        "duration_bias": "medium",
-        "lexical_mode": "nonlexical",
-    },
-
-    "humming_and_nasal": {
-        "styles": [
-            "humming and nasal resonance",
-            "closed-mouth tone opening into vowels",
-            "warm human resonance",
-            "slow pitch glides",
-            "breath-rich transitions",
-            "gentle devotional improvisation",
-        ],
-        "direction": (
-            "Use humming, nasal resonances, open vowels, and invented syllables. "
-            "Move naturally between closed-mouth humming and sung tone with audible "
-            "human breath and slow pitch glides."
-        ),
-        "duration_bias": "medium",
-        "lexical_mode": "nonlexical",
-    },
-
-    "wide_register_journey": {
-        "styles": [
-            "wide female vocal register",
-            "contrasting chest and head voice",
-            "large but natural pitch intervals",
-            "changing phrase density",
-            "expressive Indian ornamentation",
-            "organic breath-driven development",
-        ],
-        "direction": (
-            "Use non-lexical vocalisation while exploring a wide natural female "
-            "register. Move between resonant low phrases, clear high phrases, "
-            "ornamented passages, breath, and sustained tones."
-        ),
-        "duration_bias": "long",
-        "lexical_mode": "nonlexical",
-    },
-
-    "intimate_private": {
-        "styles": [
-            "very intimate solo female devotional singing",
-            "soft close-microphone human voice",
-            "restrained dynamics",
-            "audible breath",
-            "small fragile phrases",
-            "minimal projection",
-        ],
-        "direction": (
-            "Use non-lexical vocalisation with very intimate, private-feeling delivery. "
-            "Keep phrases small, soft, breath-supported, and physically human."
-        ),
-        "duration_bias": "medium",
-        "lexical_mode": "nonlexical",
-    },
-
-    "ecstatic_devotional": {
-        "styles": [
-            "ecstatic Indian devotional solo singing",
-            "powerful natural projection",
-            "rising emotional intensity",
-            "strong resonant peaks",
-            "rapid ornamental flourishes",
-            "dramatic but still devotional human phrasing",
-        ],
-        "direction": (
-            "Use non-lexical devotional vocalisation that gradually rises into stronger "
-            "emotional peaks, then relaxes again. Keep the voice natural and unaccompanied."
-        ),
-        "duration_bias": "medium",
-        "lexical_mode": "nonlexical",
-    },
-
-    "call_and_response_solo": {
-        "styles": [
-            "solo singer creating self-contained call and response phrasing",
-            "contrasting question and answer melodic shapes",
-            "short phrase pairs",
-            "clear pauses between calls and answers",
-            "organic devotional pulse",
-            "single female voice only",
-        ],
-        "direction": (
-            "Use invented syllables. Shape phrases as alternating call-and-response pairs "
-            "performed by the same solo singer, with clear contrast between each pair."
-        ),
-        "duration_bias": "short",
-        "lexical_mode": "nonlexical",
-    },
-
-    "lament_like": {
-        "styles": [
-            "Indian devotional lament inspired vocalising",
-            "plaintive human tone",
-            "slow descending phrase shapes",
-            "expressive pitch bends",
-            "restrained sorrowful intensity",
-            "natural breath and vibrato",
-        ],
-        "direction": (
-            "Use non-lexical devotional singing with plaintive, descending phrase shapes, "
-            "expressive bends, and a restrained lament-like emotional color."
-        ),
-        "duration_bias": "medium",
-        "lexical_mode": "nonlexical",
-    },
-
-    # Mantra archetypes remain a minority.
-    "mantra_om": {
-        "styles": [
-            "solo female devotional Om chant",
-            "natural sustained human resonance",
-            "slow evolving repetitions",
-            "rich chest and head harmonics",
-            "audible organic breath",
-            "unaccompanied intimate performance",
-        ],
-        "direction": (
-            "Chant only the mantra Om in varied natural human phrases. Some Om "
-            "tones may be long and resonant, others softer or breathier."
-        ),
-        "duration_bias": "short",
-        "lexical_mode": "om",
-    },
-
-    "mantra_om_shanti": {
-        "styles": [
-            "solo female Om Shanti chant",
-            "warm Indian devotional delivery",
-            "natural phrase variation",
-            "rich resonant human tone",
-            "gentle breath-work",
-            "unaccompanied meditative singing",
-        ],
-        "direction": (
-            "Chant Om Shanti as the principal mantra, with natural variation in "
-            "melody, breath, register, pauses, and duration."
-        ),
-        "duration_bias": "short",
-        "lexical_mode": "om_shanti",
-    },
-
-    "mantra_hare_krishna": {
-        "styles": [
-            "solo female Hare Krishna devotional chant",
-            "intimate kirtan inspired vocal character",
-            "natural human phrasing",
-            "melodic variation",
-            "expressive breath support",
-            "completely a cappella",
-        ],
-        "direction": (
-            "Sing a gentle solo female Hare Krishna mantra performance without "
-            "instruments or supporting singers. Vary the melody and phrasing naturally."
-        ),
-        "duration_bias": "short",
-        "lexical_mode": "hare_krishna",
-    },
+# Musical style names describe arrangements, not an imitation of a particular voice.
+# The existing female references supply vocal character. All lyrics are Latin.
+STYLE_PROFILES = {
+    'indian': [
+        'one natural solo female voice, Indian devotional and classical inspired phrasing',
+        'gentle raga-like melodic exploration, meend-like glides and graceful restrained melisma',
+        'free unhurried rhythm, warm intimate delivery, no supporting singers',
+    ],
+    'celtic-new-age': [
+        'ethereal Celtic and New Age female vocal arrangement',
+        'floating modal melody, soft layered female harmonies and long overlapping legato phrases',
+        'spacious reverberation with clear human vocal detail, luminous restrained atmosphere',
+    ],
+    'norwegian': [
+        'Norwegian folk-inspired female singing, intimate reflective Nordic lullaby character',
+        'clear natural solo tone, modal melodic contours, subtle folk ornaments and flexible unmetered phrasing',
+        'restrained vibrato, open acoustic space, quiet warmth rather than theatrical Nordic epic music',
+        'sing in Latin, not Norwegian; the Norwegian influence is musical only; no loud herding calls',
+    ],
+    'medieval-quartet': [
+        'four natural female voices in an intimate unaccompanied medieval early-music ensemble',
+        'Latin plainchant alternating with delicate two-to-four-part medieval-inspired polyphony',
+        'pure blended tone, restrained vibrato, open fifths and octaves, independent gently moving vocal lines',
+        'small reverberant stone chapel, clear diction, contemplative chamber scale rather than a large choir',
+    ],
 }
+VARIATIONS = {
+    'long-arcs': 'Long flowing melodic arcs, gradual development and gently sustained phrase endings.',
+    'low-warmth': 'Favor comfortable lower female registers and rounded warmth, with only occasional higher answers.',
+    'luminous': 'Favor a light clear middle-to-upper register, delicate entrances and soft unforced sustained notes.',
+    'returning-melody': 'Revisit a simple lyrical melodic idea with small graceful changes; never a rigid loop.',
+    'quiet-lament': 'Tender descending phrases and restrained wistful expression, peaceful rather than distressed.',
+    'spacious': 'Sparse unhurried phrases with short natural breathing spaces and lingering connected resonance.',
+    'gentle-ornaments': 'Small expressive turns and subtle ornaments around sustained notes, never rapid or showy.',
+    'prayerful': 'Simple sincere prayer-like delivery with clear sung words and gentle melodic motion.',
+    'rising-falling': 'Slow small rising and falling melodic contours with even dynamics and no dramatic peak.',
+    'intimate': 'Private tender delivery, delicate breath-supported tone and understated emotional expression.',
+}
+# Ten original short Latin verses, shared across the styles for comparison.
+# English meanings are metadata only and are NEVER submitted as lyrics.
+LATIN_VERSES = [
+    ('Nox tranquilla nos circumdat.\nLuna clara super nos lucet.\nCor in pace requiescit.\nSomnus lenis ad nos venit.', 'Quiet night surrounds us; the bright moon shines above us; the heart rests in peace; gentle sleep comes to us.'),
+    ('Stellae lucent in caelo.\nVentus lenis inter arbores spirat.\nTerra tacet sub luna.\nAnima mea requiescit.', 'Stars shine in the sky; a gentle wind breathes among the trees; the earth is silent beneath the moon; my soul rests.'),
+    ('Mare placidum lente movetur.\nUnda mollis litus tangit.\nLuna super aquas lucet.\nPax profunda in corde manet.', 'The calm sea moves slowly; a gentle wave touches the shore; the moon shines over the waters; deep peace remains in the heart.'),
+    ('Lux mitis per noctem fulget.\nSpes quieta in nobis manet.\nOmnis cura paulatim abit.\nCor apertum pacem invenit.', 'A gentle light shines through the night; quiet hope remains in us; every care gradually departs; an open heart finds peace.'),
+    ('Sub arboribus umbra iacet.\nFolia leniter moventur.\nFons inter lapides murmurat.\nHic in pace requiescimus.', 'Shade lies beneath the trees; leaves move gently; a spring murmurs among the stones; here we rest in peace.'),
+    ('Aurora longe adhuc latet.\nNox amica nobiscum manet.\nOculi fessi iam clauduntur.\nDulcis somnus nos amplectitur.', 'Dawn is still hidden far away; friendly night stays with us; tired eyes now close; sweet sleep embraces us.'),
+    ('Pax in terra, pax in corde.\nLux in nocte, spes in vita.\nAmor mitis nos custodit.\nAnima quieta requiescit.', 'Peace on earth, peace in the heart; light in the night, hope in life; gentle love watches over us; a quiet soul rests.'),
+    ('Flumen lente ad mare fluit.\nTempus sine voce transit.\nSidera vias nostras servant.\nNos sub caelo requiescimus.', 'The river flows slowly to the sea; time passes without a voice; the stars watch over our paths; we rest beneath the sky.'),
+    ('Vox quieta per noctem sonat.\nCantus lenis corda mulcet.\nSpes et amor nobiscum manent.\nPax nos omnes circumdat.', 'A quiet voice sounds through the night; a gentle song soothes hearts; hope and love remain with us; peace surrounds us all.'),
+    ('Luna candida, stella clara.\nAura mitis, terra cara.\nCurae longe iam recedunt.\nCorda nostra requiescunt.', 'Bright moon, clear star; gentle breeze, dear earth; cares now retreat far away; our hearts rest.'),
+]
+# Added to the existing batch without renaming any original recipes or state files.
+STYLE_PROFILES['female-reverb'] = [
+    'Byzantine-inspired female modal chant, a creative setting of the supplied Latin text rather than a historical reconstruction',
+    'Slow unfolding modal phrases, sustained low female vocal drones and gentle ornamental turns, free unhurried rhythm',
+    'Lean into long warm cathedral reverberation as part of the musical texture, softened diffuse reflections and rich lingering tails',
+    'Let each sung phrase leave a luminous reverberant trail that overlaps the next phrase while the foreground voice remains recognizably human',
+    'Spacious enveloping stone acoustics, smooth dark reverberant decay without brittle brightness, distinct rhythmic echoes or booming bass',
+    'Keep the same acoustic space and ensemble throughout the recording; no sudden changes in reverb or density',
+]
+REVERB_ENSEMBLES = [
+    'One intimate solo female voice in a vast softly reverberant stone chamber; only her reverberation answers her',
+    'A low female soloist with a very soft sustained female vocal drone beneath her, warm spacious resonance',
+    'A clear female soloist over two restrained sustained female harmony layers, spacious but transparent',
+    'A small three-voice female ensemble with overlapping modal phrases and a shared lingering acoustic tail',
+    'One tender solo female voice with distant quiet female responses, their phrase tails gently interweaving',
+    'One sparse solo female voice in a large warm chapel; preserve the long natural decay between phrases',
+    'Two gently layered female voices with restrained ornaments and slowly shifting consonant intervals',
+    'A small four-voice female ensemble, prayerful and blended, with a stable low vocal drone and clear upper melody',
+    'Three soft female voices entering gradually around a sustained tonal center, without building intensity',
+    'A close tender female soloist surrounded by faint sustained female harmonies and warm distant reflections',
+]
+RECIPES = {
+    f'{style}-{variation}': profile + [direction]
+    for style, profile in STYLE_PROFILES.items()
+    for variation, direction in VARIATIONS.items()
+}
+RECIPE_STYLE = {f'{style}-{v}': style for style in STYLE_PROFILES for v in VARIATIONS}
+RECIPE_VERSE = {f'{style}-{v}': i for style in STYLE_PROFILES for i, v in enumerate(VARIATIONS)}
+for _index, _variation in enumerate(VARIATIONS):
+    RECIPES[f'female-reverb-{_variation}'] += [REVERB_ENSEMBLES[_index]]
 
-
-# This determines how often each archetype appears in the archetype pool.
-# Non-lexical material deliberately dominates. The mantra archetypes appear once
-# each per pool cycle, while core non-lexical archetypes get extra entries.
-ARCHETYPE_POOL_TEMPLATE = [
-    "flowing_melodic",
-    "flowing_melodic",
-    "classical_alap",
-    "classical_alap",
-    "bhajan_devotional",
-    "kirtan_pulsed",
-    "breathwork",
-    "breathwork",
-    "drone_chant",
-    "low_resonant",
-    "high_clear",
-    "intricate_melisma",
-    "intricate_melisma",
-    "rhythmic_syllables",
-    "sparse_devotional",
-    "sparse_devotional",
-    "intense_devotional",
-    "humming_and_nasal",
-    "wide_register_journey",
-    "wide_register_journey",
-    "intimate_private",
-    "ecstatic_devotional",
-    "call_and_response_solo",
-    "lament_like",
-    "mantra_om",
-    "mantra_om_shanti",
-    "mantra_hare_krishna",
+ANCHOR = [
+    'Natural acoustic female singing, human breath support, expressive formants and subtle natural timing variation',
+    'Sing only the supplied Latin lyrics, with consistent ecclesiastical Latin pronunciation and clearly formed words',
+    'Repeat the written Latin verses as needed; sustain their vowels melodically without inventing words or replacing lyrics with gibberish',
+    'The reference provides female vocal character; follow the requested musical style and Latin lyrics rather than copying the reference language or melody',
+    'Unaccompanied voices, no instruments or percussion, quiet restrained dynamics suitable for restful listening',
+    'One continuous performance across sections; preserve tonal center, ensemble and recording perspective without an internal ending or restart',
+]
+NEGATIVE = [
+    'English lyrics', 'Norwegian lyrics', 'Sanskrit mantras', 'invented words', 'gibberish',
+    'nonlexical scat singing', 'spoken narration', 'spoken instructions',
+    'male vocals', 'instruments', 'percussion', 'drums', 'synthesizers',
+    'robotic voice', 'vocoder', 'autotune', 'synthetic vocal pads',
+    'shouting', 'belting', 'piercing high notes', 'dramatic crescendos',
+    'large cinematic choir', 'driving beat', 'pop chorus',
+    'long internal silence', 'section restart', 'fade out and restart',
 ]
 
 
-# Smaller modifiers add variation without changing the broad family.
-PHRASE_DENSITY_MODIFIERS = [
-    "very spacious phrasing with generous pauses",
-    "moderately continuous phrasing with natural breathing gaps",
-    "slow phrases that gradually become more active, then relax again",
-    "alternating sparse passages and denser expressive passages",
-]
-
-ORNAMENT_MODIFIERS = [
-    "restrained ornamentation",
-    "moderate fluid ornamentation",
-    "frequent graceful pitch bends and turns",
-    "ornament density that rises and falls organically",
-]
-
-DYNAMIC_MODIFIERS = [
-    "mostly intimate dynamics with occasional fuller swells",
-    "broad natural dynamic range from near-whispered tone to resonant projection",
-    "gentle dynamics with a few emotionally stronger phrases",
-    "slow waves of intensity without sudden theatrical changes",
-]
-
-BREATH_MODIFIERS = [
-    "natural breathing should remain audible",
-    "include occasional expressive inhalations and sigh-like releases",
-    "breath should support the phrasing without becoming exaggerated",
-    "allow some phrases to emerge directly from audible breath",
-]
-
-
-# ============================================================================
-# HELPERS
-# ============================================================================
-
-def utc_now_iso() -> str:
+def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def load_api_key() -> str:
-    if not API_KEY_PATH.exists():
-        raise FileNotFoundError(
-            f"Missing API key file:\n  {API_KEY_PATH}\n\n"
-            "Create eleven-labs.txt next to this script and put only the API key in it."
-        )
-    key = API_KEY_PATH.read_text(encoding="utf-8").strip()
-    if not key:
-        raise RuntimeError(f"API key file is empty: {API_KEY_PATH}")
-    return key
+def load(path, default):
+    return json.loads(path.read_text(encoding='utf-8-sig')) if path.exists() else default
 
 
-def load_json(path: Path, default: Any) -> Any:
-    if not path.exists():
-        return default
-    return json.loads(path.read_text(encoding="utf-8"))
+def save(path, data):
+    """Checkpoint atomically, allowing transient Windows sharing locks to clear."""
+    fd, name = tempfile.mkstemp(prefix=path.stem + '-', suffix='.tmp', dir=path.parent)
+    temp = Path(name)
+    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+        f.write('\n')
+        f.flush()
+        os.fsync(f.fileno())
+    # Close our own handle before replacing. Indexers, editors and antivirus
+    # may briefly hold either file open without Windows delete sharing.
+    for attempt in range(21):
+        try:
+            temp.replace(path)
+            return
+        except OSError as exc:
+            if getattr(exc, 'winerror', None) not in (5, 32, 33) and not isinstance(exc, PermissionError):
+                raise
+            if attempt == 20:
+                raise RuntimeError(
+                    f'Windows kept the registry locked: {path}. '
+                    f'The new data is preserved in {temp}. Close programs holding '
+                    'the registry open, then replace the registry with this temporary '
+                    'file before rerunning.'
+                ) from exc
+            if attempt == 0:
+                print(f'Waiting for Windows to release {path.name} ...', flush=True)
+            time.sleep(0.5)
 
 
-def save_json_atomic(path: Path, data: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-    temp.replace(path)
-
-
-def stable_reference_key(filename: str, song_id: str) -> str:
-    return f"{filename}|{song_id}"
-
-
-def load_reference_entries() -> List[Dict[str, Any]]:
-    if not REFERENCE_REGISTRY_PATH.exists():
-        raise FileNotFoundError(
-            f"Reference registry not found:\n  {REFERENCE_REGISTRY_PATH}\n\n"
-            "Run upload_indian_vocal_references.py first."
-        )
-
-    registry = load_json(REFERENCE_REGISTRY_PATH, {})
-    files = registry.get("files", {})
-    references: List[Dict[str, Any]] = []
-
-    for filename, entry in files.items():
-        if not isinstance(entry, dict):
-            continue
-        song_id = entry.get("song_id")
-        if not song_id:
-            continue
-        references.append({
-            "filename": filename,
-            "song_id": str(song_id),
-            "sha256": entry.get("sha256"),
-        })
-
-    if not references:
-        raise RuntimeError(
-            f"No usable song_id entries found in:\n  {REFERENCE_REGISTRY_PATH}"
-        )
-
-    references.sort(key=lambda x: x["filename"].lower())
-    return references
-
-
-def load_pool_state() -> Dict[str, Any]:
-    return load_json(
-        POOL_STATE_PATH,
-        {
-            "reference_pool": [],
-            "archetype_pool": [],
-            "condition_strength_pool": [],
-            "last_reference_key": None,
-            "last_archetype": None,
-            "last_condition_strength": None,
-        },
-    )
-
-
-def refill_reference_pool(
-    state: Dict[str, Any],
-    references: List[Dict[str, Any]],
-) -> None:
-    keys = [stable_reference_key(r["filename"], r["song_id"]) for r in references]
-    random.shuffle(keys)
-
-    # Avoid an immediate repeat across a pool boundary if possible.
-    last_key = state.get("last_reference_key")
-    if len(keys) > 1 and keys[0] == last_key:
-        keys[0], keys[1] = keys[1], keys[0]
-
-    state["reference_pool"] = keys
-
-
-def refill_archetype_pool(state: Dict[str, Any]) -> None:
-    pool = list(ARCHETYPE_POOL_TEMPLATE)
-    random.shuffle(pool)
-
-    last = state.get("last_archetype")
-    if len(pool) > 1 and pool[0] == last:
-        pool[0], pool[1] = pool[1], pool[0]
-
-    state["archetype_pool"] = pool
-
-
-def refill_condition_strength_pool(state: Dict[str, Any]) -> None:
-    pool = list(CONDITION_STRENGTH_POOL_TEMPLATE)
-    random.shuffle(pool)
-
-    # Avoid the same value straddling a pool boundary when possible.
-    last = state.get("last_condition_strength")
-    if len(pool) > 1 and pool[0] == last:
-        swap_index = next(
-            (i for i, value in enumerate(pool[1:], start=1) if value != last),
-            None,
-        )
-        if swap_index is not None:
-            pool[0], pool[swap_index] = pool[swap_index], pool[0]
-
-    state["condition_strength_pool"] = pool
-
-
-def choose_reference(
-    state: Dict[str, Any],
-    references: List[Dict[str, Any]],
-) -> Dict[str, Any]:
-    valid_by_key = {
-        stable_reference_key(r["filename"], r["song_id"]): r
-        for r in references
-    }
-
-    # Remove stale pool entries if the registry changed.
-    state["reference_pool"] = [
-        key for key in state.get("reference_pool", [])
-        if key in valid_by_key
-    ]
-
-    if not state["reference_pool"]:
-        refill_reference_pool(state, references)
-
-    key = state["reference_pool"].pop(0)
-    state["last_reference_key"] = key
-    return valid_by_key[key]
-
-
-def choose_archetype(state: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
-    state["archetype_pool"] = [
-        name for name in state.get("archetype_pool", [])
-        if name in ARCHETYPES
-    ]
-
-    if not state["archetype_pool"]:
-        refill_archetype_pool(state)
-
-    name = state["archetype_pool"].pop(0)
-    state["last_archetype"] = name
-    return name, ARCHETYPES[name]
-
-
-def choose_condition_strength(state: Dict[str, Any]) -> str:
-    valid = {"medium", "high", "xhigh"}
-    state["condition_strength_pool"] = [
-        value for value in state.get("condition_strength_pool", [])
-        if value in valid
-    ]
-
-    if not state["condition_strength_pool"]:
-        refill_condition_strength_pool(state)
-
-    value = state["condition_strength_pool"].pop(0)
-    state["last_condition_strength"] = value
+def draw(state, name, choices):
+    pool = [v for v in state.get(name, []) if v in choices]
+    if not pool:
+        pool = list(choices)
+        random.shuffle(pool)
+        if len(pool) > 1 and pool[0] == state.get('last_' + name):
+            pool[0], pool[1] = pool[1], pool[0]
+    value = pool.pop(0)
+    state[name] = pool
+    state['last_' + name] = value
     return value
 
 
-def choose_duration_seconds(duration_bias: str) -> int:
-    # Still always within the requested 2-5 minute range.
-    if duration_bias == "short":
-        return random.randint(120, 210)
-    if duration_bias == "long":
-        return random.randint(210, 300)
-    return random.randint(150, 270)
+def references():
+    from mutagen.mp3 import MP3
+    registry = load(REFERENCE_DIR / 'reference-song-ids.json', {})
+    result = {}
+    for filename, entry in sorted(registry.get('files', {}).items()):
+        if not isinstance(entry, dict) or not entry.get('song_id'):
+            continue
+        path = REFERENCE_DIR / filename
+        if path.parent.resolve() != REFERENCE_DIR.resolve():
+            raise ValueError(f'Invalid reference filename: {filename}')
+        if entry.get('sha256') and hashlib.sha256(path.read_bytes()).hexdigest() != entry['sha256']:
+            raise ValueError(f'{filename} changed since upload. Rerun the reference uploader first.')
+        duration = MP3(path).info.length
+        end_ms = min(REFERENCE_SLICE_SECONDS * 1000, int(duration * 1000) - 500)
+        if end_ms < 3000:
+            raise ValueError(f'Reference too short: {filename}')
+        song_id = str(entry['song_id'])
+        # Deduplicate aliases of the same uploaded reference.
+        result.setdefault(song_id, {'filename': filename, 'song_id': song_id,
+                                   'sha256': entry.get('sha256'), 'end_ms': end_ms})
+    if not result:
+        raise ValueError('No uploaded reference song IDs found.')
+    return result
 
 
-def split_into_chunk_durations(total_seconds: int) -> List[int]:
-    """
-    Split total duration into 60-120 second sections, respecting Music v2.5's
-    maximum 120-second chunk duration.
-    """
-    remaining = total_seconds
-    durations: List[int] = []
-
-    while remaining > 120:
-        # Keep enough for the final chunk to be >= 45s where possible.
-        max_this = min(120, remaining - 45)
-        min_this = min(90, max_this)
-        if max_this <= 60:
-            break
-        this_chunk = random.randint(max(60, min_this), max_this)
-        durations.append(this_chunk)
-        remaining -= this_chunk
-
-    if remaining > 0:
-        if remaining < 45 and durations:
-            durations[-1] += remaining
-        else:
-            durations.append(remaining)
-
-    # Safety check.
-    assert all(3 <= d <= 120 for d in durations), durations
-    assert sum(durations) == total_seconds, (durations, total_seconds)
-    return durations
+def plan_for(ref, recipe, duration):
+    count = (duration + 119) // 120
+    durations = [duration // count + (i < duration % count) for i in range(count)]
+    chunks = []
+    for seconds in durations:
+        verse = LATIN_VERSES[RECIPE_VERSE[recipe]][0]
+        # Enough real text for each section; repeat complete verses without stage labels.
+        lyrics = '\n\n'.join([verse] * max(2, (seconds + 29) // 30))
+        chunks.append({'text': lyrics, 'duration_ms': seconds * 1000,
+                       'positive_styles': ANCHOR + RECIPES[recipe],
+                       'negative_styles': NEGATIVE, 'context_adherence': 'high'})
+    chunks[0]['conditioning_ref'] = {'song_id': ref['song_id'], 'range': {'start_ms': 0, 'end_ms': ref['end_ms']}}
+    chunks[0]['condition_strength'] = ('high' if RECIPE_STYLE[recipe] == 'indian' else 'medium')
+    return {'chunks': chunks}
 
 
-def choose_chunk_styles(archetype: Dict[str, Any]) -> List[str]:
-    """
-    Put ALL descriptive/instructional language in positive_styles, never in the
-    chunk text field. ElevenLabs treats chunk text as lyrics / singable content.
-    """
-    styles = (
-        list(HUMAN_ANCHOR_STYLES)
-        + list(archetype["styles"])
-        + [
-            random.choice(PHRASE_DENSITY_MODIFIERS),
-            random.choice(ORNAMENT_MODIFIERS),
-            random.choice(DYNAMIC_MODIFIERS),
-            random.choice(BREATH_MODIFIERS),
-            "solo female singing only",
-            "a cappella",
-            "no spoken voice",
-            "no narration",
-            "no meditation guidance",
-        ]
-    )
-
-    if archetype["lexical_mode"] != "nonlexical":
-        styles += [
-            "clearly sing the exact mantra words provided in the lyrics",
-            "repeat the written mantra literally and recognizably",
-            "do not replace the mantra with invented syllables",
-        ]
-
-    return styles
+def generate(session, key, plan):
+    response = session.post(API_URL, headers={'xi-api-key': key, 'Accept': 'audio/mpeg'},
+                            params={'output_format': OUTPUT_FORMAT},
+                            json={'model_id': MODEL_ID, 'composition_plan': plan, 'store_for_inpainting': False},
+                            timeout=(30, 1200), allow_redirects=False)
+    if response.status_code != 200:
+        raise RuntimeError(f'HTTP {response.status_code}: {response.text[:2000].replace(key, "[REDACTED]")}')
+    if not response.content:
+        raise RuntimeError('API returned empty audio.')
+    return response.content, response.headers.get('song-id')
 
 
-NONLEXICAL_SYLLABLES = [
-    "ah", "aa", "ha", "na", "ni", "ne", "no",
-    "ra", "ri", "re", "ya", "yi", "la", "li",
-    "sa", "si", "ma", "mi", "ta", "ti", "da",
-    "di", "ee", "oo", "ae", "ai",
-]
-
-BREATH_SOUNDS = [
-    "(aah)",
-    "(ooh)",
-    "(hmmm)",
-    "(haa)",
-    "(mmm)",
-]
-
-
-def make_nonlexical_line(min_tokens: int = 4, max_tokens: int = 9) -> str:
-    """
-    Generate intentionally meaningless, singable syllables. Keep them short and
-    vowel-rich so the model has material to sing without receiving English prose
-    that it can accidentally turn into lyrics.
-    """
-    count = random.randint(min_tokens, max_tokens)
-    tokens = [random.choice(NONLEXICAL_SYLLABLES) for _ in range(count)]
-
-    # Occasionally stretch a vowel visually, which tends to invite sustained tone.
-    if random.random() < 0.35:
-        i = random.randrange(len(tokens))
-        stretch = {
-            "ah": "aaah",
-            "aa": "aaaa",
-            "ee": "eeee",
-            "oo": "oooo",
-            "ha": "haaa",
-        }
-        tokens[i] = stretch.get(tokens[i], tokens[i])
-
-    return " ".join(tokens)
+def is_credit_rejection(error):
+    """Recognize explicit payment/quota rejections, never ambiguous timeouts."""
+    message = str(error).strip()
+    match = re.match(r'^HTTP (4[0-9]{2}):\s*(.*)', message, re.DOTALL)
+    if not match:
+        return False
+    if int(match.group(1)) == 402:
+        return True
+    try:
+        body = json.loads(match.group(2))
+    except (ValueError, TypeError):
+        return False
+    detail = body.get('detail', body) if isinstance(body, dict) else None
+    if not isinstance(detail, dict):
+        return False
+    return any(detail.get(field) in {
+        'quota_exceeded', 'insufficient_credits', 'insufficient_credit',
+        'insufficient_quota', 'payment_required',
+    } for field in ('status', 'code', 'type'))
 
 
-def make_nonlexical_text(section_index: int, archetype_name: str) -> str:
-    """
-    Build only actual singable content. No descriptive English instructions are
-    ever placed here.
-    """
-    lines = [f"[Vocalise {section_index}]"]
-
-    # Different archetypes get slightly different lyric textures without putting
-    # any instructions into the lyric field.
-    if archetype_name == "breathwork":
-        line_count = random.randint(5, 8)
-        for _ in range(line_count):
-            if random.random() < 0.45:
-                lines.append(random.choice(BREATH_SOUNDS))
-            lines.append(make_nonlexical_line(2, 6))
-
-    elif archetype_name == "rhythmic_syllables":
-        for _ in range(random.randint(8, 12)):
-            lines.append(make_nonlexical_line(5, 11))
-
-    elif archetype_name == "sparse_devotional":
-        for _ in range(random.randint(4, 6)):
-            lines.append(make_nonlexical_line(2, 5))
-            if random.random() < 0.4:
-                lines.append(random.choice(BREATH_SOUNDS))
-
-    elif archetype_name == "humming_and_nasal":
-        for _ in range(random.randint(5, 8)):
-            if random.random() < 0.55:
-                lines.append("(hmmm)")
-            lines.append(make_nonlexical_line(2, 6))
-
-    else:
-        for _ in range(random.randint(6, 10)):
-            lines.append(make_nonlexical_line(3, 8))
-
-    return "\n".join(lines)
+def recover_credit_rejections(records):
+    """Migrate old failed entries only when rejection is explicit and no audio exists."""
+    changed = False
+    for record in records:
+        if record.get('status') != 'failed_or_uncertain':
+            continue
+        target = OUTPUT_DIR / record['filename']
+        if (is_credit_rejection(record.get('error', ''))
+                and not target.exists()
+                and not target.with_suffix('.mp3.part').exists()):
+            record.update(status='rejected_credits', resolved_utc=now())
+            print(f'Recognized credit rejection: {target.name}; eligible for a new attempt.')
+            changed = True
+    return changed
 
 
-def make_mantra_text(section_index: int, lexical_mode: str) -> str:
-    """
-    Only actual mantra lyrics go in the text field.
-
-    We deliberately provide many literal repetitions. A very short lyric block
-    spread over a 60-120 second music chunk can invite the model to improvise
-    around it instead of audibly repeating the requested mantra.
-    """
-    lines = [f"[Chant {section_index}]"]
-
-    if lexical_mode == "om":
-        phrase = random.choice([
-            "Om",
-            "Ommmm",
-        ])
-        lines.extend([phrase] * random.randint(10, 16))
-
-    elif lexical_mode == "om_shanti":
-        phrase = "Om Shanti"
-        lines.extend([phrase] * random.randint(10, 16))
-
-    elif lexical_mode == "hare_krishna":
-        mantra_cycle = [
-            "Hare Krishna",
-            "Hare Krishna",
-            "Krishna Krishna",
-            "Hare Hare",
-            "Hare Rama",
-            "Hare Rama",
-            "Rama Rama",
-            "Hare Hare",
-        ]
-        repeats = random.randint(2, 3)
-        for _ in range(repeats):
-            lines.extend(mantra_cycle)
-
-    return "\n".join(lines)
-
-
-def section_text(
-    index: int,
-    lexical_mode: str,
-    archetype_name: str,
-) -> str:
-    """
-    IMPORTANT: ElevenLabs treats this field as lyrics / singable content.
-
-    Therefore this function returns ONLY:
-      - a short section label
-      - invented non-lexical syllables / humming / breath sounds
-      - or the intended mantra itself
-
-    Never put prompt prose or English instructions in this field.
-    """
-    if lexical_mode == "nonlexical":
-        return make_nonlexical_text(index, archetype_name)
-
-    return make_mantra_text(index, lexical_mode)
-
-
-def build_composition_plan(
-    reference: Dict[str, Any],
-    archetype_name: str,
-    archetype: Dict[str, Any],
-    total_seconds: int,
-    condition_strength: str,
-) -> Dict[str, Any]:
-    chunk_durations = split_into_chunk_durations(total_seconds)
-
-    negative_styles = list(GLOBAL_NEGATIVE_STYLES)
-    chunks: List[Dict[str, Any]] = []
-
-    for i, duration_seconds in enumerate(chunk_durations, start=1):
-        # Re-pick a few modifiers per chunk so a long performance can evolve
-        # while remaining inside the same broad vocal archetype.
-        positive_styles = choose_chunk_styles(archetype)
-
-        chunk: Dict[str, Any] = {
-            "text": section_text(
-                i,
-                archetype["lexical_mode"],
-                archetype_name,
-            ),
-            "duration_ms": duration_seconds * 1000,
-            "positive_styles": positive_styles,
-            "negative_styles": negative_styles,
-            "context_adherence": "high",
-        }
-
-        # Conditioning the first chunk influences the remainder of the song.
-        if i == 1:
-            chunk["conditioning_ref"] = {
-                "song_id": reference["song_id"],
-                "range": {
-                    "start_ms": REFERENCE_START_MS,
-                    "end_ms": REFERENCE_END_MS,
-                },
-            }
-            chunk["condition_strength"] = condition_strength
-
-        chunks.append(chunk)
-
-    return {"chunks": chunks}
-
-
-def next_output_index() -> int:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    pattern = re.compile(r"^indian-vocal-(\d+)-")
-    highest = 0
-    for path in OUTPUT_DIR.glob("*.mp3"):
-        match = pattern.match(path.name)
-        if match:
-            highest = max(highest, int(match.group(1)))
-    return highest + 1
-
-
-def safe_archetype_slug(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-
-
-def generation_fingerprint(plan: Dict[str, Any]) -> str:
-    raw = json.dumps(plan, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()[:12]
-
-
-def compose_music(
-    session: requests.Session,
-    api_key: str,
-    plan: Dict[str, Any],
-) -> Tuple[bytes, str | None]:
-    headers = {
-        "xi-api-key": api_key,
-        "Content-Type": "application/json",
-        "Accept": "audio/mpeg",
-    }
-
-    params = {
-        "output_format": OUTPUT_FORMAT,
-    }
-
-    payload = {
-        "composition_plan": plan,
-        "model_id": MODEL_ID,
-        "store_for_inpainting": False,
-    }
-
-    last_error: Exception | None = None
-
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            response = session.post(
-                API_URL,
-                headers=headers,
-                params=params,
-                json=payload,
-                timeout=REQUEST_TIMEOUT_SECONDS,
+def run(args):
+    import requests
+    from mutagen.mp3 import MP3
+    refs = references()  # Validate every reference before any paid calls.
+    state_path = OUTPUT_DIR / 'latin-generation-pool-state.json'
+    manifest_path = OUTPUT_DIR / 'latin-generation-manifest.json'
+    state = load(state_path, {})
+    manifest = load(manifest_path, {'schema_version': 1, 'style': 'indian', 'batch': 'latin-four-styles-40', 'generations': []})
+    records = manifest['generations']
+    if recover_credit_rejections(records) and not args.dry_run:
+        save(manifest_path, manifest)
+    unresolved = [r for r in records if r.get('status') in ('pending', 'failed_or_uncertain')]
+    if unresolved:
+        raise RuntimeError(
+            'A previous request has an uncertain outcome. Review latin-generation-manifest.json '
+            'and any .mp3.part files before retrying. Recover the audio and mark completed, '
+            'or mark abandoned only after confirming it cannot be recovered. '
+            'Unresolved details: ' + '; '.join(
+                f"{r.get('filename')}: {r.get('error', 'no saved error; request was interrupted')}"
+                for r in unresolved
             )
-
-            if response.status_code == 200:
-                return response.content, response.headers.get("song-id")
-
+        )
+    completed = [r for r in records if r.get('status') == 'completed']
+    missing = [r['filename'] for r in completed if not (OUTPUT_DIR / r['filename']).is_file()]
+    if missing:
+        raise RuntimeError('Completed files are missing; restore them before continuing: ' + ', '.join(missing))
+    completed_recipes = {r['archetype'] for r in completed}
+    available_recipes = [r for r in RECIPES if r not in completed_recipes]
+    if len(completed_recipes) != len(completed) or not completed_recipes <= set(RECIPES):
+        raise RuntimeError('Latin manifest contains duplicate or unknown recipes; review it before continuing.')
+    remaining = max(0, args.count - len(completed))
+    if not remaining:
+        print(f'Target already met: {len(completed)} completed Latin vocal samples. No generation requested.')
+        return
+    key = '' if args.dry_run else (ROOT / 'eleven-labs.txt').read_text(encoding='utf-8-sig').strip()
+    if not args.dry_run and not key:
+        raise ValueError('eleven-labs.txt is empty.')
+    indices = [int(m.group(1)) for p in OUTPUT_DIR.iterdir() if (m := re.match(r'^latin-vocal-(\d+)-', p.name))]
+    index = max(indices, default=0) + 1
+    print(f'{remaining} new Latin vocal samples to reach {args.count} total; {len(refs)} references; output: {OUTPUT_DIR}')
+    with requests.Session() as session:
+        for i in range(remaining):
+            ref = refs[draw(state, 'reference_pool', list(refs))]
+            recipe = draw(state, 'prompt_pool', available_recipes)
+            available_recipes.remove(recipe)
+            duration = random.randint(MIN_DURATION_SECONDS, MAX_DURATION_SECONDS)
+            plan = plan_for(ref, recipe, duration)
+            fingerprint = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()[:12]
+            filename = f'latin-vocal-{index:03d}-{recipe}-{fingerprint}.mp3'
+            print(f'[{i+1}/{remaining}] {filename}\n  Reference: {ref["filename"]}; {duration}s\n  ' + ' '.join(RECIPES[recipe]), flush=True)
+            if args.dry_run:
+                index += 1
+                continue
+            record = {'created_utc': now(), 'filename': filename, 'status': 'pending',
+                      'reference_filename': ref['filename'], 'reference_song_id': ref['song_id'],
+                      'reference_sha256': ref['sha256'], 'archetype': recipe,
+                      'duration_seconds_requested': duration,
+                      'musical_style': RECIPE_STYLE[recipe], 'language': 'Latin',
+                      'lyrics': LATIN_VERSES[RECIPE_VERSE[recipe]][0],
+                      'lyrics_english_meaning': LATIN_VERSES[RECIPE_VERSE[recipe]][1],
+                      'condition_strength': plan['chunks'][0]['condition_strength'],
+                      'model_id': MODEL_ID, 'output_format': OUTPUT_FORMAT, 'composition_plan': plan}
+            # Save exact request before the paid call. Do not auto-retry ambiguous failures.
+            manifest['generations'].append(record)
+            save(manifest_path, manifest)
+            save(state_path, state)
             try:
-                error_body = json.dumps(response.json(), indent=2)
-            except Exception:
-                error_body = response.text[:3000]
-
-            # Retrying an unchanged validation/auth payload is pointless and can
-            # make debugging slower. Fail immediately on normal client errors.
-            if 400 <= response.status_code < 500:
-                raise ValueError(
-                    f"ElevenLabs returned HTTP {response.status_code}:\n{error_body}"
-                )
-
-            raise RuntimeError(
-                f"ElevenLabs returned HTTP {response.status_code}:\n{error_body}"
-            )
-
-        except ValueError:
-            raise
-        except Exception as exc:
-            last_error = exc
-            if attempt >= MAX_RETRIES:
-                break
-
-            wait = RETRY_BACKOFF_SECONDS * attempt
-            print(f"    attempt {attempt}/{MAX_RETRIES} failed: {exc}")
-            print(f"    retrying in {wait:.1f}s...")
-            time.sleep(wait)
-
-    raise RuntimeError("Music generation failed after retries") from last_error
+                audio, song_id = generate(session, key, plan)
+                target = OUTPUT_DIR / filename
+                partial = target.with_suffix('.mp3.part')
+                partial.write_bytes(audio)
+                actual_duration = MP3(io.BytesIO(audio)).info.length
+                partial.replace(target)
+                record.update(status='completed', generated_song_id=song_id,
+                              duration_seconds_actual=actual_duration, file_size_bytes=len(audio))
+                save(manifest_path, manifest)
+                print(f'  Saved ({actual_duration:.1f}s).', flush=True)
+            except Exception as exc:
+                error = str(exc).replace(key, '[REDACTED]')
+                target = OUTPUT_DIR / filename
+                rejected = (is_credit_rejection(error) and not target.exists()
+                            and not target.with_suffix('.mp3.part').exists())
+                record.update(status='rejected_credits' if rejected else 'failed_or_uncertain',
+                              error=error)
+                save(manifest_path, manifest)
+                guidance = ('Add credits, then rerun normally to finish the batch.' if rejected
+                            else 'Check the manifest before rerunning; the request outcome is uncertain.')
+                raise RuntimeError(f'Generation stopped: {error}. Completed samples are preserved. {guidance}') from None
+            index += 1
+            if i + 1 < remaining:
+                time.sleep(2)
 
 
-def load_manifest() -> Dict[str, Any]:
-    data = load_json(
-        MANIFEST_PATH,
-        {
-            "schema_version": 1,
-            "style": "indian",
-            "model_id": MODEL_ID,
-            "generations": [],
-        },
-    )
-    data.setdefault("generations", [])
-    return data
-
-
-# ============================================================================
-# MAIN
-# ============================================================================
-
-def main() -> int:
-    if NUM_CLIPS_TO_GENERATE < 1:
-        raise ValueError("NUM_CLIPS_TO_GENERATE must be at least 1.")
-
-    api_key = load_api_key()
-    references = load_reference_entries()
-
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--count', type=int, default=NUM_CLIPS_TO_GENERATE, help='Target total completed samples, 1-50 (default: 50)')
+    parser.add_argument('--dry-run', action='store_true')
+    args = parser.parse_args()
+    if not 1 <= args.count <= 50:
+        parser.error('--count must be between 1 and 50')
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    state = load_pool_state()
-    manifest = load_manifest()
-    session = requests.Session()
-
-    print("Indian solo-female vocal generator")
-    print(f"Clips this run:       {NUM_CLIPS_TO_GENERATE}")
-    print(f"Reference voices:     {len(references)}")
-    print(f"Duration range:       {MIN_DURATION_SECONDS}-{MAX_DURATION_SECONDS}s")
-    print("Condition strengths:  medium/high/xhigh weighted 35%/50%/15%")
-    print(f"Output:               {OUTPUT_DIR}")
-    print()
-
-    output_index = next_output_index()
-
-    for run_index in range(NUM_CLIPS_TO_GENERATE):
-        reference = choose_reference(state, references)
-        archetype_name, archetype = choose_archetype(state)
-        condition_strength = choose_condition_strength(state)
-        duration_seconds = choose_duration_seconds(archetype["duration_bias"])
-
-        # Clamp in case configuration is changed later.
-        duration_seconds = max(
-            MIN_DURATION_SECONDS,
-            min(MAX_DURATION_SECONDS, duration_seconds),
-        )
-
-        plan = build_composition_plan(
-            reference,
-            archetype_name,
-            archetype,
-            duration_seconds,
-            condition_strength,
-        )
-
-        fingerprint = generation_fingerprint(plan)
-        filename = (
-            f"indian-vocal-{output_index:03d}-"
-            f"{safe_archetype_slug(archetype_name)}-{fingerprint}.mp3"
-        )
-        output_path = OUTPUT_DIR / filename
-
-        print(f"[{run_index + 1:02d}/{NUM_CLIPS_TO_GENERATE}] {filename}")
-        print(f"    archetype: {archetype_name}")
-        print(f"    duration:  {duration_seconds}s")
-        print(f"    reference: {reference['filename']}")
-        print(f"    song_id:   {reference['song_id']}")
-        print(f"    conditioning: {condition_strength}")
-        print(f"    chunks:    {[c['duration_ms'] // 1000 for c in plan['chunks']]}")
-        print("    generating paid audio...")
-
-        # Save pool state BEFORE the paid call. If the call crashes after being
-        # accepted remotely, rerunning will not blindly reuse exactly the same
-        # reference/archetype combination.
-        state["updated_utc"] = utc_now_iso()
-        save_json_atomic(POOL_STATE_PATH, state)
-
-        audio_bytes, generated_song_id = compose_music(
-            session,
-            api_key,
-            plan,
-        )
-
-        output_path.write_bytes(audio_bytes)
-
-        generation_record = {
-            "created_utc": utc_now_iso(),
-            "filename": filename,
-            "duration_seconds_requested": duration_seconds,
-            "archetype": archetype_name,
-            "lexical_mode": archetype["lexical_mode"],
-            "reference_filename": reference["filename"],
-            "reference_song_id": reference["song_id"],
-            "reference_sha256": reference.get("sha256"),
-            "condition_strength": condition_strength,
-            "reference_range_ms": {
-                "start_ms": REFERENCE_START_MS,
-                "end_ms": REFERENCE_END_MS,
-            },
-            "model_id": MODEL_ID,
-            "output_format": OUTPUT_FORMAT,
-            "generated_song_id": generated_song_id,
-            "plan_fingerprint": fingerprint,
-            "composition_plan": plan,
-            "file_size_bytes": len(audio_bytes),
-        }
-
-        manifest["generations"].append(generation_record)
-        manifest["last_updated_utc"] = utc_now_iso()
-        save_json_atomic(MANIFEST_PATH, manifest)
-
-        print(f"    saved: {output_path}")
-        if generated_song_id:
-            print(f"    generated song-id: {generated_song_id}")
-        print()
-
-        output_index += 1
-
-        if run_index + 1 < NUM_CLIPS_TO_GENERATE:
-            time.sleep(PAUSE_BETWEEN_GENERATIONS_SECONDS)
-
-    print("Done.")
-    print(f"Manifest: {MANIFEST_PATH}")
-    print(f"Pool state: {POOL_STATE_PATH}")
-    return 0
+    lock = OUTPUT_DIR / 'latin-generation.lock'
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise RuntimeError(f'Another generator may be running. If not, remove stale lock: {lock}') from None
+    try:
+        os.close(fd)
+        run(args)
+    finally:
+        lock.unlink(missing_ok=True)
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('\nInterrupted. Completed files remain saved; inspect any pending manifest entry.')
+    except Exception as exc:
+        print(f'ERROR: {exc}', file=sys.stderr)
+        sys.exit(1)
