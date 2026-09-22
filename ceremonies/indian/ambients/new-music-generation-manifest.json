@@ -1,0 +1,2086 @@
+{
+  "schema_version": 1,
+  "batch_id": "new-musical-ambients-17-v1",
+  "clips": {
+    "music-event-01-warm-temple-bell": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:33:00.313771+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. One low warm bronze temple bell softly struck near the beginning. Let its rich rounded resonance decay through the remaining time. Solo bell, no accompaniment, no repeated strikes, no bright clang. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 8000,
+            "force_instrumental": true
+          },
+          "song_id": "SUeUFKybIG12JpxP7F7J",
+          "finished_utc": "2026-09-22T22:33:06.082841+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-01-warm-temple-bell.mp3",
+      "duration_seconds_requested": 8,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "SUeUFKybIG12JpxP7F7J",
+      "duration_seconds_actual": 8.04,
+      "file_size_bytes": 193005,
+      "sha256": "d4b0a3b476d8c17f3e85989bcbc736a2e1e84c8590fb6e42f22559a89ca9134a"
+    },
+    "music-event-02-soft-bell-answer": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:33:08.559409+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Two very gentle mid-low temple bell tones separated by a generous breath. Consonant pitches, the second softer than the first, lingering warm decay. Solo bells, no rhythmic pattern, no sharp metallic transients. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 9000,
+            "force_instrumental": true
+          },
+          "song_id": "9GVQhqYvSiGjt8R1VwuA",
+          "finished_utc": "2026-09-22T22:33:12.573489+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-02-soft-bell-answer.mp3",
+      "duration_seconds_requested": 9,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "9GVQhqYvSiGjt8R1VwuA",
+      "duration_seconds_actual": 9.0,
+      "file_size_bytes": 216045,
+      "sha256": "4e24a9f3d9fc7515e8d91fdac55cf700855ad4843e831894a8f6334ffd4106a6"
+    },
+    "music-event-03-bronze-bell-bloom": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:33:13.851833+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. A single softly felted bronze bell stroke with a mellow singing-bowl-like bloom. A stable low-mid tone and gentle overtones, long warm room resonance. No rubbing squeal, repeated pulse, sharp shimmer, or accompaniment. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 9000,
+            "force_instrumental": true
+          },
+          "song_id": "l1XR4EgLMLBL3cR3p8td",
+          "finished_utc": "2026-09-22T22:33:20.704955+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-03-bronze-bell-bloom.mp3",
+      "duration_seconds_requested": 9,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "l1XR4EgLMLBL3cR3p8td",
+      "duration_seconds_actual": 9.024,
+      "file_size_bytes": 216621,
+      "sha256": "d525b997e72276664618318787c44b0b4ffb1eb388412360672e15bef051101d"
+    },
+    "music-event-04-tabla-fingertip-gesture": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:33:21.996848+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. One understated solo tabla fingertip phrase, three or four feather-light touches. Rounded intimate hand percussion, leisurely spacing, a soft final decay. No drum roll, fast flourish, heavy bass stroke, backing track, or steady beat. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 6000,
+            "force_instrumental": true
+          },
+          "song_id": "7yjcEWeDBfPF9qoxc7pR",
+          "finished_utc": "2026-09-22T22:33:28.250510+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-04-tabla-fingertip-gesture.mp3",
+      "duration_seconds_requested": 6,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "7yjcEWeDBfPF9qoxc7pR",
+      "duration_seconds_actual": 6.024,
+      "file_size_bytes": 144621,
+      "sha256": "d3de65685d593df2d8b79f140257076a81eb604bb05e974b77119d9c16a2f656"
+    },
+    "music-event-05-tabla-soft-response": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:33:29.557188+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Two tiny answering gestures on solo tabla, a soft rounded treble touch answered by a restrained mellow lower tone. Unhurried and sparse, quiet resonance between touches. No energetic solo, insistent rhythm, slap, or bass boom. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 8000,
+            "force_instrumental": true
+          },
+          "song_id": "FuHlQBjYosmSHvNDotQH",
+          "finished_utc": "2026-09-22T22:33:37.014525+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-05-tabla-soft-response.mp3",
+      "duration_seconds_requested": 8,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "FuHlQBjYosmSHvNDotQH",
+      "duration_seconds_actual": 8.04,
+      "file_size_bytes": 193005,
+      "sha256": "30f15f19657b188e0087473c9b85d4434f2981b0f0e6e91648148cc139d7d73d"
+    },
+    "music-event-06-om-shanti-murmur": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:33:38.291244+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "Om shanti",
+                  "duration_ms": 8000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "One calm human voice quietly intones Om shanti on a narrow near-monotone pitch. Natural gentle devotional chant, soft voiced tone rather than whispering. No melodic lead, ornament, emotional swell, or instruments.",
+                    "quiet devotional mantra",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "Only intone the supplied Sanskrit mantra text; no invented syllables",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "SppHrXkPDO0h1MnzHu1D",
+          "finished_utc": "2026-09-22T22:33:41.473831+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-06-om-shanti-murmur.mp3",
+      "duration_seconds_requested": 8,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "SppHrXkPDO0h1MnzHu1D",
+      "duration_seconds_actual": 8.04,
+      "file_size_bytes": 193005,
+      "sha256": "8ab4e2058b22dea3df03bed5ad318ab3ad0b9a03bec72a411ee4c43cdf1e1feb"
+    },
+    "music-event-07-shanti-small-group": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:33:42.781137+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "Shanti\nShanti",
+                  "duration_ms": 9000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "Two or three softly blended voices gently intone shanti together twice. Near-monotone mantra murmuring, calm natural breath, subtle warm room resonance. No crowd bustle, theatrical choir, whispering, lead singer, or accompaniment.",
+                    "quiet devotional mantra",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "Only intone the supplied Sanskrit mantra text; no invented syllables",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "ZYQn8iYax3Z7p7GC8d5c",
+          "finished_utc": "2026-09-22T22:33:46.273499+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-07-shanti-small-group.mp3",
+      "duration_seconds_requested": 9,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "ZYQn8iYax3Z7p7GC8d5c",
+      "duration_seconds_actual": 9.024,
+      "file_size_bytes": 216621,
+      "sha256": "2f2d70f17645286cd774f988c85626d3384decd6ed33b38ce632e2240fb6a394"
+    },
+    "music-activity-01-harmonium-stillness": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:33:47.583456+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Solo warm harmonium, a gently breathing tonic and fifth with tiny organic changes in reed color. Stable consonance, no insistent pumping, buzzy nasal tone, or tune. Begin softly and leave a gentle resonant ending. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 32000,
+            "force_instrumental": true
+          },
+          "song_id": "xSXI6PVTL6nCC1c9Z72a",
+          "finished_utc": "2026-09-22T22:33:53.980794+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-01-harmonium-stillness.mp3",
+      "duration_seconds_requested": 32,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "xSXI6PVTL6nCC1c9Z72a",
+      "duration_seconds_actual": 32.04,
+      "file_size_bytes": 769005,
+      "sha256": "43a4e8127b41a7c4a2cfa45a30b03568bec3df2b37e0c1df5223f5ff338a5d14"
+    },
+    "music-activity-02-handpan-open-space": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:33:55.285940+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Solo mellow handpan in a consonant pentatonic mode. A handful of widely spaced rounded notes and simple two-note responses, with long natural resonance. Free timing, no ostinato, fast pattern, sharp slap, or rhythm section. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 30000,
+            "force_instrumental": true
+          },
+          "song_id": "j8n1HWQZJuZyxV3VXWnt",
+          "finished_utc": "2026-09-22T22:34:00.861643+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-02-handpan-open-space.mp3",
+      "duration_seconds_requested": 30,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "j8n1HWQZJuZyxV3VXWnt",
+      "duration_seconds_actual": 30.024,
+      "file_size_bytes": 720621,
+      "sha256": "58eae0f8dccbf77527a0d2c889f320bf8ec5be3a981b9dfa3eb9dea1b7181971"
+    },
+    "music-activity-03-bansuri-over-drone": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:34:02.167641+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Low-register soft bansuri over a barely present warm harmonium drone. Two or three unhurried flute phrases, limited pitch range, relaxed breath. No piercing high register, virtuosic runs, excessive breath hiss, or percussion. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 34000,
+            "force_instrumental": true
+          },
+          "song_id": "hhSIChr0NbQTuGm9uktm",
+          "finished_utc": "2026-09-22T22:34:14.485993+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-03-bansuri-over-drone.mp3",
+      "duration_seconds_requested": 34,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "hhSIChr0NbQTuGm9uktm",
+      "duration_seconds_actual": 34.032,
+      "file_size_bytes": 816813,
+      "sha256": "4805352d465867a3a2ff477e6a766c56cca9ec3934dd658a1c503fb74591757c"
+    },
+    "music-activity-04-tanpura-resonance": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:34:15.778823+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. A warm restrained tanpura tonic-and-fifth texture. Sparse gentle plucks with overlapping resonances, stable tuning and a soft rounded attack. No sharp buzzing, dissonance, new melody, rhythm section, or large changes. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 28000,
+            "force_instrumental": true
+          },
+          "song_id": "A0oGmlIuKDbnvVjE4I6t",
+          "finished_utc": "2026-09-22T22:34:27.585540+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-04-tanpura-resonance.mp3",
+      "duration_seconds_requested": 28,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "A0oGmlIuKDbnvVjE4I6t",
+      "duration_seconds_actual": 28.032,
+      "file_size_bytes": 672813,
+      "sha256": "30dca48d6fc8e36892ed9953b34d6da50be5d18c6985b5e34b1b2870704aba2c"
+    },
+    "music-activity-05-low-bowl-stillness": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:34:28.889099+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Two or three widely spaced low singing-bowl strokes, mellow stable consonant tones. Let each resonance breathe before the next arrives, soft warm room tail. No rim scraping, squealing, high metallic whine, beating dissonance, or busy chimes. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 26000,
+            "force_instrumental": true
+          },
+          "song_id": "MrY5vaaWGucHUJutOB03",
+          "finished_utc": "2026-09-22T22:34:40.217822+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-05-low-bowl-stillness.mp3",
+      "duration_seconds_requested": 26,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "MrY5vaaWGucHUJutOB03",
+      "duration_seconds_actual": 26.04,
+      "file_size_bytes": 625005,
+      "sha256": "ba4f3efe902ed29fcfa944c1140e89b3dbb8eae35f322c5c01318081e48d960e"
+    },
+    "music-activity-06-tabla-and-harmonium": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:34:41.514587+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. A warm sustained harmonium under very sparse gentle tabla fingertip touches. The drone dominates; percussion is a quiet occasional detail with relaxed timing. No drum solo, claps, insistent groove, pounding bass, or energetic development. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 30000,
+            "force_instrumental": true
+          },
+          "song_id": "WibOHlK1GGkend61GvyX",
+          "finished_utc": "2026-09-22T22:34:48.213185+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-06-tabla-and-harmonium.mp3",
+      "duration_seconds_requested": 30,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "WibOHlK1GGkend61GvyX",
+      "duration_seconds_actual": 30.024,
+      "file_size_bytes": 720621,
+      "sha256": "be21aeb949e7ca701d74cf453435af0e506aeb7d22667dd8798b9c4b68166ac0"
+    },
+    "music-activity-07-handpan-warm-drone": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:34:49.500492+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Sparse low-mid handpan notes over a very quiet harmonium tonic drone in the same key. Simple consonant intervals, relaxed uneven spacing and long ringing decays. The handpan remains soft; no repeated ostinato or dramatic melodic arc. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 36000,
+            "force_instrumental": true
+          },
+          "song_id": "qHYvhgdyTZT02BRx77ao",
+          "finished_utc": "2026-09-22T22:34:56.566282+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-07-handpan-warm-drone.mp3",
+      "duration_seconds_requested": 36,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "qHYvhgdyTZT02BRx77ao",
+      "duration_seconds_actual": 36.024,
+      "file_size_bytes": 864621,
+      "sha256": "f4a5028ebfc8822f20d6f870f553367d9c55d2e0ce1bd51fc500961bc418fbd6"
+    },
+    "music-activity-08-prayer-room-mantra": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:34:57.869547+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "Om shanti\nOm shanti\nOm shanti\nOm shanti",
+                  "duration_ms": 38000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "Warm harmonium drone with two softly blended human voices repeating Om shanti. Voices are a subordinate near-monotone devotional texture, unhurried with natural breathing spaces. No sung melody, soloist, vocal acrobatics, or percussion.",
+                    "quiet devotional mantra",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "Only intone the supplied Sanskrit mantra text; no invented syllables",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "rFXeSIR71YOsJijCDRj1",
+          "finished_utc": "2026-09-22T22:35:03.709197+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-08-prayer-room-mantra.mp3",
+      "duration_seconds_requested": 38,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "rFXeSIR71YOsJijCDRj1",
+      "duration_seconds_actual": 38.04,
+      "file_size_bytes": 913005,
+      "sha256": "d0056ed7bf14494546da98112c958cbc405b87788106827d1cc783086016cdba"
+    },
+    "music-activity-09-evening-mantra-and-bell": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:35:05.022441+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "Shanti\nShanti\nShanti\nShanti",
+                  "duration_ms": 34000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "Quiet harmonium supports a small softly blended group intoning shanti, with only one or two very mellow low bell accents. Near-monotone prayer texture and steady restrained energy. No celebratory aarti rhythm, clapping, lead singing, or chatter.",
+                    "quiet devotional mantra",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "Only intone the supplied Sanskrit mantra text; no invented syllables",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "BjMNlOHlh0BPJVriThTG",
+          "finished_utc": "2026-09-22T22:35:10.681764+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-09-evening-mantra-and-bell.mp3",
+      "duration_seconds_requested": 34,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "BjMNlOHlh0BPJVriThTG",
+      "duration_seconds_actual": 34.032,
+      "file_size_bytes": 816813,
+      "sha256": "4bded5e1e7ec8a587aa2ee4ddcbd4ad8045b02f289285c196d159ab4be40df22"
+    },
+    "music-activity-10-harmonium-flute-answer": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:35:11.972856+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. A soft low harmonium chord gently opens into one brief low bansuri response, then settles into lingering warm resonance. Minimal consonant chamber music, intimate and restrained throughout. No percussion, bright flute register, or finale. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 24000,
+            "force_instrumental": true
+          },
+          "song_id": "Fw6LkPyZZGZJVMfyEm0G",
+          "finished_utc": "2026-09-22T22:35:19.129191+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-10-harmonium-flute-answer.mp3",
+      "duration_seconds_requested": 24,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "Fw6LkPyZZGZJVMfyEm0G",
+      "duration_seconds_actual": 24.024,
+      "file_size_bytes": 576621,
+      "sha256": "b263425cca1fdf3bb9c57f4a2dd51b046a5e8f4767a72fadae85677fee7df882"
+    },
+    "music-event-08-low-bell-soft-mallet": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:42:26.444846+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. One soft padded-mallet strike on a low bronze temple bell. Rounded onset, velvety resonant body, long natural decay. No bright edge or accompaniment. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 8000,
+            "force_instrumental": true
+          },
+          "song_id": "C2NKTLgw1N5zy0KGzrnN",
+          "finished_utc": "2026-09-22T22:42:32.190016+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-08-low-bell-soft-mallet.mp3",
+      "duration_seconds_requested": 8,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "C2NKTLgw1N5zy0KGzrnN",
+      "duration_seconds_actual": 8.04,
+      "file_size_bytes": 193005,
+      "sha256": "434894a818961d80ea852f0a7442f4e31099a94cb7ae2b8f22417300c39df8be"
+    },
+    "music-event-09-bell-fifth-response": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:42:33.513693+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Two quiet bronze bell notes a consonant fifth apart, softly answering each other. Generous space and a lingering warm tail, no chiming pattern. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 9000,
+            "force_instrumental": true
+          },
+          "song_id": "FInmANIQoCFQYHC4gV6o",
+          "finished_utc": "2026-09-22T22:42:43.624022+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-09-bell-fifth-response.mp3",
+      "duration_seconds_requested": 9,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "FInmANIQoCFQYHC4gV6o",
+      "duration_seconds_actual": 9.0,
+      "file_size_bytes": 216045,
+      "sha256": "45b603a66d56eeccd7ea4e4d6b39e774ee535ded807268f923c29f0aad74c733"
+    },
+    "music-event-10-tabla-three-soft-touches": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:42:44.930522+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Three feather-light solo tabla finger touches, loose unhurried spacing, rounded resonant tone. No slap, roll, driving pulse, or heavy bass. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 6000,
+            "force_instrumental": true
+          },
+          "song_id": "lWAL5jTGotpNwNBnEbJQ",
+          "finished_utc": "2026-09-22T22:42:48.122479+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-10-tabla-three-soft-touches.mp3",
+      "duration_seconds_requested": 6,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "lWAL5jTGotpNwNBnEbJQ",
+      "duration_seconds_actual": 6.024,
+      "file_size_bytes": 144621,
+      "sha256": "a9892b017eb67bbb1e757b394fed70d8c63b1f2cf907aa69028a4a7eec29607f"
+    },
+    "music-event-11-tabla-brushed-resonance": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:42:49.457420+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. A tiny solo tabla gesture with soft finger pads and one restrained mellow bass response. Quiet hand contact, gentle decay; no sharp transient or virtuosic flourish. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 7000,
+            "force_instrumental": true
+          },
+          "song_id": "Wqs2fkmAyFi2MsBv4tiA",
+          "finished_utc": "2026-09-22T22:42:52.303191+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-11-tabla-brushed-resonance.mp3",
+      "duration_seconds_requested": 7,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "Wqs2fkmAyFi2MsBv4tiA",
+      "duration_seconds_actual": 7.032,
+      "file_size_bytes": 168813,
+      "sha256": "4977b0a1337cf4382aecfc94567b158d2d6c1470fa5ce7f52a6e6cd64e158f70"
+    },
+    "music-event-12-handpan-two-note-sigh": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:42:53.607288+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Two softly played low-mid handpan notes, consonant and widely spaced, with overlapping warm resonance. A complete miniature gesture without a repeating rhythm. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 9000,
+            "force_instrumental": true
+          },
+          "song_id": "td7uktGuYH3XRCFREdRX",
+          "finished_utc": "2026-09-22T22:43:01.141001+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-12-handpan-two-note-sigh.mp3",
+      "duration_seconds_requested": 9,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "td7uktGuYH3XRCFREdRX",
+      "duration_seconds_actual": 9.0,
+      "file_size_bytes": 216045,
+      "sha256": "f444478df10985266abd953b9de1d5e5a54efe3c746de0ea7e874c8937fa5365"
+    },
+    "music-event-13-bowl-single-warm-bloom": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:43:02.639282+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. One soft low singing-bowl stroke, stable consonant overtones, a rounded warm bloom fading naturally. No scraping, rim rubbing, bright chimes, or beating dissonance. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 9000,
+            "force_instrumental": true
+          },
+          "song_id": "y5dwaYx11ERJI67a6TmQ",
+          "finished_utc": "2026-09-22T22:43:06.464166+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-13-bowl-single-warm-bloom.mp3",
+      "duration_seconds_requested": 9,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "y5dwaYx11ERJI67a6TmQ",
+      "duration_seconds_actual": 9.024,
+      "file_size_bytes": 216621,
+      "sha256": "6ae1d60f643d149a173670e27b7be82db8a896a2ff59c97f95fe9c95f73c1676"
+    },
+    "music-event-14-female-hum-breath": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:43:07.759186+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 8000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "One soft female closed-mouth hum on a comfortable low-mid pitch, a natural breath then gentle release. Entirely wordless, no open-vowel solo melody or whispering.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "8waPPvSoITRfrDoVwTye",
+          "finished_utc": "2026-09-22T22:43:11.386909+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-14-female-hum-breath.mp3",
+      "duration_seconds_requested": 8,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "8waPPvSoITRfrDoVwTye",
+      "duration_seconds_actual": 8.04,
+      "file_size_bytes": 193005,
+      "sha256": "c436d6e9f426fccd06a16dfb58121473760f1a7dc8420e4544f75733d415be33"
+    },
+    "music-event-15-two-voice-hummed-fifth": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:43:12.712657+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 9000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "Two quiet voices hum a stable consonant fifth with closed mouths. One sustained shared breath and a gentle release, no words, melody, or theatrical choir.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "W9DJf8MeWOtIJ4pIXnb6",
+          "finished_utc": "2026-09-22T22:43:16.956547+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-15-two-voice-hummed-fifth.mp3",
+      "duration_seconds_requested": 9,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "W9DJf8MeWOtIJ4pIXnb6",
+      "duration_seconds_actual": 9.024,
+      "file_size_bytes": 216621,
+      "sha256": "fe52588e30f5bf44cf378e07df24eb283894308382b41e96a013d251cc48b706"
+    },
+    "music-event-16-om-warm-resonance": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:43:18.428810+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "Om",
+                  "duration_ms": 8000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "One quietly voiced Om in a comfortable middle register, steady near-monotone intonation with warm room resonance. No booming bass, overtone growl, or dramatic swell.",
+                    "quiet devotional mantra",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "Only intone the supplied Sanskrit mantra text; no invented syllables",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "ipbmVfFJ49x3rCbRHN5G",
+          "finished_utc": "2026-09-22T22:43:22.933365+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-16-om-warm-resonance.mp3",
+      "duration_seconds_requested": 8,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "ipbmVfFJ49x3rCbRHN5G",
+      "duration_seconds_actual": 8.04,
+      "file_size_bytes": 193005,
+      "sha256": "acca9caa1a78449c503ac589186d4360f60ad9c3b39280e7a918f0707dd63348"
+    },
+    "music-event-17-shanti-soft-answer": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:43:24.408804+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "Shanti\nShanti",
+                  "duration_ms": 9000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "Two softly blended voices intone shanti as a tiny calm response, narrow near-monotone pitch and natural breathing. No lead singer, whisper, or percussion.",
+                    "quiet devotional mantra",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "Only intone the supplied Sanskrit mantra text; no invented syllables",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "QwHaSInDNNYF70zFCCpl",
+          "finished_utc": "2026-09-22T22:43:30.380439+00:00"
+        }
+      ],
+      "category": "event",
+      "file": "event/music-event-17-shanti-soft-answer.mp3",
+      "duration_seconds_requested": 9,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "QwHaSInDNNYF70zFCCpl",
+      "duration_seconds_actual": 9.024,
+      "file_size_bytes": 216621,
+      "sha256": "38292c323f4166dedeea41b7a07f784b66432df099a1f8e337ea4369368fc747"
+    },
+    "music-activity-11-female-hum-harmonium": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:43:31.703099+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 34000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "A warm harmonium drone under soft female closed-mouth humming. Short sustained tones separated by breaths, stable tonic and fifth, voice blended into the reeds. No words or melodic lead.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "0hALwGLqf6nF0Tuij6Ke",
+          "finished_utc": "2026-09-22T22:43:37.054506+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-11-female-hum-harmonium.mp3",
+      "duration_seconds_requested": 34,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "0hALwGLqf6nF0Tuij6Ke",
+      "duration_seconds_actual": 34.032,
+      "file_size_bytes": 816813,
+      "sha256": "e5a2c87d1be593e5d2bd4a9e6926ee447f1378a36a9adf4fafd77ff8835e8763"
+    },
+    "music-activity-12-low-hum-tanpura": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:43:38.366954+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 32000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "A gentle low-mid male closed-mouth hum with mellow tanpura resonance. Relaxed comfortable register, no throat growl or exaggerated bass. Stable tonal center, no words or solo melody.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "jD9fvYgWufkaObPiTHAe",
+          "finished_utc": "2026-09-22T22:43:43.870458+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-12-low-hum-tanpura.mp3",
+      "duration_seconds_requested": 32,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "jD9fvYgWufkaObPiTHAe",
+      "duration_seconds_actual": 32.04,
+      "file_size_bytes": 769005,
+      "sha256": "718d2898f3a5f6945e6fad36da808e526ed98bd2fbc438ace56869f9bc91180c"
+    },
+    "music-activity-13-hummed-duet-open-space": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:43:45.206271+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 36000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "Two softly blended female voices hum a consonant unison opening briefly to a fifth. Natural staggered breathing and spacious warm reverberation, entirely wordless and unaccompanied. No swelling choir.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "XX0pXY5eDWUcEps4NnPl",
+          "finished_utc": "2026-09-22T22:43:51.727082+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-13-hummed-duet-open-space.mp3",
+      "duration_seconds_requested": 36,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "XX0pXY5eDWUcEps4NnPl",
+      "duration_seconds_actual": 36.024,
+      "file_size_bytes": 864621,
+      "sha256": "89da60f24d302134e1ee57a1e9a15bea2011d4972cbdf1fb9b84410cca751cee"
+    },
+    "music-activity-14-handpan-and-hummed-tonic": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:43:53.083869+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 30000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "Widely spaced mellow handpan notes with a barely present closed-mouth hum holding the tonic. The voice is a soft sustained texture, with natural breathing, no lyrics or melodic phrasing.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "wgMVDr1OZLZhFUd3L6ja",
+          "finished_utc": "2026-09-22T22:43:58.034374+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-14-handpan-and-hummed-tonic.mp3",
+      "duration_seconds_requested": 30,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "wgMVDr1OZLZhFUd3L6ja",
+      "duration_seconds_actual": 30.024,
+      "file_size_bytes": 720621,
+      "sha256": "7c1c9bfe8eb60dd82fb5a22755bf8dfc56199becf552d54d8bf7d04cdc4bd09f"
+    },
+    "music-activity-15-bansuri-and-hum": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:43:59.333261+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 34000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "A low bansuri plays two unhurried phrases over quiet closed-mouth humming on a stable pitch. Gentle consonance and warm air, no high flute register, word formation, or vocal lead.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "ZXqKCV2EXi0rmw6NdxDj",
+          "finished_utc": "2026-09-22T22:44:05.414254+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-15-bansuri-and-hum.mp3",
+      "duration_seconds_requested": 34,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "ZXqKCV2EXi0rmw6NdxDj",
+      "duration_seconds_actual": 34.032,
+      "file_size_bytes": 816813,
+      "sha256": "e7f7600d8e351e884256f3767fcfb485bdbf2b6fee7a02e77d386af3a35b1b00"
+    },
+    "music-activity-16-shruti-wordless-chant": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:44:06.876459+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 38000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "Warm shruti-box tonic and fifth with a restrained near-monotone open-vowel chant. Only sustained ah and oo vowel sounds, natural soft human tone, no syllabic language, invented words, or lyrical melody.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "Cj5QNwayGHw3GX1Pcp3s",
+          "finished_utc": "2026-09-22T22:44:12.717949+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-16-shruti-wordless-chant.mp3",
+      "duration_seconds_requested": 38,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "Cj5QNwayGHw3GX1Pcp3s",
+      "duration_seconds_actual": 38.04,
+      "file_size_bytes": 913005,
+      "sha256": "2f5e99c87eba3f6f1fed344df793c50b6bb0facd4ef3deb631762e9fb6ba4adf"
+    },
+    "music-activity-17-om-harmonium-breaths": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:44:14.042693+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "Om\nOm\nOm\nOm",
+                  "duration_ms": 36000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "Warm harmonium beneath repeated quiet Om intonations by one soft female voice. Each near-monotone chant has a natural breathing space. No lyrical verse, vocal ornament, or build-up.",
+                    "quiet devotional mantra",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "Only intone the supplied Sanskrit mantra text; no invented syllables",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "7FYEW83cYGVUKNQymLMV",
+          "finished_utc": "2026-09-22T22:44:19.959041+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-17-om-harmonium-breaths.mp3",
+      "duration_seconds_requested": 36,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "7FYEW83cYGVUKNQymLMV",
+      "duration_seconds_actual": 36.024,
+      "file_size_bytes": 864621,
+      "sha256": "040742c36e493f1c8d9f0f345df5ecf16bf926ed8b602244e713858ddceaef8a"
+    },
+    "music-activity-18-shanti-small-room": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:44:21.263399+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "Shanti\nShanti\nShanti\nShanti",
+                  "duration_ms": 32000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "Three quietly blended voices intone shanti over a faint harmonium. Intimate group prayer texture in a small resonant room, narrow pitch range, no lead singing or crowd chatter.",
+                    "quiet devotional mantra",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "Only intone the supplied Sanskrit mantra text; no invented syllables",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "m5Zh7SdAWd6BuYacWV6p",
+          "finished_utc": "2026-09-22T22:44:26.460275+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-18-shanti-small-room.mp3",
+      "duration_seconds_requested": 32,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "m5Zh7SdAWd6BuYacWV6p",
+      "duration_seconds_actual": 32.04,
+      "file_size_bytes": 769005,
+      "sha256": "b640cb1c08aab6e55c0e9b72c34720d8d1992752c7051c7d99ab64fc132aee1a"
+    },
+    "music-activity-19-hummed-voices-bowl": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:44:28.279661+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 30000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "A soft closed-mouth female hum and only two low mellow singing-bowl strokes in the same tonal center. Long breath and resonance, no words, metallic whine, or dramatic entrances.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "psVAIxcXwS0GxwSxlGZt",
+          "finished_utc": "2026-09-22T22:44:33.986989+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-19-hummed-voices-bowl.mp3",
+      "duration_seconds_requested": 30,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "psVAIxcXwS0GxwSxlGZt",
+      "duration_seconds_actual": 30.024,
+      "file_size_bytes": 720621,
+      "sha256": "7dff2994e716308561b125570ced3262acc5976246a66272829b66162ea1b74b"
+    },
+    "music-activity-20-tabla-and-hummed-drone": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:44:35.323595+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 34000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "A quiet sustained hummed tonic beneath sparse rounded tabla fingertip touches. Warm human voice with natural breathing; percussion stays delicate, no lyrics, groove, or heavy bass strokes.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "HSQBiUFEXmxlS4N3HjQs",
+          "finished_utc": "2026-09-22T22:44:39.981221+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-20-tabla-and-hummed-drone.mp3",
+      "duration_seconds_requested": 34,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "HSQBiUFEXmxlS4N3HjQs",
+      "duration_seconds_actual": 34.032,
+      "file_size_bytes": 816813,
+      "sha256": "a5cc2ed71a5a6285aa72fe501bc2cc962490bc15d067b42fdcdd36ad975acb63"
+    },
+    "music-activity-21-wordless-chapel-breath": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:44:41.297933+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 38000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "Two soft female voices sustain near-monotone oo vowel tones with staggered breaths in a warm reverberant stone room. Consonant intervals, no words, invented syllables, melody, or cinematic crescendo.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "LaGzq72kZANdUrRpFL3u",
+          "finished_utc": "2026-09-22T22:44:47.687765+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-21-wordless-chapel-breath.mp3",
+      "duration_seconds_requested": 38,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "LaGzq72kZANdUrRpFL3u",
+      "duration_seconds_actual": 38.04,
+      "file_size_bytes": 913005,
+      "sha256": "d6e7302537790860304173a3ce0b9889d18e011c222a16f3c767d5a825ddd9e6"
+    },
+    "music-activity-22-om-shanti-tanpura": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:44:48.999948+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "Om shanti\nOm shanti\nOm shanti\nOm shanti",
+                  "duration_ms": 36000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "Mellow tanpura and two softly blended voices intoning Om shanti. Relaxed near-monotone prayer, gentle natural pauses, no sung verses, dramatic expression, or percussion.",
+                    "quiet devotional mantra",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "Only intone the supplied Sanskrit mantra text; no invented syllables",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "DrfeUvI3XlDjUI0Vy2AI",
+          "finished_utc": "2026-09-22T22:44:54.775643+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-22-om-shanti-tanpura.mp3",
+      "duration_seconds_requested": 36,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "DrfeUvI3XlDjUI0Vy2AI",
+      "duration_seconds_actual": 36.024,
+      "file_size_bytes": 864621,
+      "sha256": "a49842d31e38220ffb5049bbe5d7a3c9aec8f83b9ad80fd3fb36a612a19bd240"
+    },
+    "music-activity-23-mixed-hummed-unison": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:44:56.112629+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 32000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "One soft male and one soft female voice hum together in comfortable registers, gentle octave blending. A faint harmonium supports them. Closed-mouth wordless warmth, no booming bass, lead tune, or swelling choir.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "Bl5cURELcXUNleokECY1",
+          "finished_utc": "2026-09-22T22:45:01.522636+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-23-mixed-hummed-unison.mp3",
+      "duration_seconds_requested": 32,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "Bl5cURELcXUNleokECY1",
+      "duration_seconds_actual": 32.04,
+      "file_size_bytes": 769005,
+      "sha256": "0e55ae63f90c0821f79b7dfc25d5816de45d1ccd6beaaf761edb21088d0d2421"
+    },
+    "music-activity-24-hummed-response-harmonium": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:45:02.858068+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "composition_plan": {
+              "chunks": [
+                {
+                  "text": "[Wordless vocal texture]",
+                  "duration_ms": 34000,
+                  "positive_styles": [
+                    "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. ",
+                    "A warm harmonium drone with two understated closed-mouth hums softly answering in the same register. Spacious breaths, nearly static pitch, natural human tone. No words, scat, catchy motif, or lead singing.",
+                    "quiet wordless vocal texture",
+                    "natural human voices",
+                    "narrow near-monotone pitch range",
+                    "No lyrics or language; only the humming or sustained vowel tones described",
+                    "restrained acoustic performance",
+                    "warm natural reverberation"
+                  ],
+                  "negative_styles": [
+                    "melodic lead singing",
+                    "song verses",
+                    "pop chorus",
+                    "English speech",
+                    "invented words",
+                    "gibberish",
+                    "spoken instructions",
+                    "shouting",
+                    "whisper ASMR",
+                    "sharp sibilance",
+                    "mouth clicks",
+                    "dramatic crescendo",
+                    "driving beat",
+                    "metallic screech",
+                    "piercing high notes",
+                    "distortion",
+                    "crowd noise",
+                    "brown noise",
+                    "rain",
+                    "wind",
+                    "abrupt restart"
+                  ],
+                  "context_adherence": "high"
+                }
+              ]
+            }
+          },
+          "song_id": "8N2AyRIBrBSuRbcDqz82",
+          "finished_utc": "2026-09-22T22:45:08.253416+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-24-hummed-response-harmonium.mp3",
+      "duration_seconds_requested": 34,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "8N2AyRIBrBSuRbcDqz82",
+      "duration_seconds_actual": 34.032,
+      "file_size_bytes": 816813,
+      "sha256": "dd236df47b984b0c1f3019814897d15876496861ceeab2068a727bf487487e5f"
+    },
+    "music-activity-25-harmonium-slow-fifths": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:45:09.607049+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Solo warm harmonium, tonic and fifth gently changing reed color across quiet sustained breaths. One subtle consonant voicing change; no insistent pumping, nasal buzz, rhythmic pattern, or melody. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 30000,
+            "force_instrumental": true
+          },
+          "song_id": "WWpXdtDV9qDhVgeXB7PB",
+          "finished_utc": "2026-09-22T22:45:17.061759+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-25-harmonium-slow-fifths.mp3",
+      "duration_seconds_requested": 30,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "WWpXdtDV9qDhVgeXB7PB",
+      "duration_seconds_actual": 30.024,
+      "file_size_bytes": 720621,
+      "sha256": "6e38ebf31312c8732b549222e9edd4a5e77b62cbd2cce08ec89c3cac7911cd81"
+    },
+    "music-activity-26-handpan-unhurried-drops": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:45:18.361960+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Solo low-mid handpan, a few rounded pentatonic notes with generous irregular spacing. Natural decay and quiet touch, no ostinato, busy pattern, slap, or dramatic arc. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 32000,
+            "force_instrumental": true
+          },
+          "song_id": "xmlz9KWECSp9b8xcu9sW",
+          "finished_utc": "2026-09-22T22:45:24.307287+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-26-handpan-unhurried-drops.mp3",
+      "duration_seconds_requested": 32,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "xmlz9KWECSp9b8xcu9sW",
+      "duration_seconds_actual": 32.04,
+      "file_size_bytes": 769005,
+      "sha256": "ef867c93d306a36be2fd0badb08d7fc4d0eb122242187347b67a98551a4135d2"
+    },
+    "music-activity-27-bansuri-held-tone": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:45:25.614208+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Low bansuri over a barely audible shruti drone, one long gentle tone and a small consonant response. Relaxed breath, limited range, no piercing register, runs, or excessive hiss. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 28000,
+            "force_instrumental": true
+          },
+          "song_id": "xz8frb6AkQBKUgGaqGm6",
+          "finished_utc": "2026-09-22T22:45:31.630161+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-27-bansuri-held-tone.mp3",
+      "duration_seconds_requested": 28,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "xz8frb6AkQBKUgGaqGm6",
+      "duration_seconds_actual": 28.032,
+      "file_size_bytes": 672813,
+      "sha256": "c8a6a42f35756d6c76615532309c6ed61b64ef8ba239391716550ace24354168"
+    },
+    "music-activity-28-bowl-harmonium-rest": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:45:32.944261+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Two low softly struck singing-bowl tones over a warm quiet harmonium tonic. Stable consonance with gentle lingering resonance; no rim scrape, repeated chimes, dissonant beating, or crescendo. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 36000,
+            "force_instrumental": true
+          },
+          "song_id": "TQVGXxcrTKAHcsAZHMZV",
+          "finished_utc": "2026-09-22T22:45:39.919406+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-28-bowl-harmonium-rest.mp3",
+      "duration_seconds_requested": 36,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "TQVGXxcrTKAHcsAZHMZV",
+      "duration_seconds_actual": 36.024,
+      "file_size_bytes": 864621,
+      "sha256": "a3720f620327d58d36c8f062d55166424b58844fbb9658cbc2c41abecdccc26d"
+    },
+    "music-activity-29-tanpura-reed-warmth": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:45:41.290788+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Mellow tanpura resonance woven into a soft harmonium tonic and fifth. Slow organic changes in timbre, tiny rounded plucks, no new melody, buzzy treble, or strong pulse. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 34000,
+            "force_instrumental": true
+          },
+          "song_id": "RjypXbYt5p3UH6SU8sh8",
+          "finished_utc": "2026-09-22T22:45:48.540239+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-29-tanpura-reed-warmth.mp3",
+      "duration_seconds_requested": 34,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "RjypXbYt5p3UH6SU8sh8",
+      "duration_seconds_actual": 34.032,
+      "file_size_bytes": 816813,
+      "sha256": "db9933cc3d8e36129171233d38cd57f0a64c15d7ebf2a2a6509a36cdd54e9a78"
+    },
+    "music-activity-30-handpan-tabla-whisperlight": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-22T22:45:49.857902+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Intimate meditative acoustic music miniature, restful and gently expressive. Warm rounded timbres, restrained dynamics, natural human timing. A small coherent musical gesture, not a dramatic song or cinematic cue. Soft onset, warm spacious reverberation with a clear natural decay. No build-up, climax, abrupt change, harsh attack, piercing treble, distortion, strong bass thump, busy rhythm, applause, crowd chatter, narration, or nature effects. Do not add brown noise, rain, hiss, or wind; this will be mixed into a separate noise bed. Keep the performance present and clean; spatial distance is applied during playback. Sparse mellow handpan notes with just a few feather-light tabla fingertip responses. Both share relaxed free timing and a warm acoustic space. No busy percussion, sharp accents, heavy bass, or groove. Strictly instrumental: no voice, humming, singing, or chanting.",
+            "music_length_ms": 30000,
+            "force_instrumental": true
+          },
+          "song_id": "qimtuoBDujttOJ6VzS7L",
+          "finished_utc": "2026-09-22T22:45:56.518153+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/music-activity-30-handpan-tabla-whisperlight.mp3",
+      "duration_seconds_requested": 30,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "qimtuoBDujttOJ6VzS7L",
+      "duration_seconds_actual": 30.024,
+      "file_size_bytes": 720621,
+      "sha256": "531ef84512407fcbdc8ac60b2f63b57321135ae3686317cd5d4d4c00ba5d4a82"
+    }
+  }
+}

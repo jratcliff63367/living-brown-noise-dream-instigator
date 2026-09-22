@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
 # steam_audio_renderer.py, and the sounds directory belong beside the script.
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 CEREMONIES_DIRECTORY = SCRIPT_DIRECTORY / "ceremonies"
+CURATION_PATH = SCRIPT_DIRECTORY / "audio-curation.json"
 EXPORT_DIRECTORY = SCRIPT_DIRECTORY / "exports"
 CONDUCTOR_LOG_PATH = SCRIPT_DIRECTORY / "conductor-log.txt"
 DEFAULT_STYLE_NAME = "indian"
@@ -55,6 +56,120 @@ STYLE_AMBIENTS_FOLDER = "ambients"
 STYLE_VOCALS_FOLDER = "vocals"
 STYLE_INSTRUMENTS_FOLDER = "instruments"
 STYLE_AMBIENT_GROUPS = ("activity", "event", "space")
+
+
+class AudioCuration:
+    """Read-only snapshot of the curator's shared, versioned ratings file.
+
+    Keys are POSIX paths relative to ceremonies/, never display names. Load
+    outside the audio callback, at startup/style changes and export setup.
+    Missing metadata means unreviewed; malformed metadata is reported instead
+    of silently replacing the listener's ratings with random selection.
+    """
+
+    def __init__(self, path: Path = CURATION_PATH,
+                 root: Path = CEREMONIES_DIRECTORY) -> None:
+        self.path = Path(path)
+        self.root = Path(root).resolve()
+        try:
+            text = self.path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            self.states: dict[str, str] = {}
+            self.pending_key = None
+            self.found = False
+            return
+        try:
+            data = json.loads(text)
+            if not isinstance(data, dict) or data.get("schema_version") != 1:
+                raise ValueError("expected schema_version 1")
+            tracks = data.get("tracks")
+            if not isinstance(tracks, dict):
+                raise ValueError("expected a tracks object")
+            states = {}
+            for key, record in tracks.items():
+                if not isinstance(record, dict) or record.get("state") not in (
+                    "unreviewed", "low", "medium", "high", "stash"
+                ):
+                    raise ValueError(f"invalid rating for {key!r}")
+                states[key] = record["state"]
+            pending = data.get("pending_move")
+            if pending is not None and (
+                not isinstance(pending, dict) or not isinstance(pending.get("key"), str)
+            ):
+                raise ValueError("invalid pending_move record")
+            self.states = states
+            self.pending_key = pending["key"] if pending else None
+            self.found = True
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"Cannot read curation settings from {self.path}: {exc}") from exc
+
+    def state_for_path(self, path: Path) -> str:
+        try:
+            key = Path(path).resolve().relative_to(self.root).as_posix()
+        except ValueError:
+            # Legacy assets outside ceremonies/ have no curator rating.
+            return "unreviewed"
+        if key == self.pending_key:
+            return "stash"  # Exclude an interrupted stash/restore until resolved.
+        return self.states.get(key, "unreviewed")
+
+    def tier_for_path(self, path: Path) -> str:
+        state = self.state_for_path(path)
+        return "low" if state == "unreviewed" else state
+
+
+class CurationShuffleBag:
+    """High -> Medium -> Low, then a fresh cycle of all three tiers.
+
+    One instance serves exactly one category. Returning an unheard reservation
+    restores its original tier. Avoiding a boundary repeat never skips a tier.
+    """
+
+    TIERS = ("high", "medium", "low")
+
+    def __init__(self, tiers: dict[str, str], rng) -> None:
+        self.tiers = dict(tiers)
+        self.rng = rng
+        self.last_name: str | None = None
+        self.cycle = 0
+        self.refill()
+
+    def refill(self) -> None:
+        self.remaining = {
+            tier: [name for name, rating in self.tiers.items() if rating == tier]
+            for tier in self.TIERS
+        }
+        for names in self.remaining.values():
+            self.rng.shuffle(names)
+        self.cycle += 1
+
+    def take(self, avoid_name: str | None = None) -> str | None:
+        if not self.tiers:
+            return None
+        if not any(self.remaining.values()):
+            self.refill()
+        for tier in self.TIERS:
+            names = self.remaining[tier]
+            if names:
+                avoid = avoid_name if avoid_name in self.tiers else self.last_name
+                name = next((name for name in names if name != avoid), names[0])
+                names.remove(name)
+                self.last_name = name
+                return name
+        return None
+
+    def return_unused(self, name: str) -> None:
+        tier = self.tiers.get(name)
+        if tier is not None and name not in self.remaining[tier]:
+            self.remaining[tier].insert(0, name)
+
+    def take_specific(self, name: str) -> None:
+        """An explicit manual audition may override automatic priority."""
+        tier = self.tiers.get(name)
+        if tier is not None:
+            if name in self.remaining[tier]:
+                self.remaining[tier].remove(name)
+            self.last_name = name
 
 
 def scan_ceremony_styles() -> tuple[str, ...]:
@@ -4446,6 +4561,7 @@ class DreamMotif3DEngine:
             sample_rate=self.sample_rate,
             layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
         )
+        self._reset_ambient_curation(motifs)
         self.bag = DreamMotifShuffleBag(motifs, self.rng)
         spec = self.state.get()
         self.slots = [
@@ -4543,6 +4659,80 @@ class DreamMotif3DEngine:
             spatial_blend=1.0,
             distance_attenuation_enabled=True,
         )
+
+    def _reset_ambient_curation(self, motifs):
+        # Snapshot outside the audio callback. Exports construct a fresh engine.
+        self.ambient_curation = AudioCuration()
+        self.curated_ambient_assets = {
+            str(asset.path): asset
+            for motif in motifs
+            for asset in (*motif.ambient_assets, *motif.layered_assets)
+            if self.ambient_curation.tier_for_path(asset.path) != "stash"
+        }
+        self.ambient_priority_bag = CurationShuffleBag({
+            key: self.ambient_curation.tier_for_path(asset.path)
+            for key, asset in self.curated_ambient_assets.items()
+        }, self.rng)
+        self.curated_ambient_pending = None
+        self.curated_ambient_failed = set()
+        self.curated_ambient_short = set()
+        self._known_short_assets = tuple(asset for motif in motifs for asset in motif.layered_assets)
+        self.ambient_passage_audio = None
+        self.ambient_passage_slot = None
+        self.ambient_passage_position = 0
+        self.ambient_wait_seconds = float(self.rng.uniform(120.0, 300.0))
+
+    def _curated_ambient_ready(self, spec):
+        """Peek at one shared selection; consume only at an audible start.
+
+        Disabled short effects and failed decodes are ineligible, not consumed.
+        No motif changes or speculative slot preloads advance this bag.
+        """
+        bag = self.ambient_priority_bag
+        eligible = {
+            key for key, asset in self.curated_ambient_assets.items()
+            if key not in self.curated_ambient_failed
+            and (spec.featured_events_enabled or not (
+                key in self.curated_ambient_short
+                or (asset.metadata_known and asset in self._known_short_assets)
+            ))
+        }
+        if self.curated_ambient_pending not in eligible:
+            self.curated_ambient_pending = None
+        if not eligible:
+            return None, None
+        if self.curated_ambient_pending is None:
+            if not any(key in eligible for names in bag.remaining.values() for key in names):
+                bag.refill()
+            for tier in bag.TIERS:
+                names = [key for key in bag.remaining[tier] if key in eligible]
+                if names:
+                    self.curated_ambient_pending = next(
+                        (key for key in names if key != bag.last_name), names[0])
+                    break
+        key = self.curated_ambient_pending
+        asset = self.curated_ambient_assets[key]
+        self.asset_manager.request(asset, AudioAssetManager.PRIORITY_HIGH)
+        prepared = self.asset_manager.get_if_ready(asset)
+        if self.asset_manager.error_for(asset):
+            self.curated_ambient_failed.add(key)
+            self.curated_ambient_pending = None
+            self._journal("AMBIENT_LOAD_FAILED", str(asset.path))
+            return None, None
+        if prepared is not None and prepared.is_layered_event:
+            self.curated_ambient_short.add(key)
+            if not spec.featured_events_enabled:
+                self.curated_ambient_pending = None
+                return None, None
+        return asset, prepared
+
+    def _consume_curated_ambient(self, asset):
+        key = str(asset.path)
+        bag = self.ambient_priority_bag
+        bag.take_specific(key)
+        self.curated_ambient_pending = None
+        self._journal("AMBIENT_CURATION_DRAW",
+                      f"tier={bag.tiers[key]}; cycle={bag.cycle}; asset={asset.path}")
 
     @staticmethod
     def _smoothstep5(v: float) -> float:
@@ -4829,38 +5019,21 @@ class DreamMotif3DEngine:
             )
             if self.ambient_wait_seconds > 0.0 and not spec.testing:
                 return None, output
-            # Give a due featured effect its opportunity before a bed clip.
-            if (spec.featured_events_enabled and self.next_event_seconds <= 0.0
-                    and (spec.testing or self.creepy_window >= 0.48)
-                    and self.scene in {self.SCENE_DEVELOP, self.SCENE_REVEAL,
-                                       self.SCENE_AFTERIMAGE}
-                    and (spec.testing or self.scene_elapsed >= self.event_scene_grace_seconds)):
+            asset, prepared = self._curated_ambient_ready(spec)
+            if prepared is None or prepared.is_layered_event:
                 return None, output
             index = self.dominant_index
             slot = self.slots[index]
             if slot.exposure < self.MIN_PLAYING_EXPOSURE:
                 return None, output
-            if not self._ensure_slot_audio(slot, AudioAssetManager.PRIORITY_HIGH):
-                return None, output
-            if slot.audio is None or len(slot.audio) == 0:
-                return None, output
-            self.ambient_passage_audio = slot.audio
+            self.ambient_passage_audio = prepared.mono
             self.ambient_passage_position = 0
             self.ambient_passage_slot = index
+            self._consume_curated_ambient(asset)
             self._journal(
                 "AMBIENT_PASSAGE_START",
-                f"asset={slot.current_asset_path}; "
-                f"duration={len(slot.audio) / self.sample_rate:.2f}s",
+                f"asset={asset.path}; duration={len(prepared.mono) / self.sample_rate:.2f}s",
             )
-            # Consume this recording without crossfading into its successor.
-            slot.audio = None
-            slot.current_asset_path = None
-            slot.read_position = 0
-            if slot.next_audio is not None:
-                self._promote_next_ambient(slot)
-            elif slot.next_pending_asset is not None:
-                slot.pending_asset = slot.next_pending_asset
-                slot.next_pending_asset = None
 
         audio = self.ambient_passage_audio
         start = self.ambient_passage_position
@@ -5718,26 +5891,10 @@ class DreamMotif3DEngine:
         return float(self.rng.uniform(low, high))
 
     def _prepare_event(self, slot, spec):
-        if self.pending_event_asset is not None:
-            return
-        candidates = self._event_candidates(slot, spec)
-        if candidates:
-            self.pending_event_asset = candidates[
-                int(self.rng.integers(0, len(candidates)))
-            ]
-            self.asset_manager.request(
-                self.pending_event_asset,
-                AudioAssetManager.PRIORITY_NORMAL,
-            )
-            self._journal(
-                "EVENT_PREPARE",
-                self.pending_event_asset.path.name,
-            )
-        else:
-            self._journal(
-                "EVENT_PREPARE_FAILED",
-                "no eligible layered-event candidates",
-            )
+        asset, prepared = self._curated_ambient_ready(spec)
+        self.pending_event_asset = (
+            asset if prepared is not None and prepared.is_layered_event else None
+        )
 
     def _gesture(
         self,
@@ -5952,6 +6109,8 @@ class DreamMotif3DEngine:
         self._prepare_event(slot, spec)
 
         asset = self.pending_event_asset
+        if asset is None:
+            return False
         prepared = self.asset_manager.get_if_ready(asset)
         if prepared is None:
             error = self.asset_manager.error_for(asset)
@@ -6046,6 +6205,7 @@ class DreamMotif3DEngine:
                 ),
             )
         )
+        self._consume_curated_ambient(asset)
         self.seconds_since_last_event = 0.0
         self._journal(
             "EVENT_START",
@@ -6162,6 +6322,7 @@ class DreamMotif3DEngine:
             sample_rate=self.sample_rate,
             layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
         )
+        self._reset_ambient_curation(motifs)
         self.bag = DreamMotifShuffleBag(motifs, self.rng)
 
         # Discard any old-style transient event state. The persistent spatial
@@ -7546,17 +7707,14 @@ class MeditationOrchestrator:
         self.rng = np.random.default_rng(seed)
         self.style_directory = Path(style_directory)
         self.style_name = self.style_directory.name
-        self.recording_paths = self._scan_recordings(self.style_directory)
-        self.performance_registry = tuple(self.recording_paths)
+        self._load_curated_recordings()
         if not self.performance_registry:
             LOGGER.warning(
                 "No meditation MP3 files found for style %s beneath %s",
                 self.style_name, self.style_directory
             )
 
-        # Category pools share storage but refill independently.
-        self.remaining_performances: list[str] = []
-        self._last_vocal_name: str | None = None
+        # Independent categories, each with High / Medium / Low shuffle bags.
         self._refill_performance_bag()
 
         # Two independent bounded read-ahead workers are enough for an outgoing
@@ -7637,6 +7795,7 @@ class MeditationOrchestrator:
         self._next_underrun_snapshot = 0
 
         self._reschedule()
+        self._log_curation_plan()
 
     @property
     def recording_player(self) -> CeremonyRecordingPlayer:
@@ -7700,10 +7859,7 @@ class MeditationOrchestrator:
             player.stop()
         self.style_directory = Path(style_dir)
         self.style_name = self.style_directory.name
-        self.recording_paths = self._scan_recordings(self.style_directory)
-        self.performance_registry = tuple(self.recording_paths)
-        self.remaining_performances = []
-        self._last_vocal_name = None
+        self._load_curated_recordings()
         self._pending_name = None
         self._pending_manual = False
         self._replacement_name = None
@@ -7722,6 +7878,7 @@ class MeditationOrchestrator:
         self._ceremony_elapsed_samples = 0
         self._ceremony_target_samples = 0
         self._refill_performance_bag()
+        self._log_curation_plan()
         self._reschedule()
         self._journal(
             "MEDITATION_STYLE",
@@ -7787,31 +7944,66 @@ class MeditationOrchestrator:
             self._duration_cache[name] = duration
         return self._duration_cache[name]
 
-    def _refill_performance_bag(self, avoid_name: str | None = None) -> None:
-        """Initialize both category pools, avoiding a boundary repeat."""
-        self.remaining_performances = list(self.performance_registry)
-        self.rng.shuffle(self.remaining_performances)
-        avoid_name = avoid_name or self._last_vocal_name
-        if (
-            avoid_name is not None
-            and len(self.remaining_performances) > 1
-            and self.remaining_performances[0] == avoid_name
-        ):
-            swap_index = next(
-                i for i, name in enumerate(self.remaining_performances[1:], 1)
-                if name != avoid_name
-            )
-            self.remaining_performances[0], self.remaining_performances[swap_index] = (
-                self.remaining_performances[swap_index],
-                self.remaining_performances[0],
-            )
+    def _load_curated_recordings(self) -> None:
+        self.curation = AudioCuration()
+        scanned = self._scan_recordings(self.style_directory)
+        self.recording_paths = {
+            name: path for name, path in scanned.items()
+            if self.curation.state_for_path(path) != "stash"
+        }
+        self.performance_registry = tuple(self.recording_paths)
+
+    def _refill_performance_bag(self) -> None:
+        """Reset both categories only for a new session, style or export."""
+        self._performance_bags = {
+            category: CurationShuffleBag({
+                name: self.curation.tier_for_path(self.recording_paths[name])
+                for name in self.performance_registry
+                if self._performance_category(name) == category
+            }, self.rng)
+            for category in ("vocals", "instruments")
+        }
+
+    @property
+    def remaining_performances(self) -> list[str]:
+        """Flattened view for diagnostics; selection uses the six actual bags."""
+        return [name for bag in self._performance_bags.values()
+                for tier in CurationShuffleBag.TIERS for name in bag.remaining[tier]]
+
+    def _log_curation_plan(self) -> None:
+        pools = []
+        for category, bag in self._performance_bags.items():
+            counts = ", ".join(f"{tier}={len(bag.remaining[tier])}" for tier in bag.TIERS)
+            pools.append(f"{category}: {counts}")
+        self._journal("MEDITATION_CURATION", (
+            f"metadata={self.curation.path}; "
+            f"{'loaded' if self.curation.found else 'absent; all clips unreviewed'}; "
+            "priority=high -> medium -> low+unreviewed; separate category cycles; "
+            + "; ".join(pools)
+        ))
+
+    @classmethod
+    def _performance_category(cls, name: str) -> str:
+        return "instruments" if cls._is_instrument(name) else "vocals"
+
+    def _return_unplayed_performance(self, name: str) -> None:
+        if name:
+            bag = self._performance_bags[self._performance_category(name)]
+            bag.return_unused(name)
+
+    def _return_pending_vocal(self) -> None:
+        """An opening clip cancelled before ceremony start was never heard."""
+        if self._pending_name:
+            self._return_unplayed_performance(self._pending_name)
+            self.recording_player.stop()
+            self._pending_name = None
 
     @staticmethod
     def _is_instrument(name: str) -> bool:
         return bool(name and name.startswith("[Instrument: "))
 
     def _take_vocal(self, avoid_name: str | None = None, *, first_passage: bool = False) -> str | None:
-        """Choose category by weight, then draw from its independent shuffle bag."""
+        """Choose category by weight, then its highest unexhausted tier."""
         spec = self.state.get()
         vocals = [n for n in self.performance_registry if not self._is_instrument(n)]
         instruments = [n for n in self.performance_registry if self._is_instrument(n)]
@@ -7825,22 +8017,20 @@ class MeditationOrchestrator:
         use_instrument = not return_to_vocals and bool(instruments) and (
             not vocals or self.rng.random() < spec.instrument_selection_percent / 100.0
         )
-        eligible = instruments if use_instrument else vocals
-        remaining = [n for n in self.remaining_performances if n in eligible]
-        if not remaining:
-            remaining = list(eligible)
-            self.rng.shuffle(remaining)
-            self.remaining_performances.extend(remaining)
-        avoid = avoid_name or self._last_vocal_name
-        name = next((n for n in remaining if n != avoid), remaining[0])
-        self.remaining_performances.remove(name)
-        self._last_vocal_name = name
+        category = "instruments" if use_instrument else "vocals"
+        bag = self._performance_bags[category]
+        name = bag.take(avoid_name)
+        if name:
+            self._journal("MEDITATION_CURATION_DRAW", (
+                f"category={category}; tier={bag.tiers[name]}; cycle={bag.cycle}; "
+                f"clip={name}; file={self.recording_paths[name].name}"
+            ))
         return name
 
     def _return_reserved_vocal(self) -> None:
-        """Put an unused preloaded next clip back into the current pool."""
-        if self.next_vocal_name and self.next_vocal_name not in self.remaining_performances:
-            self.remaining_performances.insert(0, self.next_vocal_name)
+        """Return only unheard preload audio, preserving its original tier."""
+        if self.next_vocal_name and self.next_recording_player.elapsed_samples == 0:
+            self._return_unplayed_performance(self.next_vocal_name)
         self.next_recording_player.stop()
         self.next_vocal_name = ""
 
@@ -7849,6 +8039,11 @@ class MeditationOrchestrator:
         self.export_total_seconds = max(0.0, float(total_duration_seconds))
         self.elapsed_samples = 0
         self._duration_cache.clear()
+        # Each export starts with a fresh snapshot and independent bag cycles.
+        # No metadata reads happen in the render callback.
+        self._load_curated_recordings()
+        self._refill_performance_bag()
+        self._log_curation_plan()
         spec = self.state.get()
         if not spec.enabled or not self.performance_registry:
             self._next_start_sample = math.inf
@@ -7858,8 +8053,6 @@ class MeditationOrchestrator:
             )
             return
 
-        self._last_vocal_name = None
-        self._refill_performance_bag()
         # Fail fast on malformed files before a long render begins.
         for name in self.performance_registry:
             self._recording_duration_seconds(name)
@@ -7870,7 +8063,8 @@ class MeditationOrchestrator:
             f"{spec.ceremony_max_minutes:.1f} min; rests "
             f"{spec.interval_min_minutes:.2f}-{spec.interval_max_minutes:.2f} min; "
             f"same-category crossfades {self.CROSSFADE_MIN_SECONDS:.0f}-"
-            f"{self.CROSSFADE_MAX_SECONDS:.0f}s; category changes fade through silence; initial pool: "
+            f"{self.CROSSFADE_MAX_SECONDS:.0f}s; category changes fade through silence; "
+            "initial tier order (vocals, then instruments; category choice remains weighted): "
             + " -> ".join(self.remaining_performances)
         ))
 
@@ -7953,6 +8147,7 @@ class MeditationOrchestrator:
                     f"{self.active_name}; subliminal fade={fade_seconds:.1f}s",
                 )
             else:
+                self._return_pending_vocal()
                 for player in self.players:
                     player.stop()
                 self._pending_name = None
@@ -7975,13 +8170,11 @@ class MeditationOrchestrator:
                 self._prepare(name, manual=True, due_sample=self.elapsed_samples)
 
     def _remove_specific_from_pool(self, name: str) -> None:
-        try:
-            self.remaining_performances.remove(name)
-        except ValueError:
-            pass
-        self._last_vocal_name = name
+        self._performance_bags[self._performance_category(name)].take_specific(name)
+        self._journal("MEDITATION_CURATION_MANUAL", f"explicit starting passage={name}")
 
     def _prepare(self, requested_name: str | None, *, manual: bool, due_sample: int) -> None:
+        self._return_pending_vocal()
         if not self.performance_registry:
             self._last_error = f"No ceremony clips available for style {self.style_name}"
             self.current_status = self._last_error
@@ -8404,8 +8597,7 @@ class MeditationOrchestrator:
 
         if not self.active:
             if self._pending_name and not self._pending_manual and not spec.enabled:
-                self.recording_player.stop()
-                self._pending_name = None
+                self._return_pending_vocal()
             if self._pending_name is None and spec.enabled and self.performance_registry:
                 if self._next_start_sample < self.elapsed_samples + count + 5 * self.sample_rate:
                     self._prepare(
