@@ -114,8 +114,8 @@
     "brown_least_attenuation_db": -4.0,
     "ceremony_max_minutes": 15.0,
     "ceremony_min_minutes": 5.0,
-    "distance_modulation_percent": 185.0,
-    "distance_modulation_seconds": 123.0,
+    "distance_modulation_percent": 96.0,
+    "distance_modulation_seconds": 119.0,
     "enabled": true,
     "instrument_selection_percent": 33.0,
     "instruments_enabled": true,
@@ -128,7 +128,7 @@
     "subliminal_emergence_seconds": 30.0,
     "transition_seconds": 12.0
   },
-  "meditation_panel_expanded": true,
+  "meditation_panel_expanded": false,
   "metabolism": {
     "breath_gain_max_db": 5.5,
     "breath_gain_min_db": 0.9,
