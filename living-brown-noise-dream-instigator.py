@@ -4237,14 +4237,28 @@ class HeartbeatProminenceLimiter:
 class DreamMotifSpatialSpec:
     enabled: bool = True
 
-    # Explicit baseline spatial calibration. These are the primary
-    # listening controls; higher-level style controls may shape them later.
+    # One ambient source: per-clip spatial entrance, nearest point, and exit.
+    # Retired conductor fields below remain only to load older settings safely.
     far_distance_calibrated: float = 14.2
     closest_ambient_distance: float = 3.8
     ambient_approach_seconds: float = 20.0
     motif_crossfade_seconds: float = 30.0
     ambient_clip_fade_seconds: float = 4.0
     scene_duration_scale: float = 1.25
+
+    # Live cadence and lateral motion; zero gaps allow back-to-back passages.
+    # ambient_rest/radial_response/event gates are retired compatibility fields.
+    startup_rest_seconds: float = 0.0
+    ambient_rest_seconds: float = 0.0
+    ambient_gap_min_seconds: float = 0.0
+    ambient_gap_max_seconds: float = 2.0
+    wander_min_seconds: float = 8.0
+    wander_max_seconds: float = 16.0
+    radial_response_seconds: float = 4.0
+    event_grace_seconds: float = 0.0
+    event_quiet_threshold: float = 0.0
+    event_start_probability: float = 1.0
+    busy_presence_floor: float = 0.65
 
     # Legacy fields retained for settings compatibility and advanced tuning.
     far_distance: float = 15.0
@@ -4265,8 +4279,8 @@ class DreamMotifSpatialSpec:
     event_gain_db: float = -16.0
     event_travel_seconds: float = 14.0
 
-    # High-level conductor guidance, 0..1. These shape scene timing, spatial
-    # ambition, creepy-window use, intimacy, and repetition pressure.
+    # Presence sets nearest approach, Motion sets lateral excursion.
+    # Other old guidance fields are retained for settings compatibility only.
     activity: float = 0.68
     presence: float = 0.59
     motion: float = 0.73
@@ -4279,16 +4293,29 @@ class DreamMotifSpatialSpec:
     # sample playback, fades, motion, envelopes, and spatial gestures.
     testing: bool = False
 
-    # Disable featured one-shot events while retaining the long ambient
-    # motif layers and their automatic spatial choreography.
+    # Exclude clips <=10 seconds while retaining the longer ambient passages.
     featured_events_enabled: bool = True
 
-    # Stable calibrated levels. Automatic choreography never animates gain;
-    # apparent prominence is controlled by source position and attenuation.
+    # Constant calibrated source level. Distance performs the entrance/exit.
+    # busy_presence_floor limits metabolism influence on the nearest point.
     motif_calibrated_gain_db: float = -16.5
     event_calibrated_gain_db: float = -16.0
 
     def validated(self) -> "DreamMotifSpatialSpec":
+        for name in ("startup_rest_seconds", "ambient_rest_seconds", "event_grace_seconds"):
+            if not 0.0 <= getattr(self, name) <= 3600.0:
+                raise ValueError(f"invalid {name}")
+        for low, high, minimum in (
+            ("ambient_gap_min_seconds", "ambient_gap_max_seconds", 0.0),
+            ("wander_min_seconds", "wander_max_seconds", 1.0),
+        ):
+            if not minimum <= getattr(self, low) <= getattr(self, high) <= 3600.0:
+                raise ValueError(f"invalid {low}/{high}")
+        if not 0.1 <= self.radial_response_seconds <= 300.0:
+            raise ValueError("invalid radial response duration")
+        for name in ("event_quiet_threshold", "event_start_probability", "busy_presence_floor"):
+            if not 0.0 <= getattr(self, name) <= 1.0:
+                raise ValueError(f"invalid {name}")
         if not 0.1 <= self.far_distance_calibrated <= 100.0:
             raise ValueError("invalid far distance")
         if not 0.0 <= self.closest_ambient_distance <= 30.0:
@@ -4398,2417 +4425,448 @@ class DreamMotifSpatialState:
                         "event_interval_max_seconds"
                     ]
 
+            for low, high in (("ambient_gap_min_seconds", "ambient_gap_max_seconds"),
+                              ("wander_min_seconds", "wander_max_seconds")):
+                if values[low] > values[high]:
+                    if low in changes:
+                        values[high] = values[low]
+                    else:
+                        values[low] = values[high]
+            if values["closest_ambient_distance"] >= values["far_distance_calibrated"]:
+                if "closest_ambient_distance" in changes:
+                    values["far_distance_calibrated"] = values["closest_ambient_distance"] + 0.1
+                else:
+                    values["closest_ambient_distance"] = max(0.0, values["far_distance_calibrated"] - 0.1)
+
             self._spec = DreamMotifSpatialSpec(
                 **values
             ).validated()
 
 
-class DreamMotifShuffleBag:
-    """Uses every motif before any motif name is repeated."""
-
-    def __init__(
-        self,
-        motifs: tuple[DreamMotif, ...],
-        rng: np.random.Generator,
-    ) -> None:
-        self.motifs = tuple(
-            motif for motif in motifs if motif.total_assets > 0
-        )
-        self.rng = rng
-        self._bag: list[DreamMotif] = []
-        self._last_name = ""
-
-    def _refill(self) -> None:
-        self._bag = list(self.motifs)
-        self.rng.shuffle(self._bag)
-
-        # Avoid a repeat across the bag boundary whenever possible.
-        if (
-            len(self._bag) > 1
-            and self._bag[-1].name == self._last_name
-        ):
-            self._bag[-1], self._bag[0] = (
-                self._bag[0],
-                self._bag[-1],
-            )
-
-    def next(
-        self,
-        excluded_names: set[str] | None = None,
-    ) -> DreamMotif | None:
-        if not self.motifs:
-            return None
-
-        excluded_names = excluded_names or set()
-
-        for _ in range(max(2, len(self.motifs) * 3)):
-            if not self._bag:
-                self._refill()
-
-            motif = self._bag.pop()
-            if (
-                motif.name in excluded_names
-                and len(self.motifs) > len(excluded_names)
-            ):
-                self._bag.insert(0, motif)
-                continue
-
-            self._last_name = motif.name
-            return motif
-
-        return self.motifs[0]
-
-
-@dataclass(slots=True)
-class DreamMotifSlot:
-    motif: DreamMotif | None
-    source: object
-    direction: np.ndarray
-    distance: float
-    target_distance: float
-    gain_linear: float
-    target_gain_linear: float
-    audio: np.ndarray | None = None
-    current_asset_path: Path | None = None
-    pending_asset: DreamMotifAsset | None = None
-
-    next_audio: np.ndarray | None = None
-    next_asset_path: Path | None = None
-    next_pending_asset: DreamMotifAsset | None = None
-    next_read_position: int = 0
-
-    rejected_paths: set[Path] = field(default_factory=set)
-    recent_ambient_paths: list[Path] = field(default_factory=list)
-    read_position: int = 0
-    position: np.ndarray = field(
-        default_factory=lambda: np.array([0.0, 0.0, -12.0], dtype=np.float64)
-    )
-    move_start: np.ndarray = field(
-        default_factory=lambda: np.array([0.0, 0.0, -12.0], dtype=np.float64)
-    )
-    move_target: np.ndarray = field(
-        default_factory=lambda: np.array([0.0, 0.0, -12.0], dtype=np.float64)
-    )
-    move_elapsed: float = 0.0
-    move_duration: float = 30.0
-    exchange_start_position: np.ndarray = field(
-        default_factory=lambda: np.array(
-            [0.0, 0.0, -12.0],
-            dtype=np.float64,
-        )
-    )
-    exposure: float = 0.0
-    target_exposure: float = 0.0
-
-
-@dataclass(slots=True)
-class ActiveDreamMotifEvent:
-    asset_name: str
-    audio: np.ndarray
-    source: object
-    read_position: int
-    elapsed_seconds: float
-    travel_seconds: float
-    start: np.ndarray
-    control: np.ndarray
-    end: np.ndarray
-    gain_linear: float
-    active: bool = True
-
-
 class DreamMotif3DEngine:
-    MIN_PLAYING_EXPOSURE = 0.02
+    """One non-looping ambient at a time, with its own spatial life cycle.
 
-    """Two-world scene conductor with nonblocking asset preparation.
-
-    Two persistent motif worlds continuously occupy the scene. One is dominant,
-    one recessive. A scene conductor stages establishment, development, focus,
-    reveal, afterimage, and exchange. Quiet metabolism opens a "creepy window"
-    in which motifs may approach and one-shot ASMR gestures become more likely.
-    All automatic source gains remain fixed; distance attenuation provides the
-    audible rise and fall.
+    Wait -> approach -> linger -> recede. The source gain stays calibrated;
+    distance attenuation does the expressive fading. Only 10 ms endpoint
+    ramps protect against clicks. Curation draws are consumed at playback,
+    never by a speculative decode. No dominant/recessive worlds or scenes.
     """
-
-    SCENE_ESTABLISH = "establish"
-    SCENE_DEVELOP = "develop"
-    SCENE_FOCUS = "focus"
-    SCENE_REVEAL = "reveal"
-    SCENE_AFTERIMAGE = "afterimage"
-    SCENE_EXCHANGE = "exchange"
-    SCENE_REST = "rest"
 
     def __init__(self, sample_rate: int, renderer: SteamAudioRenderer,
                  root_directory: Path, state: DreamMotifSpatialState,
                  seed: int = 7712301) -> None:
         self.sample_rate = int(sample_rate)
         self.renderer = renderer
-        self.root_directory = root_directory
+        self.root_directory = Path(root_directory)
         self.state = state
         self.rng = np.random.default_rng(seed)
-
-        scan_started = time.perf_counter()
-        self.catalog = DreamMotifCatalog(
-            root_directory=root_directory,
-            layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
-        )
-        motifs = tuple(m for m in self.catalog.scan() if m.total_assets > 0)
-        log_stage(
-            f"Dream motif filename scan complete; motifs={len(motifs)}; "
-            f"elapsed={time.perf_counter() - scan_started:.3f}s"
-        )
-        self.asset_manager = AudioAssetManager(
-            root_directory=root_directory,
-            sample_rate=self.sample_rate,
-            layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
-        )
-        self._reset_ambient_curation(motifs)
-        self.bag = DreamMotifShuffleBag(motifs, self.rng)
-        spec = self.state.get()
-        self.slots = [
-            self._make_slot(spec.far_distance_calibrated),
-            self._make_slot(spec.far_distance_calibrated),
-        ]
-        first = self.bag.next()
-        second = self.bag.next({first.name} if first else set())
-        self._assign_slot(
-            0,
-            first,
-            spec.far_distance_calibrated,
-        )
-        self._assign_slot(
-            1,
-            second,
-            spec.far_distance_calibrated,
-        )
-        self.dominant_index = 0
-        # One shared cadence: two spatial slots must not double the rate.
-        # This clock advances only during enabled, non-ceremony playback.
-        self.ambient_wait_seconds = float(self.rng.uniform(120.0, 300.0))
-        self.ambient_passage_audio = None
-        self.ambient_passage_position = 0
-        self.ambient_passage_slot = None
-
-
-        self.scene = self.SCENE_REST
-        self.scene_elapsed = 0.0
-        self.scene_duration = 240.0
-        self.conductor_elapsed = 0.0
-        self.creepy_window = 0.0
-        # Do not front-load a guaranteed five-minute event. Start from the
-        # same irregular opportunity spacing used throughout the session.
-        self.next_event_seconds = self._new_event_interval(spec, 0.65)
-        self.seconds_since_last_event = 0.0
-        self.soft_max_event_silence_seconds = 2700.0
-        # Prevent an expired countdown from firing the instant an audible
-        # scene begins after a long rest. Give the world time to establish.
-        self.event_scene_grace_seconds = 75.0
-
-        # A motif pair is persistent during a cross-fade, but the outgoing
-        # motif must be replaced afterward. This upper bound also prevents a
-        # sequence of REST/DEVELOP choices from starving catalogue rotation.
-        self.seconds_since_role_exchange = 0.0
-        self.maximum_motif_tenure_seconds = 2700.0
-        self.pending_event_asset: DreamMotifAsset | None = None
-        self.pending_event_rejected: set[Path] = set()
-        self.recent_event_paths: list[Path] = []
-        self.recent_event_families: list[str] = []
-        self.recent_gestures: list[str] = []
-        self.event_sources = [renderer.create_source(
-            position=STEAM_DEFAULT_SOURCE_POSITION,
-            spatial_blend=1.0,
-            distance_attenuation_enabled=True,
-        ) for _ in range(6)]
-        self.events: list[ActiveDreamMotifEvent] = []
-
-        self.current_status = "catalogued; background assets pending"
-        self.current_dominant_name = first.name if first else ""
-        self.current_distant_name = second.name if second else ""
-        self.current_clock_mode = "NORMAL"
-        self.current_effective_time_scale = 1.0
-        self._testing_advance_pending = False
-
-        self._command_lock = threading.Lock()
-        self._force_exchange_requested = False
-
-        # Ambient recordings are non-looping environmental scenes.
-        # Each plays once, fades out, and hands off to a different recording.
-        # Fade duration comes from DreamMotifSpatialSpec so it can be tuned live.
-
-        self.render_elapsed_seconds = 0.0
-        self._event_journal = deque(maxlen=4096)
-        self._last_logged_clock_mode = self.current_clock_mode
-        self._last_logged_roles = (
-            self.current_dominant_name,
-            self.current_distant_name,
-        )
-        self._last_logged_threshold_state = (False, False)
-
+        self.source = renderer.create_source(position=STEAM_DEFAULT_SOURCE_POSITION,
+            spatial_blend=1.0, distance_attenuation_enabled=True)
         self._manual_lock = threading.Lock()
+        self._command_lock = threading.Lock()
+        self._trigger_requested = False
         self.manual_enabled = False
-        self.manual_source_kind = "dominant"
+        self.manual_source_kind = 'ambient'
         self.manual_position = np.array([0.0, 0.0, -2.0], dtype=np.float64)
         self.manual_gain_db = -18.0
-        self.manual_solo = False
-        self.manual_test_motif_name = first.name if first else ""
-        self.manual_test_asset: DreamMotifAsset | None = None
-        self.manual_test_audio: np.ndarray | None = None
+        self.manual_solo = True
+        self.manual_test_motif_name = ''
+        self.manual_test_asset = None
+        self.manual_test_audio = None
         self.manual_test_read_position = 0
-        self.manual_test_rejected: set[Path] = set()
-        self.manual_test_source = renderer.create_source(
-            position=STEAM_DEFAULT_SOURCE_POSITION,
-            spatial_blend=1.0,
-            distance_attenuation_enabled=True,
-        )
+        self._manual_previous = False
+        self.offline = False
+        self.start_blocked = False  # Ceremony due: finish the current clip, then yield.
+        self.cancel_event = None
+        self.render_elapsed_seconds = 0.0
+        self._event_journal = deque(maxlen=4096)
+        self.current_status = 'Waiting for ambient audio'
+        self.phase = 'waiting'
+        self.active_asset = None
+        self.active_audio = None
+        self.read_position = 0
+        self.current_distance = self.state.get().far_distance_calibrated
+        self.current_position = np.array([0.0, 0.0, -self.current_distance])
+        self._startup = True
+        self._wait_limit = self.state.get().startup_rest_seconds
+        self.wait_seconds = self._wait_limit
+        self._load_catalog()
 
-    def _reset_ambient_curation(self, motifs):
-        # Snapshot outside the audio callback. Exports construct a fresh engine.
-        self.ambient_curation = AudioCuration()
-        self.curated_ambient_assets = {
-            str(asset.path): asset
-            for motif in motifs
-            for asset in (*motif.ambient_assets, *motif.layered_assets)
-            if self.ambient_curation.tier_for_path(asset.path) != "stash"
-        }
+    def _load_catalog(self):
+        self.catalog = DreamMotifCatalog(root_directory=self.root_directory,
+            layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS)
+        motifs = self.catalog.scan()
+        curation = AudioCuration()
+        self.assets = {}
+        self.asset_motifs = {}
+        self.short_keys = set()
+        for motif in motifs:
+            for asset in (*motif.ambient_assets, *motif.layered_assets):
+                key = str(asset.path)
+                if curation.tier_for_path(asset.path) == 'stash':
+                    continue
+                self.assets[key] = asset
+                self.asset_motifs[key] = motif.name
+                if asset.metadata_known and asset.is_layered_event:
+                    self.short_keys.add(key)
         self.ambient_priority_bag = CurationShuffleBag({
-            key: self.ambient_curation.tier_for_path(asset.path)
-            for key, asset in self.curated_ambient_assets.items()
+            key: curation.tier_for_path(asset.path) for key, asset in self.assets.items()
         }, self.rng)
-        self.curated_ambient_pending = None
-        self.curated_ambient_failed = set()
-        self.curated_ambient_short = set()
-        self._known_short_assets = tuple(asset for motif in motifs for asset in motif.layered_assets)
-        self.ambient_passage_audio = None
-        self.ambient_passage_slot = None
-        self.ambient_passage_position = 0
-        self.ambient_wait_seconds = float(self.rng.uniform(120.0, 300.0))
+        self.failed_keys = set()
+        self.pending_key = None
+        self.pending_prepared = None
+        self.asset_manager = AudioAssetManager(root_directory=self.root_directory,
+            sample_rate=self.sample_rate,
+            layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS)
+        self.manual_test_motif_name = motifs[0].name if motifs else ''
+        self._journal('AMBIENT_CATALOG', f'files={len(self.assets)}; ' + '; '.join(
+            f'{tier}={len(self.ambient_priority_bag.remaining[tier])}'
+            for tier in self.ambient_priority_bag.TIERS))
 
-    def _curated_ambient_ready(self, spec):
-        """Peek at one shared selection; consume only at an audible start.
+    @staticmethod
+    def _smoothstep5(value):
+        value = np.clip(value, 0.0, 1.0)
+        return value ** 3 * (value * (value * 6.0 - 15.0) + 10.0)
 
-        Disabled short effects and failed decodes are ineligible, not consumed.
-        No motif changes or speculative slot preloads advance this bag.
-        """
-        bag = self.ambient_priority_bag
-        eligible = {
-            key for key, asset in self.curated_ambient_assets.items()
-            if key not in self.curated_ambient_failed
-            and (spec.featured_events_enabled or not (
-                key in self.curated_ambient_short
-                or (asset.metadata_known and asset in self._known_short_assets)
-            ))
-        }
-        if self.curated_ambient_pending not in eligible:
-            self.curated_ambient_pending = None
+    @staticmethod
+    def _format_log_time(seconds):
+        millis = max(0, int(round(seconds * 1000)))
+        hours, millis = divmod(millis, 3600000)
+        minutes, millis = divmod(millis, 60000)
+        secs, millis = divmod(millis, 1000)
+        return f'{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}'
+
+    def _journal(self, category, message):
+        self._event_journal.append((self.render_elapsed_seconds, category, message))
+
+    def drain_event_journal(self):
+        result = []
+        while self._event_journal:
+            result.append(self._event_journal.popleft())
+        return result
+
+    def _new_gap(self, spec):
+        return float(self.rng.uniform(spec.ambient_gap_min_seconds, spec.ambient_gap_max_seconds))
+
+    def request_trigger(self):
+        with self._command_lock:
+            self._trigger_requested = True
+
+    def _peek_next(self, spec):
+        """One shared priority pool for beds and effects, independent of vocals."""
+        if spec.featured_events_enabled != getattr(self, '_short_enabled', None):
+            self._short_enabled = spec.featured_events_enabled
+            self.pending_key = self.pending_prepared = None
+        eligible = {key for key in self.assets if key not in self.failed_keys
+                    and (spec.featured_events_enabled or key not in self.short_keys)}
+        if self.pending_key not in eligible:
+            self.pending_key = self.pending_prepared = None
         if not eligible:
             return None, None
-        if self.curated_ambient_pending is None:
+        bag = self.ambient_priority_bag
+        if self.pending_key is None:
             if not any(key in eligible for names in bag.remaining.values() for key in names):
                 bag.refill()
             for tier in bag.TIERS:
                 names = [key for key in bag.remaining[tier] if key in eligible]
                 if names:
-                    self.curated_ambient_pending = next(
-                        (key for key in names if key != bag.last_name), names[0])
+                    self.pending_key = next((key for key in names if key != bag.last_name), names[0])
                     break
-        key = self.curated_ambient_pending
-        asset = self.curated_ambient_assets[key]
-        self.asset_manager.request(asset, AudioAssetManager.PRIORITY_HIGH)
-        prepared = self.asset_manager.get_if_ready(asset)
-        if self.asset_manager.error_for(asset):
-            self.curated_ambient_failed.add(key)
-            self.curated_ambient_pending = None
-            self._journal("AMBIENT_LOAD_FAILED", str(asset.path))
-            return None, None
-        if prepared is not None and prepared.is_layered_event:
-            self.curated_ambient_short.add(key)
-            if not spec.featured_events_enabled:
-                self.curated_ambient_pending = None
+        asset = self.assets[self.pending_key]
+        if self.pending_prepared is None:
+            self.asset_manager.request(asset, AudioAssetManager.PRIORITY_HIGH)
+            prepared = self.asset_manager.get_if_ready(asset)
+            error = self.asset_manager.error_for(asset)
+            if error:
+                self.failed_keys.add(self.pending_key)
+                self._journal('AMBIENT_LOAD_FAILED', f'{asset.path}: {error}')
+                self.pending_key = None
                 return None, None
-        return asset, prepared
+            if prepared is None:
+                return asset, None
+            if len(prepared.mono) == 0:
+                self.failed_keys.add(self.pending_key)
+                self.pending_key = None
+                return None, None
+            if prepared.is_layered_event:
+                self.short_keys.add(self.pending_key)
+                if not spec.featured_events_enabled:
+                    self.pending_key = None
+                    return None, None
+            self.pending_prepared = prepared  # Pin the one pending buffer in memory.
+        return asset, self.pending_prepared
 
-    def _consume_curated_ambient(self, asset):
+    @staticmethod
+    def passage_times(duration, spec):
+        # Preserve relative entrance/exit lengths when a short clip cannot fit
+        # the requested times. Reserve 10% of the recording for its closest point.
+        approach = max(0.01, float(spec.ambient_approach_seconds))
+        recede = max(0.01, float(spec.fade_out_seconds))
+        scale = min(1.0, duration * 0.90 / (approach + recede))
+        return approach * scale, recede * scale
+
+    def _start(self, asset, prepared, spec, quiet):
+        self.active_asset = asset
+        self.active_audio = prepared.mono
+        self.read_position = 0
+        self.duration_seconds = len(self.active_audio) / self.sample_rate
+        self.approach_seconds, self.recede_seconds = self.passage_times(self.duration_seconds, spec)
+        # Presence and metabolism modulate the nearest point through distance,
+        # rather than an invisible extra gain envelope or trigger gate.
+        nearness = spec.presence * (spec.busy_presence_floor + (1.0 - spec.busy_presence_floor) * quiet)
+        self.passage_far = max(0.25, spec.far_distance_calibrated)
+        near = max(0.25, spec.closest_ambient_distance)
+        self.passage_near = near + (self.passage_far - near) * (1.0 - nearness)
+        self._azimuth = float(self.rng.uniform(-0.65, 0.65))
+        self._elevation = float(self.rng.uniform(-0.12, 0.2))
+        self._move_elapsed = 0.0
+        self._choose_motion(spec)
+        self.phase = 'approach'
+        self.current_distance = self.passage_far
         key = str(asset.path)
         bag = self.ambient_priority_bag
         bag.take_specific(key)
-        self.curated_ambient_pending = None
-        self._journal("AMBIENT_CURATION_DRAW",
-                      f"tier={bag.tiers[key]}; cycle={bag.cycle}; asset={asset.path}")
+        self.pending_key = self.pending_prepared = None
+        self._journal('AMBIENT_CURATION_DRAW',
+            f'tier={bag.tiers[key]}; cycle={bag.cycle}; asset={asset.path}')
+        self._journal('AMBIENT_PASSAGE_START',
+            f'asset={asset.path}; duration={self.duration_seconds:.2f}s; '
+            f'approach={self.approach_seconds:.2f}s; recede={self.recede_seconds:.2f}s; '
+            f'far={self.passage_far:.2f}m; nearest={self.passage_near:.2f}m')
 
-    @staticmethod
-    def _smoothstep5(v: float) -> float:
-        v = float(np.clip(v, 0.0, 1.0))
-        return v ** 3 * (v * (v * 6.0 - 15.0) + 10.0)
+    def _choose_motion(self, spec):
+        self._move_start = np.array([self._azimuth, self._elevation])
+        span = math.radians(80.0) * spec.motion
+        target = float(self.rng.uniform(-span, span)) if spec.motion > 0 else self._azimuth
+        self._move_target = np.array([target,
+            float(self.rng.uniform(-0.15, 0.25)) * spec.motion if spec.motion > 0 else self._elevation])
+        self._move_elapsed = 0.0
+        self._move_duration = float(self.rng.uniform(spec.wander_min_seconds, spec.wander_max_seconds))
+        self._motion_settings = (spec.motion, spec.wander_min_seconds, spec.wander_max_seconds)
 
-    @staticmethod
-    def _db_gain(db: float) -> float:
-        return 10.0 ** (float(db) / 20.0)
+    def _position(self, elapsed, dt, spec):
+        if (spec.motion, spec.wander_min_seconds, spec.wander_max_seconds) != self._motion_settings:
+            self._choose_motion(spec)
+        self._move_elapsed += dt
+        u = float(self._smoothstep5(self._move_elapsed / self._move_duration))
+        angles = self._move_start + (self._move_target - self._move_start) * u
+        self._azimuth, self._elevation = map(float, angles)
+        if self._move_elapsed >= self._move_duration:
+            self._choose_motion(spec)
+        # A slow, nonlinear emergence, reversed at the end. Interpolate distance
+        # directly: attenuation rises naturally as the source comes nearer.
+        approach = float(self._smoothstep5(elapsed / self.approach_seconds)) ** 2
+        remaining = max(0.0, self.duration_seconds - elapsed)
+        recede = float(self._smoothstep5(remaining / self.recede_seconds)) ** 2
+        proximity = min(approach, recede)
+        anchor_distance = self.passage_far + (self.passage_near - self.passage_far) * proximity
+        # A finite Far distance can still be audible. Continue the exit beyond
+        # that anchor toward practical silence at EOF. No gain fade is added.
+        # The clamp keeps positions finite; even inverse-distance attenuation
+        # then supplies a further 60 dB of reduction at the end.
+        exit_presence = float(self._smoothstep5(remaining / self.recede_seconds))
+        self.current_distance = anchor_distance / max(exit_presence, 0.001)
+        self.phase = ('approach' if elapsed < self.approach_seconds else
+                      'recede' if remaining <= self.recede_seconds else 'linger')
+        # Spherical coordinates prevent a lateral movement cutting through the head.
+        self.current_position = self.current_distance * np.array([
+            math.sin(self._azimuth) * math.cos(self._elevation),
+            math.sin(self._elevation),
+            -math.cos(self._azimuth) * math.cos(self._elevation)])
+        self.source.set_position_vector(Vector3(*map(float, self.current_position)))
 
-    @staticmethod
-    def _vector3(v: np.ndarray) -> Vector3:
-        return Vector3(float(v[0]), float(v[1]), float(v[2]))
-
-    def _random_direction(self) -> np.ndarray:
-        az = self.rng.uniform(-math.pi, math.pi)
-        elevation = self.rng.uniform(-0.25, 0.35)
-        return np.array([
-            math.sin(az) * math.cos(elevation),
-            math.sin(elevation),
-            -math.cos(az) * math.cos(elevation),
-        ], dtype=np.float64)
-
-    def _make_slot(self, distance: float) -> DreamMotifSlot:
-        position = self._random_direction() * distance
-        source = self.renderer.create_source(
-            position=self._vector3(position), spatial_blend=1.0,
-            distance_attenuation_enabled=True,
-        )
-        return DreamMotifSlot(
-            motif=None, source=source, direction=position / max(distance, 1e-9),
-            distance=float(distance), target_distance=float(distance),
-            gain_linear=0.0, target_gain_linear=0.0,
-            position=position.copy(), move_start=position.copy(),
-            move_target=position.copy(), move_elapsed=0.0, move_duration=30.0,
-        )
-
-    def _assign_slot(self, index: int, motif: DreamMotif | None,
-                     distance: float) -> None:
-        slot = self.slots[index]
-        p = self._random_direction() * distance
-        slot.motif = motif
-        slot.audio = None
-        slot.current_asset_path = None
-        slot.pending_asset = None
-
-        slot.next_audio = None
-        slot.next_asset_path = None
-        slot.next_pending_asset = None
-        slot.next_read_position = 0
-
-        slot.rejected_paths.clear()
-        slot.recent_ambient_paths.clear()
-        slot.read_position = 0
-        slot.exposure = 0.0
-        slot.target_exposure = 0.0
-        slot.position = p.copy(); slot.move_start = p.copy(); slot.move_target = p.copy()
-        slot.move_elapsed = 0.0; slot.move_duration = 30.0
-        slot.distance = float(np.linalg.norm(p)); slot.direction = p / max(slot.distance, 1e-9)
-        slot.source.set_position_vector(self._vector3(p))
-        self._ensure_slot_audio(slot, AudioAssetManager.PRIORITY_HIGH)
+    def _finish(self, spec, interrupted=False):
+        if self.active_asset is not None:
+            self._journal('AMBIENT_INTERRUPTED' if interrupted else 'AMBIENT_PASSAGE_END',
+                          f'asset={self.active_asset.path}; played={self.read_position / self.sample_rate:.2f}s; '
+                          f'duration={self.duration_seconds:.2f}s; end_distance={self.current_distance:.2f}m')
+        self.active_asset = self.active_audio = None
+        self.read_position = 0
+        self.phase = 'waiting'
+        self.wait_seconds = self._new_gap(spec)
+        self._wait_limit = spec.ambient_gap_max_seconds
 
     def set_manual_spatial(self, *, enabled=None, source_kind=None, x=None,
-                           y=None, z=None, gain_db=None, solo=None,
-                           motif_name=None) -> None:
+                           y=None, z=None, gain_db=None, solo=None, motif_name=None):
         with self._manual_lock:
-            if enabled is not None: self.manual_enabled = bool(enabled)
+            if enabled is not None:
+                self.manual_enabled = bool(enabled)
             if source_kind is not None:
-                if source_kind not in {"dominant", "distant", "layered event"}:
-                    raise ValueError(f"Unknown manual source kind: {source_kind}")
                 self.manual_source_kind = source_kind
             if any(v is not None for v in (x, y, z)):
-                p = self.manual_position.copy()
-                if x is not None: p[0] = float(x)
-                if y is not None: p[1] = float(y)
-                if z is not None: p[2] = float(z)
-                self.manual_position = p
-            if gain_db is not None: self.manual_gain_db = float(np.clip(gain_db, -80.0, 12.0))
-            if solo is not None: self.manual_solo = bool(solo)
-            if motif_name is not None and str(motif_name).strip() != self.manual_test_motif_name:
-                self.manual_test_motif_name = str(motif_name).strip()
-                self.manual_test_asset = None; self.manual_test_audio = None
-                self.manual_test_read_position = 0; self.manual_test_rejected.clear()
+                self.manual_position = np.array([
+                    self.manual_position[0] if x is None else x,
+                    self.manual_position[1] if y is None else y,
+                    self.manual_position[2] if z is None else z], dtype=np.float64)
+            if gain_db is not None:
+                self.manual_gain_db = float(gain_db)
+            if solo is not None:
+                self.manual_solo = bool(solo)
+            if motif_name is not None:
+                self.manual_test_motif_name = motif_name
 
     def manual_snapshot(self):
         with self._manual_lock:
-            return (self.manual_enabled, self.manual_source_kind,
-                    self.manual_position.copy(), self.manual_gain_db,
-                    self.manual_solo, self.manual_test_motif_name)
+            return (self.manual_enabled, self.manual_source_kind, self.manual_position.copy(),
+                    self.manual_gain_db, self.manual_solo, self.manual_test_motif_name)
 
-    def _ambient_candidates(self, slot):
-        if slot.motif is None:
-            return []
-        return [
-            asset
-            for asset in slot.motif.ambient_assets
-            if asset.path not in slot.rejected_paths
-        ]
-
-    def _remember_ambient_asset(self, slot, path):
-        if path is None:
-            return
-        slot.recent_ambient_paths.append(path)
-        slot.recent_ambient_paths = slot.recent_ambient_paths[-8:]
-
-    def _choose_ambient_asset(self, slot, avoid_path=None):
-        candidates = self._ambient_candidates(slot)
-        if not candidates:
-            return None
-
-        recent = set(slot.recent_ambient_paths[-6:])
-        novel = [
-            asset for asset in candidates
-            if asset.path != avoid_path and asset.path not in recent
-        ]
-        alternatives = [
-            asset for asset in candidates
-            if asset.path != avoid_path
-        ]
-        pool = novel or alternatives or candidates
-
-        # Ambient beds should feel like a stable distant environment, not a
-        # playlist changing every few seconds. Prefer longer known recordings
-        # while still allowing shorter material to appear occasionally.
-        weights = []
-        for asset in pool:
-            duration = (
-                float(asset.duration_seconds)
-                if asset.metadata_known and asset.duration_seconds > 0.0
-                else 30.0
-            )
-            weight = math.sqrt(max(8.0, min(duration, 300.0)) / 30.0)
-            if duration < 20.0:
-                weight *= 0.30
-            elif duration < 40.0:
-                weight *= 0.60
-            weights.append(max(0.05, weight))
-
-        probabilities = np.asarray(weights, dtype=np.float64)
-        probabilities /= np.sum(probabilities)
-        index = int(self.rng.choice(len(pool), p=probabilities))
-        return pool[index]
-
-    def _request_next_ambient(self, slot, priority):
-        if (
-            slot.audio is None
-            or slot.next_audio is not None
-            or slot.next_pending_asset is not None
-        ):
-            return
-
-        asset = self._choose_ambient_asset(
-            slot,
-            avoid_path=slot.current_asset_path,
-        )
-        if asset is None:
-            return
-
-        slot.next_pending_asset = asset
-        self.asset_manager.request(asset, priority)
-
-    def _poll_next_ambient(self, slot):
-        asset = slot.next_pending_asset
-        if asset is None:
-            return
-
-        prepared = self.asset_manager.get_if_ready(asset)
-        if prepared is not None:
-            if prepared.is_layered_event:
-                slot.rejected_paths.add(asset.path)
-                slot.next_pending_asset = None
-                return
-
-            slot.next_audio = prepared.mono
-            slot.next_asset_path = asset.path
-            slot.next_read_position = 0
-            slot.next_pending_asset = None
-
-            self._journal(
-                "AMBIENT_READY",
-                f"motif={slot.motif.name if slot.motif else 'none'}; "
-                f"next={asset.path.name}",
-            )
-            return
-
-        if self.asset_manager.error_for(asset):
-            slot.rejected_paths.add(asset.path)
-            slot.next_pending_asset = None
-            self._journal(
-                "AMBIENT_LOAD_FAILED",
-                f"motif={slot.motif.name if slot.motif else 'none'}; "
-                f"asset={asset.path.name}",
-            )
-
-    def _ensure_slot_audio(self, slot, priority):
-        if slot.audio is not None:
-            self._poll_next_ambient(slot)
-            self._request_next_ambient(slot, priority)
-            return True
-
-        if slot.motif is None:
-            return False
-
-        if slot.pending_asset is not None:
-            prepared = self.asset_manager.get_if_ready(
-                slot.pending_asset
-            )
+    def _manual_audio(self, frame_count, snapshot):
+        _, kind, position, gain, _, motif = snapshot
+        identity = (kind, motif)
+        if identity != getattr(self, '_manual_identity', None):
+            self._manual_identity = identity
+            self.manual_test_asset = self.manual_test_audio = None
+            self.manual_test_read_position = 0
+        if self.manual_test_asset is None:
+            candidates = [asset for key, asset in self.assets.items()
+                if key not in self.failed_keys and self.asset_motifs[key] == motif
+                and ((key in self.short_keys) == (kind == 'short event'))]
+            if candidates:
+                self.manual_test_asset = candidates[int(self.rng.integers(len(candidates)))]
+                self.asset_manager.request(self.manual_test_asset, AudioAssetManager.PRIORITY_HIGH)
+        asset = self.manual_test_asset
+        if asset is not None and self.manual_test_audio is None:
+            prepared = self.asset_manager.get_if_ready(asset)
             if prepared is not None:
-                asset = slot.pending_asset
+                self.manual_test_audio = prepared.mono
                 if prepared.is_layered_event:
-                    slot.rejected_paths.add(asset.path)
-                    slot.pending_asset = None
-                else:
-                    slot.audio = prepared.mono
-                    slot.current_asset_path = asset.path
-                    slot.read_position = 0
-                    slot.pending_asset = None
+                    self.short_keys.add(str(asset.path))
+                if prepared.is_layered_event != (kind == 'short event'):
+                    self.manual_test_asset = self.manual_test_audio = None
+            elif self.asset_manager.error_for(asset):
+                self.failed_keys.add(str(asset.path))
+                self.manual_test_asset = None
+        if self.manual_test_audio is None or len(self.manual_test_audio) == 0:
+            return np.zeros((frame_count, 2), dtype=np.float32)
+        indices = (np.arange(frame_count) + self.manual_test_read_position) % len(self.manual_test_audio)
+        self.manual_test_read_position += frame_count
+        self.current_position = position
+        self.current_distance = float(np.linalg.norm(position))
+        self.source.set_position_vector(Vector3(*map(float, position)))
+        self.phase = 'manual'
+        return self.source.process_mono(self.manual_test_audio[indices] * 10.0 ** (gain / 20.0))
 
-                    self._remember_ambient_asset(slot, asset.path)
-                    self._journal(
-                        "AMBIENT_LOADED",
-                        f"motif={slot.motif.name}; "
-                        f"asset={asset.path.name}; "
-                        f"duration={len(slot.audio) / self.sample_rate:.2f}s",
-                    )
-                    self._request_next_ambient(slot, priority)
-                    return True
+    def snapshot(self):
+        return {'phase': self.phase, 'asset': str(self.active_asset.path) if self.active_asset else None,
+                'elapsed_s': round(self.read_position / self.sample_rate, 3),
+                'wait_s': round(self.wait_seconds, 3), 'pending': self.pending_key,
+                'distance_m': round(self.current_distance, 3),
+                'position_m': list(map(float, self.current_position)),
+                'cycle': self.ambient_priority_bag.cycle}
 
-            elif self.asset_manager.error_for(slot.pending_asset):
-                slot.rejected_paths.add(slot.pending_asset.path)
-                slot.pending_asset = None
+    @property
+    def playback_label(self):
+        if self.phase == 'manual':
+            return f'Manual: {self.manual_test_asset.path.name if self.manual_test_asset else "loading"}'
+        return (f'{self.active_asset.path.name} — {self.phase}' if self.active_asset else
+                f'{self.phase.capitalize()} — {self.wait_seconds:.1f} s')
 
-        if slot.pending_asset is None:
-            asset = self._choose_ambient_asset(slot)
-            if asset is not None:
-                slot.pending_asset = asset
-                self.asset_manager.request(asset, priority)
+    def _update_status(self):
+        self.current_status = (f'{self.playback_label}\n'
+            f'Distance {self.current_distance:.2f} m; elapsed {self.read_position / self.sample_rate:.1f} s; '
+            f'next gap {self.wait_seconds:.1f} s\n'
+            f'One ambient source; priority cycle {self.ambient_priority_bag.cycle}; '
+            f'{len(self.failed_keys)} unavailable file(s)')
 
-        return slot.audio is not None
-
-    def _promote_next_ambient(self, slot):
-        previous_name = (
-            slot.current_asset_path.name
-            if slot.current_asset_path is not None
-            else "none"
-        )
-        incoming_name = (
-            slot.next_asset_path.name
-            if slot.next_asset_path is not None
-            else "none"
-        )
-
-        slot.audio = slot.next_audio
-        slot.current_asset_path = slot.next_asset_path
-        slot.read_position = slot.next_read_position
-
-        slot.next_audio = None
-        slot.next_asset_path = None
-        slot.next_pending_asset = None
-        slot.next_read_position = 0
-
-        self._remember_ambient_asset(slot, slot.current_asset_path)
-        self._journal(
-            "AMBIENT_SWITCH",
-            f"motif={slot.motif.name if slot.motif else 'none'}; "
-            f"{previous_name} -> {incoming_name}",
-        )
-
-    def _render_ambient_passage(self, frame_count, spec):
-        """Render one recording, followed by 2–5 minutes of real silence.
-
-        Snapshot the audio so catalogue/role changes cannot replace a passage
-        midway through. Preloading is independent of actual audible starts.
-        """
-        output = np.zeros(frame_count, dtype=np.float32)
-        index = self.ambient_passage_slot
-        if self.ambient_passage_audio is None:
-            if self.events:
-                # Featured effects also earn a full quiet interval afterward.
-                self.ambient_wait_seconds = max(self.ambient_wait_seconds, 120.0)
-                return None, output
-            self.ambient_wait_seconds = max(
-                0.0, self.ambient_wait_seconds - frame_count / self.sample_rate
-            )
-            if self.ambient_wait_seconds > 0.0 and not spec.testing:
-                return None, output
-            asset, prepared = self._curated_ambient_ready(spec)
-            if prepared is None or prepared.is_layered_event:
-                return None, output
-            index = self.dominant_index
-            slot = self.slots[index]
-            if slot.exposure < self.MIN_PLAYING_EXPOSURE:
-                return None, output
-            self.ambient_passage_audio = prepared.mono
-            self.ambient_passage_position = 0
-            self.ambient_passage_slot = index
-            self._consume_curated_ambient(asset)
-            self._journal(
-                "AMBIENT_PASSAGE_START",
-                f"asset={asset.path}; duration={len(prepared.mono) / self.sample_rate:.2f}s",
-            )
-
-        audio = self.ambient_passage_audio
-        start = self.ambient_passage_position
-        take = min(frame_count, len(audio) - start)
-        positions = start + np.arange(take)
-        fade = max(1, min(int(spec.ambient_clip_fade_seconds * self.sample_rate),
-                          len(audio) // 4))
-        envelope = np.sin(np.clip(positions / fade, 0, 1) * math.pi / 2)
-        envelope *= np.sin(np.clip((len(audio) - 1 - positions) / fade, 0, 1)
-                           * math.pi / 2)
-        output[:take] = audio[start:start + take] * envelope
-        self.ambient_passage_position += take
-        if self.ambient_passage_position >= len(audio):
-            self.ambient_passage_audio = None
-            self.ambient_passage_slot = None
-            self.ambient_wait_seconds = float(self.rng.uniform(120.0, 300.0))
-            self._journal("AMBIENT_PASSAGE_END",
-                          f"quiet_interval={self.ambient_wait_seconds:.1f}s")
-        return index, output
-
-    def _render_loop(self, slot, frame_count):
-        output = np.zeros(frame_count, dtype=np.float32)
-
-        if slot.audio is None or len(slot.audio) == 0:
-            return output
-
-        self._poll_next_ambient(slot)
-        self._request_next_ambient(
-            slot,
-            AudioAssetManager.PRIORITY_HIGH,
-        )
-
-        written = 0
-
-        while written < frame_count:
-            current = slot.audio
-            if current is None or len(current) == 0:
-                break
-
-            remaining = len(current) - slot.read_position
-
-            if remaining <= 0:
-                if slot.next_audio is not None:
-                    self._promote_next_ambient(slot)
-                    self._request_next_ambient(
-                        slot,
-                        AudioAssetManager.PRIORITY_HIGH,
-                    )
-                    continue
-
-                # Never loop a completed ambient. Stay silent until the next
-                # environmental recording is ready.
-                self._journal(
-                    "AMBIENT_GAP",
-                    f"motif={slot.motif.name if slot.motif else 'none'}; "
-                    "completed recording; waiting for next ambient",
-                )
-                slot.audio = None
-                slot.current_asset_path = None
-                slot.read_position = 0
-                break
-
-            fade_frames = max(
-                1,
-                min(
-                    int(
-                        self.state.get().ambient_clip_fade_seconds
-                        * self.sample_rate
-                    ),
-                    len(current) // 4,
-                ),
-            )
-
-            crossfade_available = (
-                slot.next_audio is not None
-                and remaining <= fade_frames
-            )
-
-            take = min(frame_count - written, remaining)
-            current_indices = (
-                np.arange(take, dtype=np.int64)
-                + slot.read_position
-            )
-            current_chunk = current[current_indices].astype(
-                np.float64,
-                copy=False,
-            )
-
-            # Fade-in at the beginning of every new environmental recording.
-            current_positions = (
-                np.arange(take, dtype=np.int64)
-                + slot.read_position
-            )
-            fade_in = np.clip(
-                current_positions / fade_frames,
-                0.0,
-                1.0,
-            )
-            current_gain = np.sin(
-                fade_in * math.pi * 0.5
-            )
-
-            if crossfade_available:
-                # Fade the current recording out while the next different
-                # recording fades in at the same spatial anchor.
-                fade_out = np.clip(
-                    (
-                        len(current)
-                        - current_positions
-                    ) / fade_frames,
-                    0.0,
-                    1.0,
-                )
-                current_gain *= np.sin(
-                    fade_out * math.pi * 0.5
-                )
-
-                next_audio = slot.next_audio
-                next_indices = (
-                    np.arange(take, dtype=np.int64)
-                    + slot.next_read_position
-                )
-                valid = next_indices < len(next_audio)
-
-                next_chunk = np.zeros(take, dtype=np.float64)
-                next_chunk[valid] = next_audio[
-                    next_indices[valid]
-                ]
-
-                incoming_progress = np.clip(
-                    next_indices / fade_frames,
-                    0.0,
-                    1.0,
-                )
-                incoming_gain = np.sin(
-                    incoming_progress * math.pi * 0.5
-                )
-
-                output[written:written + take] = (
-                    current_chunk * current_gain
-                    + next_chunk * incoming_gain
-                ).astype(np.float32)
-
-                slot.next_read_position += int(np.sum(valid))
-            else:
-                # No next recording ready: still fade the current ambient
-                # naturally to silence rather than cutting or looping.
-                fade_out = np.clip(
-                    (
-                        len(current)
-                        - current_positions
-                    ) / fade_frames,
-                    0.0,
-                    1.0,
-                )
-                current_gain *= np.sin(
-                    fade_out * math.pi * 0.5
-                )
-
-                output[written:written + take] = (
-                    current_chunk * current_gain
-                ).astype(np.float32)
-
-            slot.read_position += take
-            written += take
-
-            if slot.read_position >= len(current):
-                if slot.next_audio is not None:
-                    self._promote_next_ambient(slot)
-                    self._request_next_ambient(
-                        slot,
-                        AudioAssetManager.PRIORITY_HIGH,
-                    )
-                else:
-                    slot.audio = None
-                    slot.current_asset_path = None
-                    slot.read_position = 0
-
+    def generate(self, frame_count, enabled, metabolism_activity=0.0):
+        # Match native spatial cadence in both realtime and large export chunks.
+        output = np.zeros((frame_count, 2), dtype=np.float32)
+        for offset in range(0, frame_count, self.renderer.frame_size):
+            count = min(self.renderer.frame_size, frame_count - offset)
+            output[offset:offset + count] = self._render_piece(count, enabled, metabolism_activity)
         return output
 
-    def _manual_event_candidates(self, motif_name):
-        motif = next((m for m in self.bag.motifs if m.name == motif_name), None)
-        if motif is None: return []
-        candidates = list(motif.layered_assets)
-        candidates.extend(a for a in motif.ambient_assets if not a.metadata_known)
-        return [a for a in candidates if a.path not in self.manual_test_rejected]
-
-    def _ensure_manual_event_audio(self, motif_name):
-        if self.manual_test_audio is not None: return True
-        if self.manual_test_asset is not None:
-            p = self.asset_manager.get_if_ready(self.manual_test_asset)
-            if p is not None:
-                if p.is_layered_event:
-                    self.manual_test_audio = p.mono; self.manual_test_read_position = 0; return True
-                self.manual_test_rejected.add(self.manual_test_asset.path); self.manual_test_asset = None
-            elif self.asset_manager.error_for(self.manual_test_asset):
-                self.manual_test_rejected.add(self.manual_test_asset.path); self.manual_test_asset = None
-        if self.manual_test_asset is None:
-            c = self._manual_event_candidates(motif_name)
-            if c:
-                self.manual_test_asset = c[0]
-                self.asset_manager.request(self.manual_test_asset, AudioAssetManager.PRIORITY_CRITICAL)
-        return self.manual_test_audio is not None
-
-    def _render_manual_event(self, frame_count, position, gain_db, motif_name):
-        if not self._ensure_manual_event_audio(motif_name):
-            return np.zeros((frame_count, 2), dtype=np.float32)
-        audio = self.manual_test_audio
-        idx = (np.arange(frame_count, dtype=np.int64) + self.manual_test_read_position) % len(audio)
-        self.manual_test_read_position = int((self.manual_test_read_position + frame_count) % len(audio))
-        self.manual_test_source.set_position_vector(self._vector3(position))
-        return self.manual_test_source.process_mono(audio[idx] * self._db_gain(gain_db))
-
-    def _scene_duration(self, spec, scene):
-
-        # These are real sleep-time durations. Development testing is done by
-        # accelerating the conductor clock, not by making the composition dense.
-        if scene == self.SCENE_ESTABLISH:
-            return float(spec.ambient_approach_seconds)
-        if scene == self.SCENE_EXCHANGE:
-            return float(spec.motif_crossfade_seconds)
-
-        base = {
-            self.SCENE_DEVELOP: 360.0,
-            self.SCENE_FOCUS: 100.0,
-            self.SCENE_REVEAL: 80.0,
-            self.SCENE_AFTERIMAGE: 180.0,
-            self.SCENE_REST: 360.0,
-        }[scene]
-        # Low Activity substantially lengthens scenes and especially rest.
-        activity_scale = 1.75 - 1.05 * spec.activity
-        if scene == self.SCENE_REST:
-            activity_scale *= 1.30 + 1.20 * (1.0 - spec.activity)
-        drama_scale = 1.20 - 0.35 * spec.drama
-        return float(
-            base
-            * activity_scale
-            * drama_scale
-            * self.rng.uniform(0.80, 1.25)
-            * spec.scene_duration_scale
-        )
-
-    @staticmethod
-    def _format_log_time(seconds: float) -> str:
-        total_ms = max(0, int(round(seconds * 1000.0)))
-        hours, remainder = divmod(total_ms, 3_600_000)
-        minutes, remainder = divmod(remainder, 60_000)
-        secs, millis = divmod(remainder, 1000)
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
-
-    def _journal(self, category: str, message: str) -> None:
-        self._event_journal.append(
-            (
-                self.render_elapsed_seconds,
-                str(category),
-                str(message),
-            )
-        )
-
-    def drain_event_journal(self) -> list[tuple[float, str, str]]:
-        entries = list(self._event_journal)
-        self._event_journal.clear()
-        return entries
-
-    def _capture_exchange_start(self, spec) -> None:
-        outgoing_index = self.dominant_index
-        incoming_index = 1 - self.dominant_index
-
-        for index, slot in enumerate(self.slots):
-            slot.exchange_start_position = slot.position.copy()
-
-        outgoing = self.slots[outgoing_index]
-        incoming = self.slots[incoming_index]
-        self._journal(
-            "EXCHANGE_START",
-            f"outgoing="
-            f"{outgoing.motif.name if outgoing.motif else 'none'} "
-            f"{np.linalg.norm(outgoing.position):.2f}m -> "
-            f"{spec.far_distance_calibrated:.2f}m; "
-            f"incoming="
-            f"{incoming.motif.name if incoming.motif else 'none'} "
-            f"{np.linalg.norm(incoming.position):.2f}m -> "
-            f"{spec.closest_ambient_distance:.2f}m; "
-            f"duration={spec.motif_crossfade_seconds:.1f}s",
-        )
-
-    def _exchange_target_position(
-        self,
-        slot,
-        target_radius: float,
-        progress: float,
-    ) -> np.ndarray:
-        start = slot.exchange_start_position
-        start_radius = float(np.linalg.norm(start))
-
-        if start_radius > 1.0e-9:
-            direction = start / start_radius
-        elif float(np.linalg.norm(slot.direction)) > 1.0e-9:
-            direction = slot.direction / np.linalg.norm(slot.direction)
-        else:
-            direction = np.array(
-                [0.0, 0.0, -1.0],
-                dtype=np.float64,
-            )
-
-        radius = (
-            start_radius
-            + (target_radius - start_radius) * progress
-        )
-        return direction * radius
-
-    def _update_exchange_position(
-        self,
-        slot,
-        progress: float,
-        target_radius: float,
-    ) -> None:
-        position = self._exchange_target_position(
-            slot,
-            target_radius,
-            progress,
-        )
-        slot.position = position
-        slot.distance = float(np.linalg.norm(position))
-        slot.direction = position / max(slot.distance, 1.0e-9)
-        slot.source.set_position_vector(
-            self._vector3(position)
-        )
-
-    def _finish_exchange_positions(self, spec) -> None:
-        outgoing = self.slots[self.dominant_index]
-        incoming = self.slots[1 - self.dominant_index]
-
-        self._update_exchange_position(
-            outgoing,
-            1.0,
-            spec.far_distance_calibrated,
-        )
-        self._update_exchange_position(
-            incoming,
-            1.0,
-            spec.closest_ambient_distance,
-        )
-
-        self._journal(
-            "EXCHANGE_COMPLETE",
-            f"outgoing="
-            f"{outgoing.motif.name if outgoing.motif else 'none'} "
-            f"at {outgoing.distance:.2f}m; "
-            f"incoming="
-            f"{incoming.motif.name if incoming.motif else 'none'} "
-            f"at {incoming.distance:.2f}m",
-        )
-
-    def _replace_recessive_motif_after_exchange(self, spec, outgoing_index):
-        recessive = self.slots[outgoing_index]
-        outgoing_name = recessive.motif.name if recessive.motif else "none"
-        dominant = self.slots[self.dominant_index]
-
-        excluded = set()
-        if dominant.motif is not None:
-            excluded.add(dominant.motif.name)
-
-        # With three or more motifs, also exclude the world that just receded.
-        # This gives the intended A/B -> B/C -> C/A rotation. With only two
-        # motifs, exclude only the dominant so the other motif can return.
-        if len(self.bag.motifs) > 2 and recessive.motif is not None:
-            excluded.add(recessive.motif.name)
-
-        replacement = self.bag.next(excluded)
-        if replacement is None:
-            return
-
-        self._assign_slot(
-            outgoing_index,
-            replacement,
-            spec.far_distance_calibrated,
-        )
-        self._journal(
-            "MOTIF_REPLACED",
-            f"recessive slot {outgoing_name} -> {replacement.name}; "
-            f"dominant={dominant.motif.name if dominant.motif else 'none'}",
-        )
-
-    def _next_scene(self, spec, quiet):
-        if self.scene == self.SCENE_ESTABLISH:
-            if self.seconds_since_role_exchange >= self.maximum_motif_tenure_seconds:
-                return self.SCENE_EXCHANGE
-            return self.SCENE_DEVELOP
-        if self.scene == self.SCENE_DEVELOP:
-            if self.seconds_since_role_exchange >= self.maximum_motif_tenure_seconds:
-                return self.SCENE_EXCHANGE
-            if quiet > 0.55 and self.rng.random() < 0.35 + 0.45 * spec.drama:
-                return self.SCENE_FOCUS
-            return self.SCENE_EXCHANGE if self.rng.random() < 0.25 + 0.35 * spec.activity else self.SCENE_REST
-        if self.scene == self.SCENE_FOCUS: return self.SCENE_REVEAL
-        if self.scene == self.SCENE_REVEAL: return self.SCENE_AFTERIMAGE
-        if self.scene == self.SCENE_AFTERIMAGE:
-            if self.seconds_since_role_exchange >= self.maximum_motif_tenure_seconds:
-                return self.SCENE_EXCHANGE
-            return self.SCENE_EXCHANGE if self.rng.random() < 0.45 + 0.35 * spec.drama else self.SCENE_REST
-        if self.scene == self.SCENE_EXCHANGE:
-            outgoing_index = self.dominant_index
-            self.dominant_index = 1 - self.dominant_index
-            self.seconds_since_role_exchange = 0.0
-            self._replace_recessive_motif_after_exchange(
-                spec,
-                outgoing_index,
-            )
-            # The incoming motif completed its approach during EXCHANGE.
-            # Entering ESTABLISH here would target the far endpoint again
-            # and visibly undo the completed handoff.
-            return self.SCENE_DEVELOP
-        return self.SCENE_ESTABLISH
-
-    def request_force_exchange(self) -> None:
-        with self._command_lock:
-            self._force_exchange_requested = True
-
-    def _consume_force_exchange_request(self) -> bool:
-        with self._command_lock:
-            requested = self._force_exchange_requested
-            self._force_exchange_requested = False
-            return requested
-
-    def _begin_forced_exchange(self, spec) -> None:
-        outgoing = self.slots[self.dominant_index]
-        incoming = self.slots[1 - self.dominant_index]
-
-        self.scene = self.SCENE_EXCHANGE
-        self.scene_elapsed = 0.0
-        self.scene_duration = float(
-            spec.motif_crossfade_seconds
-        )
-        self._capture_exchange_start(spec)
-
-        self._journal(
-            "FORCED_EXCHANGE",
-            f"outgoing="
-            f"{outgoing.motif.name if outgoing.motif else 'none'}; "
-            f"incoming="
-            f"{incoming.motif.name if incoming.motif else 'none'}; "
-            f"duration={self.scene_duration:.1f}s",
-        )
-
-    def _advance_scene(self, dt, spec, quiet):
-        self.scene_elapsed += dt
-        if self.scene_elapsed >= self.scene_duration:
-            previous_scene = self.scene
-            previous_dominant = self.dominant_index
-
-            if previous_scene == self.SCENE_EXCHANGE:
-                self._finish_exchange_positions(spec)
-
-            self.scene = self._next_scene(spec, quiet)
-            self.scene_elapsed = 0.0
-            self.scene_duration = self._scene_duration(spec, self.scene)
-
-            if self.scene == self.SCENE_EXCHANGE:
-                self._capture_exchange_start(spec)
-            self._journal(
-                "SCENE",
-                f"{previous_scene} -> {self.scene}; "
-                f"duration {self.scene_duration:.1f} s",
-            )
-            if self.dominant_index != previous_dominant:
-                dominant = self.slots[self.dominant_index]
-                recessive = self.slots[1 - self.dominant_index]
-                self._journal(
-                    "ROLE_EXCHANGE",
-                    f"dominant={dominant.motif.name if dominant.motif else 'none'}; "
-                    f"recessive={recessive.motif.name if recessive.motif else 'none'}",
-                )
-
-    def _testing_skip_rest(self, spec, quiet) -> None:
-        """Skip only genuinely idle REST time during Testing.
-
-        Audible approach, development, reveal, afterimage, and exchange
-        remain real-time performances.
-        """
-        if self.scene != self.SCENE_REST:
-            return
-
-        previous_scene = self.scene
-        self.scene = self.SCENE_ESTABLISH
-        self.scene_elapsed = 0.0
-        self.scene_duration = self._scene_duration(
-            spec,
-            self.scene,
-        )
-        self._journal(
-            "TEST_SCENE",
-            f"{previous_scene} -> {self.scene}; idle rest skipped; "
-            f"performance duration {self.scene_duration:.1f} s",
-        )
-
-    def _testing_advance_to_event_scene(self, spec, quiet) -> None:
-        eligible = {
-            self.SCENE_DEVELOP,
-            self.SCENE_REVEAL,
-            self.SCENE_AFTERIMAGE,
-        }
-
-        # Exchange and Establish are protected performances, never idle.
-        if self.scene in {
-            self.SCENE_EXCHANGE,
-            self.SCENE_ESTABLISH,
-        }:
-            return
-
-        self._testing_skip_rest(spec, quiet)
-        if self.scene == self.SCENE_ESTABLISH:
-            return
-
-        must_advance = (
-            self._testing_advance_pending
-            or self.scene not in eligible
-        )
-        self._testing_advance_pending = False
-
-        for _ in range(12):
-            if not must_advance and self.scene in eligible:
-                break
-
-            previous_scene = self.scene
-            previous_dominant = self.dominant_index
-
-            if previous_scene == self.SCENE_EXCHANGE:
-                self._finish_exchange_positions(spec)
-
-            next_scene = self._next_scene(spec, quiet)
-            self.scene = next_scene
-            self.scene_elapsed = 0.0
-            self.scene_duration = self._scene_duration(spec, self.scene)
-
-            if self.scene == self.SCENE_EXCHANGE:
-                self._capture_exchange_start(spec)
-            self._journal(
-                "TEST_SCENE",
-                f"{previous_scene} -> {self.scene}; idle waiting skipped",
-            )
-
-            if self.dominant_index != previous_dominant:
-                dominant = self.slots[self.dominant_index]
-                recessive = self.slots[1 - self.dominant_index]
-                self._journal(
-                    "ROLE_EXCHANGE",
-                    f"dominant={dominant.motif.name if dominant.motif else 'none'}; "
-                    f"recessive={recessive.motif.name if recessive.motif else 'none'}",
-                )
-
-            # Stop immediately upon entering exchange. Its simultaneous
-            # cross-fade and anchor motion must run in real time.
-            if self.scene == self.SCENE_EXCHANGE:
-                break
-
-            must_advance = self.scene not in eligible
-            if self.scene in eligible:
-                break
-
-    def _exposure_targets(self, spec, quiet):
-        """Return dominant/recessive audibility allowed by the current scene."""
-        # Presence means willingness to become clear, not continuous loudness.
-        window = quiet ** 1.35
-        presence = spec.presence * window
-        floor = 0.002
-
-        targets = {
-            self.SCENE_REST: (floor, floor),
-            self.SCENE_ESTABLISH: (
-                0.20 + 0.38 * presence,
-                floor + 0.022 * presence,
-            ),
-            self.SCENE_DEVELOP: (
-                0.28 + 0.46 * presence,
-                0.010 + 0.08 * presence,
-            ),
-            self.SCENE_FOCUS: (
-                0.24 + 0.36 * presence,
-                floor + 0.012 * presence,
-            ),
-            self.SCENE_REVEAL: (
-                0.36 + 0.52 * presence,
-                0.008 + 0.045 * presence,
-            ),
-            self.SCENE_AFTERIMAGE: (
-                0.16 + 0.30 * presence,
-                0.012 + 0.065 * presence,
-            ),
-            self.SCENE_EXCHANGE: (0.0, 0.0),
-        }
-
-        dominant_target, recessive_target = targets[self.scene]
-        if self.scene == self.SCENE_EXCHANGE:
-            progress = self._smoothstep5(
-                self.scene_elapsed / max(self.scene_duration, 1e-9)
-            )
-            # The old world dissolves as the recessive world gradually enters.
-            dominant_target = (
-                (0.30 + 0.42 * presence) * (1.0 - progress)
-                + (0.014 + 0.07 * presence) * progress
-            )
-            recessive_target = (
-                (0.014 + 0.07 * presence) * (1.0 - progress)
-                + (0.30 + 0.42 * presence) * progress
-            )
-
-        # Busy brown noise closes the creepy window rather than forcing the
-        # conductor to compete with it.
-        busy_gate = 0.10 + 0.90 * window
-        return (
-            float(np.clip(dominant_target * busy_gate, 0.0, 1.0)),
-            float(np.clip(recessive_target * busy_gate, 0.0, 1.0)),
-        )
-
-    def _update_exposure(self, slot, target, conductor_dt, spec):
-        slot.target_exposure = float(np.clip(target, 0.0, 1.0))
-        duration = (
-            spec.fade_in_seconds
-            if slot.target_exposure > slot.exposure
-            else spec.fade_out_seconds
-        )
-        # Linear movement gives predictable true fade duration at 1x and the
-        # same composition compressed at higher development time scales.
-        maximum_step = conductor_dt / max(duration, 1e-9)
-        delta = float(
-            np.clip(
-                slot.target_exposure - slot.exposure,
-                -maximum_step,
-                maximum_step,
-            )
-        )
-        slot.exposure = float(
-            np.clip(slot.exposure + delta, 0.0, 1.0)
-        )
-
-    def _role_distance(self, spec, dominant, quiet):
-        """Return the distance of each moving ambient-world anchor.
-
-        Ambient beds never enter the near-ear zone. They make broad, slow
-        far-to-less-far excursions; featured effects may later detach from the
-        anchor and travel independently.
-        """
-        presence = spec.presence * (0.30 + 0.70 * quiet)
-        ambient_near = spec.closest_ambient_distance
-        far = max(
-            ambient_near + 0.1,
-            spec.far_distance_calibrated,
-        )
-        recessive_far = far
-        middle = ambient_near + 0.48 * (far - ambient_near)
-        progress = self._smoothstep5(
-            self.scene_elapsed / max(self.scene_duration, 1.0e-9)
-        )
-
-        if self.scene == self.SCENE_REST:
-            return far + 3.0 if dominant else recessive_far
-
-        if self.scene == self.SCENE_ESTABLISH:
-            if dominant:
-                approach = self._smoothstep5(
-                    min(1.0, progress / 0.55)
-                )
-                return far + (ambient_near - far) * approach
-            return recessive_far
-
-        if self.scene == self.SCENE_DEVELOP:
-            if dominant:
-                # Hover between near-middle and near distance rather than
-                # drifting back into near-inaudibility.
-                return (
-                    ambient_near
-                    + 0.22 * (far - ambient_near)
-                    * (0.5 + 0.5 * math.sin(progress * math.pi))
-                )
-            return recessive_far
-
-        if self.scene == self.SCENE_FOCUS:
-            return ambient_near + 1.5 if dominant else recessive_far
-
-        if self.scene == self.SCENE_REVEAL:
-            return ambient_near if dominant else recessive_far
-
-        if self.scene == self.SCENE_AFTERIMAGE:
-            if dominant:
-                return ambient_near + (middle - ambient_near) * progress
-            return recessive_far
-
-        if self.scene == self.SCENE_EXCHANGE:
-            # Both world anchors move simultaneously: the outgoing dominant
-            # recedes while the incoming recessive advances.
-            if dominant:
-                return ambient_near + (recessive_far - ambient_near) * progress
-            return recessive_far + (ambient_near - recessive_far) * progress
-
-        return middle if dominant else recessive_far
-
-    def _choose_wander_target(self, slot, role_distance, spec, dominant, quiet):
-        motion = spec.motion * (0.45 + 0.55 * quiet)
-
-        # Ambient worlds drift across a broad angular field while remaining
-        # outside the listener's immediate headspace.
-        azimuth_span = math.radians(22.0 + 58.0 * motion)
-        elevation_span = math.radians(5.0 + 16.0 * motion)
-        azimuth = float(self.rng.uniform(-azimuth_span, azimuth_span))
-        elevation = float(
-            self.rng.uniform(-0.45 * elevation_span, elevation_span)
-        )
-
-        # Mostly in front; high drama allows an occasional distant rear world.
-        behind_chance = (0.02 + 0.12 * spec.drama) * quiet
-        if self.rng.random() < behind_chance:
-            azimuth = math.copysign(
-                math.pi - abs(azimuth),
-                azimuth if abs(azimuth) > 1.0e-9 else 1.0,
-            )
-
-        horizontal = role_distance * math.cos(elevation)
-        target = np.array(
-            [
-                horizontal * math.sin(azimuth),
-                role_distance * math.sin(elevation),
-                -horizontal * math.cos(azimuth),
-            ],
-            dtype=np.float64,
-        )
-        slot.move_start = slot.position.copy()
-        slot.move_target = target
-        slot.move_elapsed = 0.0
-
-        # The world anchor should feel architectural, not like a moving object.
-        slow = 70.0 + (1.0 - motion) * 150.0
-        slot.move_duration = float(
-            self.rng.uniform(slow * 0.80, slow * 1.35)
-        )
-
-    def _update_wander(self, slot, dt, role_distance, spec, dominant, quiet):
-        slot.move_elapsed += dt
-        if slot.move_elapsed >= slot.move_duration:
-            self._choose_wander_target(
-                slot,
-                role_distance,
-                spec,
-                dominant,
-                quiet,
-            )
-
-        t = self._smoothstep5(
-            slot.move_elapsed / max(slot.move_duration, 1.0e-9)
-        )
-        p = slot.move_start + (slot.move_target - slot.move_start) * t
-
-        # Scene distance is a continuously moving radial target. Ease toward
-        # it slowly so the bed can be heard approaching or receding.
-        radius = float(np.linalg.norm(p))
-        if radius > 1.0e-9:
-            desired = p / radius * role_distance
-            radial_time_constant = (
-                28.0
-                if self.scene == self.SCENE_EXCHANGE
-                else 18.0
-                if self.scene in {
-                    self.SCENE_ESTABLISH,
-                    self.SCENE_DEVELOP,
-                    self.SCENE_FOCUS,
-                    self.SCENE_REVEAL,
-                }
-                else 35.0
-            )
-            p = p + (desired - p) * min(
-                1.0,
-                dt / radial_time_constant,
-            )
-
-        slot.position = p
-        slot.distance = float(np.linalg.norm(p))
-        slot.direction = p / max(slot.distance, 1.0e-9)
-        slot.source.set_position_vector(self._vector3(p))
-
-    @staticmethod
-    def _event_family(path: Path) -> str:
-        stem = path.stem.lower()
-        stem = re.sub(r"[_\-#]*\d+(?:[_\-#]*\d+)*$", "", stem)
-        stem = re.sub(r"\b(?:take|version|ver|copy|edit|alt)\s*\d*\b", "", stem)
-        stem = re.sub(r"[^a-z]+", " ", stem)
-        return " ".join(stem.split())
-
-    def _event_candidates(self, slot, spec):
-        if slot.motif is None:
-            return []
-
-        candidates = list(slot.motif.layered_assets)
-        candidates.extend(
-            asset
-            for asset in slot.motif.ambient_assets
-            if not asset.metadata_known
-        )
-
-        recent_window = max(
-            6,
-            int(round(8 + spec.novelty * 8)),
-        )
-        recent_paths = set(
-            self.recent_event_paths[-recent_window:]
-        )
-        recent_families = set(
-            self.recent_event_families[-recent_window:]
-        )
-
-        eligible = [
-            asset
-            for asset in candidates
-            if asset.path not in self.pending_event_rejected
-        ]
-        novel = [
-            asset
-            for asset in eligible
-            if asset.path not in recent_paths
-            and self._event_family(asset.path)
-            not in recent_families
-        ]
-        if novel:
-            return novel
-
-        path_novel = [
-            asset
-            for asset in eligible
-            if asset.path not in recent_paths
-        ]
-        return path_novel or eligible
-
-    def _new_event_interval(self, spec, quiet):
-        # These settings describe opportunity spacing, not guaranteed audible
-        # events. Scene/quiet/probability gates remain in charge of subtlety.
-        low = float(spec.event_interval_min_seconds)
-        high = float(spec.event_interval_max_seconds)
-        base = float(self.rng.uniform(low, high))
-
-        # Busy metabolism stretches the wait modestly; a quiet window with
-        # reasonable Presence shortens it modestly. Keep the correction small
-        # so the user-facing min/max values remain meaningful.
-        modifier = (
-            1.0
-            + 0.20 * (1.0 - quiet)
-            - 0.12 * quiet * spec.presence
-        )
-        return float(max(120.0, base * modifier))
-
-    def _event_retry_interval(self, spec):
-        # A probability rejection should not restart a full 10-20 minute wait.
-        # Retry after a shorter irregular window, while all normal scene and
-        # quiet gates still apply.
-        low = max(120.0, min(300.0, spec.event_interval_min_seconds * 0.35))
-        high = max(low + 30.0, min(600.0, spec.event_interval_max_seconds * 0.35))
-        return float(self.rng.uniform(low, high))
-
-    def _prepare_event(self, slot, spec):
-        asset, prepared = self._curated_ambient_ready(spec)
-        self.pending_event_asset = (
-            asset if prepared is not None and prepared.is_layered_event else None
-        )
-
-    def _gesture(
-        self,
-        spec,
-        quiet,
-        anchor_distance,
-        sample_seconds,
-    ):
-        # Short events make local gestures. Close/near-ear gestures are only
-        # available when the ambient world is already close enough and the
-        # sample is long enough to perform them naturally.
-        if sample_seconds < 5.0:
-            gestures = ["local-drift", "local-cross", "local-approach"]
-        elif sample_seconds < 10.0:
-            gestures = [
-                "local-drift",
-                "local-cross",
-                "approach",
-                "overhead",
-            ]
-        else:
-            gestures = [
-                "local-cross",
-                "approach",
-                "overhead",
-                "orbit",
-                "apparition",
-            ]
-
-        intimate_allowed = (
-            anchor_distance <= 9.0
-            and sample_seconds >= 7.0
-            and quiet > 0.58
-            and spec.intimacy > 0.20
-        )
-        if intimate_allowed:
-            gestures += ["near-ear", "presence"]
-
-        recent = set(
-            self.recent_gestures[
-                -max(1, int(2 + 4 * spec.novelty)):
-            ]
-        )
-        available = [
-            gesture for gesture in gestures
-            if gesture not in recent
-        ] or gestures
-        gesture = available[
-            int(self.rng.integers(0, len(available)))
-        ]
-        self.recent_gestures.append(gesture)
-        self.recent_gestures = self.recent_gestures[-16:]
-        return gesture
-
-    def _gesture_points(
-        self,
-        gesture,
-        spec,
-        quiet,
-        anchor_position,
-        sample_seconds,
-    ):
-        """Build an event path in the ambient world's local reference frame."""
-        anchor = np.asarray(anchor_position, dtype=np.float64).copy()
-        anchor_distance = float(np.linalg.norm(anchor))
-        if anchor_distance < 1.0e-6:
-            anchor = np.array([0.0, 0.0, -6.0], dtype=np.float64)
-            anchor_distance = 6.0
-
-        radial = anchor / anchor_distance
-        world_up = np.array([0.0, 1.0, 0.0], dtype=np.float64)
-        right = np.cross(world_up, radial)
-        right_norm = float(np.linalg.norm(right))
-        if right_norm < 1.0e-6:
-            right = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-        else:
-            right /= right_norm
-        up = np.cross(radial, right)
-        up /= max(float(np.linalg.norm(up)), 1.0e-9)
-
-        side = -1.0 if self.rng.random() < 0.5 else 1.0
-        local_width = max(0.8, min(4.0, anchor_distance * 0.16))
-        local_height = max(0.25, min(1.8, anchor_distance * 0.07))
-
-        # Every event begins inside the current ambient world.
-        start = (
-            anchor
-            + right * side * self.rng.uniform(0.0, local_width)
-            + up * self.rng.uniform(-0.25, local_height)
-        )
-
-        # Duration limits how far the event may detach from its world.
-        if sample_seconds < 5.0:
-            approach_fraction = 0.08
-        elif sample_seconds < 10.0:
-            approach_fraction = 0.22
-        else:
-            approach_fraction = 0.40
-
-        ordinary_min_distance = max(
-            4.5,
-            anchor_distance * (1.0 - approach_fraction),
-        )
-        intimate_distance = 0.55 + (1.0 - spec.intimacy) * 1.35
-
-        def at_distance(distance, lateral=0.0, vertical=0.0):
-            return (
-                radial * distance
-                + right * lateral
-                + up * vertical
-            )
-
-        if gesture == "near-ear":
-            control = at_distance(
-                max(2.2, anchor_distance * 0.45),
-                side * 1.2,
-                0.2,
-            )
-            end = at_distance(
-                intimate_distance,
-                side * intimate_distance,
-                0.15,
-            )
-            return start, control, end
-
-        if gesture == "presence":
-            end = at_distance(
-                max(1.4, intimate_distance * 1.4),
-                side * 0.8,
-                self.rng.uniform(-0.1, 0.45),
-            )
-            control = (start + end) * 0.5 + up * 0.35
-            return start, control, end
-
-        if gesture == "local-drift":
-            end = start + right * (-side) * local_width * 0.8
-            control = (start + end) * 0.5 + up * local_height * 0.35
-            return start, control, end
-
-        if gesture == "local-cross":
-            end = (
-                anchor
-                - right * side * local_width
-                + up * self.rng.uniform(-0.2, local_height)
-            )
-            control = anchor + up * local_height
-            return start, control, end
-
-        if gesture == "local-approach":
-            end = at_distance(
-                ordinary_min_distance,
-                side * local_width * 0.35,
-                0.1,
-            )
-            control = (start + end) * 0.5 + up * 0.25
-            return start, control, end
-
-        if gesture == "approach":
-            end = at_distance(
-                ordinary_min_distance,
-                side * local_width * 0.45,
-                0.0,
-            )
-            control = (
-                (start + end) * 0.5
-                + right * (-side) * local_width * 0.35
-                + up * 0.4
-            )
-            return start, control, end
-
-        if gesture == "overhead":
-            end = (
-                anchor
-                - right * side * local_width
-                + up * local_height * 1.5
-            )
-            control = at_distance(
-                ordinary_min_distance,
-                0.0,
-                local_height * 2.0,
-            )
-            return start, control, end
-
-        if gesture == "orbit":
-            end = (
-                anchor
-                - right * side * local_width
-                + up * 0.25
-            )
-            control = at_distance(
-                ordinary_min_distance,
-                -side * local_width * 0.25,
-                local_height,
-            )
-            return start, control, end
-
-        if gesture == "apparition":
-            end = (
-                anchor
-                + right * (-side) * local_width * 0.5
-                - radial * min(2.0, anchor_distance * 0.18)
-            )
-            control = (start + end) * 0.5 + up * local_height
-            return start, control, end
-
-        end = anchor - right * side * local_width
-        control = anchor + up * local_height
-        return start, control, end
-
-    def _spawn_prepared_event(self, slot_index, spec, quiet):
-        slot = self.slots[slot_index]
-        self._prepare_event(slot, spec)
-
-        asset = self.pending_event_asset
-        if asset is None:
-            return False
-        prepared = self.asset_manager.get_if_ready(asset)
-        if prepared is None:
-            error = self.asset_manager.error_for(asset)
-            if error:
-                asset_name = asset.path.name if asset is not None else "none"
-                self._journal(
-                    "EVENT_ASSET_FAILED",
-                    f"{asset_name}: {error}",
-                )
-                if asset is not None:
-                    self.pending_event_rejected.add(asset.path)
-                self.pending_event_asset = None
-            else:
-                self._journal(
-                    "EVENT_NOT_READY",
-                    asset.path.name if asset is not None else "none",
-                )
-            return False
-
-        if not prepared.is_layered_event:
-            self._journal(
-                "EVENT_REJECTED",
-                f"{prepared.path.name}: not classified as layered event",
-            )
-            if asset is not None:
-                self.pending_event_rejected.add(asset.path)
-            self.pending_event_asset = None
-            return False
-
-        free = next(
-            (
-                source
-                for source in self.event_sources
-                if all(event.source is not source for event in self.events)
-            ),
-            None,
-        )
-        if free is None:
-            self._journal(
-                "EVENT_REJECTED",
-                f"{prepared.path.name}: no free spatial source",
-            )
-            return False
-
-        sample_seconds = len(prepared.mono) / self.sample_rate
-        anchor_position = slot.position.copy()
-        anchor_distance = float(np.linalg.norm(anchor_position))
-        gesture = self._gesture(
-            spec,
-            quiet,
-            anchor_distance,
-            sample_seconds,
-        )
-        start, control, end = self._gesture_points(
-            gesture,
-            spec,
-            quiet,
-            anchor_position,
-            sample_seconds,
-        )
-        free.set_position_vector(self._vector3(start))
-        desired_travel_seconds = (
-            spec.event_travel_seconds
-            * (1.6 + 1.8 * (1.0 - spec.activity))
-        )
-        # Complete the full spatial path and its egress before the sample ends.
-        # The 92% cap leaves a short tail after the envelope reaches zero.
-        travel_seconds = max(
-            1.0,
-            min(
-                desired_travel_seconds,
-                sample_seconds * 0.92,
-            ),
-        )
-        self.events.append(
-            ActiveDreamMotifEvent(
-                asset_name=prepared.path.name,
-                audio=prepared.mono,
-                source=free,
-                read_position=0,
-                elapsed_seconds=0.0,
-                travel_seconds=travel_seconds,
-                start=start,
-                control=control,
-                end=end,
-                # Begin as part of the ambient world. Spatial approach,
-                # spectral clarity, and the event envelope create prominence.
-                gain_linear=(
-                    self._db_gain(spec.motif_calibrated_gain_db)
-                    * max(slot.exposure, 0.035)
-                    * (1.15 + 1.15 * spec.presence)
-                ),
-            )
-        )
-        self._consume_curated_ambient(asset)
-        self.seconds_since_last_event = 0.0
-        self._journal(
-            "EVENT_START",
-            f"{prepared.path.name}; role="
-            f"{'dominant' if slot_index == self.dominant_index else 'recessive'}; "
-            f"gesture={gesture}; anchor {anchor_distance:.2f} m; "
-            f"start {float(np.linalg.norm(start)):.2f} m; "
-            f"end {float(np.linalg.norm(end)):.2f} m; "
-            f"sample {sample_seconds:.2f} s; "
-            f"travel {travel_seconds:.2f} s",
-        )
-
-        if asset is not None:
-            self.recent_event_paths.append(asset.path)
-            self.recent_event_families.append(
-                self._event_family(asset.path)
-            )
-            self.recent_event_paths = (
-                self.recent_event_paths[-48:]
-            )
-            self.recent_event_families = (
-                self.recent_event_families[-48:]
-            )
-        self.pending_event_asset = None
-        self.pending_event_rejected.clear()
-        return True
-
-    def _render_events(self, frame_count, real_dt, conductor_dt):
-        stereo = np.zeros((frame_count, 2), dtype=np.float32)
-        keep = []
-        for event in self.events:
-            start = event.read_position
-            end = min(len(event.audio), start + frame_count)
-            mono = np.zeros(frame_count, dtype=np.float32)
-            if end > start:
-                mono[:end - start] = event.audio[start:end]
-            event.read_position = end
-            event.elapsed_seconds += conductor_dt
-
-            progress = float(
-                np.clip(
-                    event.elapsed_seconds
-                    / max(event.travel_seconds, 1e-9),
-                    0.0,
-                    1.0,
-                )
-            )
-            inverse = 1.0 - progress
-            position = (
-                inverse * inverse * event.start
-                + 2.0 * inverse * progress * event.control
-                + progress * progress * event.end
-            )
-            event.source.set_position_vector(
-                self._vector3(position)
-            )
-
-            # The event spends real dramatic time entering and leaving. This
-            # is orchestration, not click protection.
-            edge_fraction = 0.24
-            ingress = self._smoothstep5(
-                progress / edge_fraction
-            )
-            egress = self._smoothstep5(
-                (1.0 - progress) / edge_fraction
-            )
-            envelope = min(ingress, egress)
-
-            stereo += event.source.process_mono(
-                mono * event.gain_linear * envelope
-            )
-            if (
-                event.read_position < len(event.audio)
-                and progress < 1.0
-            ):
-                keep.append(event)
-            else:
-                reason = (
-                    "sample complete"
-                    if event.read_position >= len(event.audio)
-                    else "gesture complete"
-                )
-                self._journal(
-                    "EVENT_COMPLETE",
-                    f"{event.asset_name}; {reason}; "
-                    f"sample {event.read_position / self.sample_rate:.2f} s; "
-                    f"gesture {event.elapsed_seconds:.2f} s",
-                )
-
-        self.events = keep
-        return stereo
-
-    def set_root_directory(self, root_directory: Path) -> None:
-        """Reload the ambient/activity/event catalogue from a new style.
-
-        The GUI stops realtime playback before calling this method, so the
-        catalog and background decoder can be swapped without racing the audio
-        callback. Existing Steam Audio sources are reused; only their content
-        assignments are replaced.
-        """
+    def _render_piece(self, frame_count, enabled, metabolism_activity=0.0):
+        spec = self.state.get()
+        self.render_elapsed_seconds += frame_count / self.sample_rate
+        silence = np.zeros((frame_count, 2), dtype=np.float32)
+        if not enabled or not spec.enabled:
+            if self.active_asset is not None:
+                self._finish(spec, interrupted=True)
+            self.phase = 'suppressed'
+            self._update_status()
+            return silence
+        manual = self.manual_snapshot()
+        if manual[0]:
+            if self.active_asset is not None:
+                self._finish(spec, interrupted=True)
+            self._manual_previous = True
+            audio = self._manual_audio(frame_count, manual)
+            self._update_status()
+            return audio
+        if self._manual_previous:
+            self._manual_previous = False
+            self.manual_test_asset = self.manual_test_audio = None
+        asset, prepared = self._peek_next(spec)  # Read ahead while the current clip plays.
+        if self.active_audio is None:
+            if self.start_blocked:
+                self.phase = 'waiting for ceremony'
+                self._update_status()
+                return silence
+            with self._command_lock:
+                force = self._trigger_requested
+                self._trigger_requested = False
+            limit = spec.startup_rest_seconds if self._startup else spec.ambient_gap_max_seconds
+            self.wait_seconds = min(self.wait_seconds, limit)
+            if spec.testing or force:
+                self.wait_seconds = 0.0
+            if self.wait_seconds > 0:
+                self.wait_seconds = max(0.0, self.wait_seconds - frame_count / self.sample_rate)
+                self.phase = 'waiting'
+                self._update_status()
+                return silence
+            self._startup = False
+            # Export may wait for decode; realtime never waits for disk/CPU.
+            if self.offline and prepared is None and asset is not None:
+                started = time.monotonic()
+                while prepared is None and asset is not None:
+                    if self.cancel_event is not None and self.cancel_event.is_set():
+                        raise InterruptedError
+                    if time.monotonic() - started > 120:
+                        raise RuntimeError(f'Ambient decode timed out: {asset.path}')
+                    time.sleep(0.01)
+                    asset, prepared = self._peek_next(spec)
+            if prepared is None:
+                self.phase = 'loading' if asset is not None else 'no eligible clips'
+                self._update_status()
+                return silence
+            quiet = float(np.clip(1.0 - metabolism_activity, 0.0, 1.0))
+            self._start(asset, prepared, spec, quiet)
+        start = self.read_position
+        take = min(frame_count, len(self.active_audio) - start)
+        self._position(start / self.sample_rate, take / self.sample_rate, spec)
+        mono = np.zeros(frame_count, dtype=np.float32)
+        indices = start + np.arange(take)
+        # Click protection only. The entire perceptual entrance/exit is spatial.
+        edge = max(1.0, self.sample_rate * 0.01)
+        ramp = np.minimum(np.clip(indices / edge, 0, 1),
+                          np.clip((len(self.active_audio) - 1 - indices) / edge, 0, 1))
+        mono[:take] = self.active_audio[start:start + take] * ramp
+        output = self.source.process_mono(mono * 10.0 ** (spec.motif_calibrated_gain_db / 20.0))
+        self.read_position += take
+        if self.read_position >= len(self.active_audio):
+            self._finish(spec)
+        self._update_status()
+        return output
+
+    def set_root_directory(self, root_directory):
         root_directory = Path(root_directory)
         if root_directory == self.root_directory:
             return
-
         self.asset_manager.close()
         self.root_directory = root_directory
-        self.catalog = DreamMotifCatalog(
-            root_directory=root_directory,
-            layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
-        )
-        motifs = tuple(m for m in self.catalog.scan() if m.total_assets > 0)
-        self.asset_manager = AudioAssetManager(
-            root_directory=root_directory,
-            sample_rate=self.sample_rate,
-            layer_threshold_seconds=DREAM_MOTIF_LAYER_THRESHOLD_SECONDS,
-        )
-        self._reset_ambient_curation(motifs)
-        self.bag = DreamMotifShuffleBag(motifs, self.rng)
+        self.active_asset = self.active_audio = None
+        self.read_position = 0
+        self.manual_test_asset = self.manual_test_audio = None
+        self.phase = 'waiting'
+        self._startup = True
+        self.wait_seconds = self.state.get().startup_rest_seconds
+        self._load_catalog()
 
-        # Discard any old-style transient event state. The persistent spatial
-        # sources remain allocated and are reused for the new style.
-        self.events.clear()
-        self.pending_event_asset = None
-        self.pending_event_rejected.clear()
-        self.recent_event_paths.clear()
-        self.recent_event_families.clear()
-        self.recent_gestures.clear()
+    def close(self):
+        self.asset_manager.close()
 
-        spec = self.state.get()
-        first = self.bag.next()
-        second = self.bag.next({first.name} if first else set())
-        self._assign_slot(0, first, spec.far_distance_calibrated)
-        self._assign_slot(1, second, spec.far_distance_calibrated)
-        self.dominant_index = 0
-        self.scene = self.SCENE_REST
-        self.scene_elapsed = 0.0
-        self.scene_duration = 240.0
-        self.conductor_elapsed = 0.0
-        self.creepy_window = 0.0
-        self.next_event_seconds = self._new_event_interval(spec, 0.65)
-        self.seconds_since_last_event = 0.0
-        self.seconds_since_role_exchange = 0.0
-        self.current_dominant_name = first.name if first else ""
-        self.current_distant_name = second.name if second else ""
-        self.current_status = "catalogued; background assets pending"
-        self.manual_test_motif_name = first.name if first else ""
-        self.manual_test_asset = None
-        self.manual_test_audio = None
-        self.manual_test_read_position = 0
-        self.manual_test_rejected.clear()
-        self._journal(
-            "STYLE_AMBIENTS",
-            f"root={root_directory}; groups={len(motifs)}; "
-            f"assets={sum(m.total_assets for m in motifs)}",
-        )
 
-    def close(self): self.asset_manager.close()
-
-    def generate(
-        self,
-        frame_count: int,
-        enabled: bool,
-        metabolism_activity: float = 0.0,
-    ) -> np.ndarray:
-        spec = self.state.get()
-        real_dt = frame_count / self.sample_rate
-        self.render_elapsed_seconds += real_dt
-        self.seconds_since_last_event += real_dt
-        self.seconds_since_role_exchange += real_dt
-        performance_dt = real_dt
-
-        if not spec.enabled or not enabled or not self.bag.motifs:
-            return np.zeros((frame_count, 2), dtype=np.float32)
-
-        (
-            manual_enabled,
-            manual_kind,
-            manual_pos,
-            manual_gain,
-            manual_solo,
-            manual_motif,
-        ) = self.manual_snapshot()
-
-        quiet = float(
-            np.clip(1.0 - metabolism_activity, 0.0, 1.0)
-        )
-        # This smoothing remains in real listening time so an accelerated
-        # conductor cannot twitch in response to metabolism boundaries.
-        self.creepy_window += (
-            quiet - self.creepy_window
-        ) * min(1.0, real_dt / 18.0)
-        quiet = self.creepy_window
-
-        if (
-            not manual_enabled
-            and self._consume_force_exchange_request()
-        ):
-            self._begin_forced_exchange(spec)
-
-        if not manual_enabled:
-            if spec.testing:
-                self._testing_skip_rest(spec, quiet)
-
-                if self.scene == self.SCENE_EXCHANGE:
-                    self.current_clock_mode = "TESTING — CROSSFADE"
-                    self._advance_scene(real_dt, spec, quiet)
-                elif self.scene == self.SCENE_ESTABLISH:
-                    self.current_clock_mode = (
-                        "TESTING — AMBIENT APPROACH"
-                    )
-                    self._advance_scene(real_dt, spec, quiet)
-                elif not spec.featured_events_enabled:
-                    self.current_clock_mode = (
-                        "TESTING — AMBIENT PERFORMANCE"
-                    )
-                    # Establish/develop/focus/reveal/afterimage are audible
-                    # spatial performances, not delays.
-                    self._advance_scene(real_dt, spec, quiet)
-                elif self.events:
-                    self.current_clock_mode = "TESTING — PLAYING EVENT"
-                else:
-                    self.current_clock_mode = "TESTING — NO WAIT"
-                    self._testing_advance_to_event_scene(spec, quiet)
-                self.current_effective_time_scale = 1.0
-                self.conductor_elapsed += real_dt
-            else:
-                self.current_clock_mode = "NORMAL"
-                self.current_effective_time_scale = 1.0
-                self.conductor_elapsed += real_dt
-                self._advance_scene(real_dt, spec, quiet)
-
-            if self.current_clock_mode != self._last_logged_clock_mode:
-                self._journal(
-                    "CLOCK",
-                    f"{self._last_logged_clock_mode} -> "
-                    f"{self.current_clock_mode}",
-                )
-                self._last_logged_clock_mode = self.current_clock_mode
-
-        if manual_enabled:
-            self.current_clock_mode = "MANUAL AUDIO"
-            self.current_effective_time_scale = 1.0
-
-        dominant_exposure, recessive_exposure = (
-            self._exposure_targets(spec, quiet)
-        )
-
-        stereo = np.zeros((frame_count, 2), dtype=np.float32)
-        passage_index, passage_audio = (None, None)
-        if not manual_enabled:
-            passage_index, passage_audio = self._render_ambient_passage(frame_count, spec)
-        for index, slot in enumerate(self.slots):
-            self._ensure_slot_audio(
-                slot,
-                AudioAssetManager.PRIORITY_CRITICAL
-                if index == self.dominant_index
-                else AudioAssetManager.PRIORITY_HIGH,
-            )
-            role = (
-                "dominant"
-                if index == self.dominant_index
-                else "distant"
-            )
-            selected = manual_enabled and manual_kind == role
-
-            if manual_enabled and manual_solo and not selected:
-                continue
-            if (
-                manual_enabled
-                and manual_kind == "layered event"
-                and manual_solo
-            ):
-                continue
-
-            if selected:
-                slot.source.set_position_vector(
-                    self._vector3(manual_pos)
-                )
-                gain = self._db_gain(manual_gain)
-            else:
-                target_exposure = (
-                    dominant_exposure
-                    if index == self.dominant_index
-                    else recessive_exposure
-                )
-                self._update_exposure(
-                    slot,
-                    target_exposure,
-                    performance_dt,
-                    spec,
-                )
-                if self.scene == self.SCENE_EXCHANGE:
-                    exchange_progress = self._smoothstep5(
-                        self.scene_elapsed
-                        / max(self.scene_duration, 1.0e-9)
-                    )
-                    exchange_target = (
-                        spec.far_distance_calibrated
-                        if index == self.dominant_index
-                        else spec.closest_ambient_distance
-                    )
-                    self._update_exchange_position(
-                        slot,
-                        exchange_progress,
-                        exchange_target,
-                    )
-                else:
-                    distance = self._role_distance(
-                        spec,
-                        index == self.dominant_index,
-                        quiet,
-                    )
-                    self._update_wander(
-                        slot,
-                        performance_dt,
-                        distance,
-                        spec,
-                        index == self.dominant_index,
-                        quiet,
-                    )
-                gain = (
-                    self._db_gain(
-                        spec.motif_calibrated_gain_db
-                    )
-                    * slot.exposure
-                )
-
-            mono = (self._render_loop(slot, frame_count) if manual_enabled
-                    else passage_audio if index == passage_index
-                    else np.zeros(frame_count, dtype=np.float32))
-            stereo += slot.source.process_mono(mono * gain)
-
-        if manual_enabled:
-            if manual_kind == "layered event":
-                stereo += self._render_manual_event(
-                    frame_count,
-                    manual_pos,
-                    manual_gain,
-                    manual_motif,
-                )
-        else:
-            # Only one featured event at a time. Quiet windows and scene
-            # structure determine whether a scheduled event may enter.
-            event_allowed = (
-                spec.featured_events_enabled
-                and not self.events
-                and self.ambient_passage_audio is None
-                and passage_index is None
-                and (spec.testing or self.ambient_wait_seconds <= 0.0)
-                and (spec.testing or quiet >= 0.48)
-                and self.scene in {
-                    self.SCENE_DEVELOP,
-                    self.SCENE_REVEAL,
-                    self.SCENE_AFTERIMAGE,
-                }
-                and (
-                    spec.testing
-                    or self.scene_elapsed >= self.event_scene_grace_seconds
-                )
-            )
-
-            if (
-                event_allowed
-                and self.next_event_seconds <= 30.0
-            ):
-                self._prepare_event(
-                    self.slots[self.dominant_index],
-                    spec,
-                )
-
-            if spec.featured_events_enabled and not self.events:
-                if spec.testing:
-                    self.next_event_seconds = 0.0
-                else:
-                    self.next_event_seconds -= real_dt
-            if event_allowed and self.next_event_seconds <= 0.0:
-                # Presence governs whether this eligible opening actually
-                # becomes a foreground gesture.
-                reveal_probability = (
-                    0.12
-                    + 0.68 * spec.presence
-                    * quiet
-                )
-                force_after_soft_max = (
-                    self.seconds_since_last_event
-                    >= self.soft_max_event_silence_seconds
-                )
-                if spec.testing or force_after_soft_max:
-                    reveal_probability = 1.0
-                draw = float(self.rng.random())
-                self._journal(
-                    "EVENT_OPPORTUNITY",
-                    f"scene={self.scene}; probability "
-                    f"{reveal_probability:.3f}; draw {draw:.3f}; "
-                    f"quiet {quiet:.3f}; silence "
-                    f"{self.seconds_since_last_event / 60.0:.1f} min; "
-                    f"forced={force_after_soft_max}",
-                )
-                if draw <= reveal_probability:
-                    event_slot = (
-                        self.dominant_index
-                        if self.rng.random()
-                        < 0.55 + 0.40 * spec.coherence
-                        else 1 - self.dominant_index
-                    )
-                    if self._spawn_prepared_event(
-                        event_slot,
-                        spec,
-                        quiet,
-                    ):
-                        self.next_event_seconds = (
-                            self._new_event_interval(spec, quiet)
-                        )
-                    else:
-                        self.next_event_seconds = 5.0
-                else:
-                    # A rejected opportunity must not carry a prepared asset
-                    # into a later scene or a different dominant motif.
-                    rejected_name = (
-                        self.pending_event_asset.path.name
-                        if self.pending_event_asset is not None
-                        else "none"
-                    )
-                    self._journal(
-                        "EVENT_PROBABILITY_REJECTED",
-                        f"draw {draw:.3f} > probability "
-                        f"{reveal_probability:.3f}; "
-                        f"discarded prepared={rejected_name}",
-                    )
-                    self.pending_event_asset = None
-                    self.pending_event_rejected.clear()
-                    self.next_event_seconds = (
-                        self._event_retry_interval(spec)
-                    )
-
-            if spec.featured_events_enabled:
-                had_active_event = bool(self.events)
-                stereo += self._render_events(
-                    frame_count,
-                    real_dt,
-                    performance_dt,
-                )
-                if (
-                    spec.testing
-                    and had_active_event
-                    and not self.events
-                ):
-                    self._testing_advance_pending = True
-            else:
-                # Disable future scheduling, but never truncate a sound
-                # which has already started.
-                self.pending_event_asset = None
-                self.pending_event_rejected.clear()
-                if self.events:
-                    had_active_event = True
-                    stereo += self._render_events(
-                        frame_count,
-                        real_dt,
-                        performance_dt,
-                    )
-                    if (
-                        spec.testing
-                        and had_active_event
-                        and not self.events
-                    ):
-                        self._testing_advance_pending = True
-
-        dominant = self.slots[self.dominant_index]
-        recessive = self.slots[1 - self.dominant_index]
-
-        threshold_state = (
-            dominant.exposure >= self.MIN_PLAYING_EXPOSURE,
-            recessive.exposure >= self.MIN_PLAYING_EXPOSURE,
-        )
-        if threshold_state != self._last_logged_threshold_state:
-            previous = self._last_logged_threshold_state
-            for role, before, after, slot in (
-                ("dominant", previous[0], threshold_state[0], dominant),
-                ("recessive", previous[1], threshold_state[1], recessive),
-            ):
-                if before != after:
-                    self._journal(
-                        "MOTIF_THRESHOLD",
-                        f"{role} "
-                        f"{slot.motif.name if slot.motif else 'none'} "
-                        f"{'entered' if after else 'left'} playing range; "
-                        f"exposure {slot.exposure:.4f}; threshold "
-                        f"{self.MIN_PLAYING_EXPOSURE:.4f}",
-                    )
-            self._last_logged_threshold_state = threshold_state
-
-        self.current_dominant_name = (
-            dominant.motif.name if dominant.motif else ""
-        )
-        self.current_distant_name = (
-            recessive.motif.name if recessive.motif else ""
-        )
-        cached, pending, failed, cache_bytes = (
-            self.asset_manager.status()
-        )
-        prefix = (
-            f"manual {manual_kind} at "
-            f"({manual_pos[0]:.2f}, {manual_pos[1]:.2f}, "
-            f"{manual_pos[2]:.2f}) m; "
-            if manual_enabled
-            else ""
-        )
-        scene_remaining = max(
-            0.0,
-            self.scene_duration - self.scene_elapsed,
-        )
-        dominant_phase = (
-            "fading in"
-            if (
-                dominant.target_exposure > dominant.exposure + 1.0e-4
-                and dominant.exposure >= self.MIN_PLAYING_EXPOSURE
-            )
-            else "fading out"
-            if (
-                dominant.target_exposure < dominant.exposure - 1.0e-4
-                and dominant.exposure >= self.MIN_PLAYING_EXPOSURE
-            )
-            else "playing"
-            if dominant.exposure >= self.MIN_PLAYING_EXPOSURE
-            else "sub-threshold"
-            if dominant.exposure > 0.0
-            else "silent"
-        )
-        recessive_phase = (
-            "fading in"
-            if (
-                recessive.target_exposure > recessive.exposure + 1.0e-4
-                and recessive.exposure >= self.MIN_PLAYING_EXPOSURE
-            )
-            else "fading out"
-            if (
-                recessive.target_exposure < recessive.exposure - 1.0e-4
-                and recessive.exposure >= self.MIN_PLAYING_EXPOSURE
-            )
-            else "playing"
-            if recessive.exposure >= self.MIN_PLAYING_EXPOSURE
-            else "sub-threshold"
-            if recessive.exposure > 0.0
-            else "silent"
-        )
-
-        active_event_lines = []
-        for event in self.events:
-            sample_progress = (
-                event.read_position / max(len(event.audio), 1)
-            )
-            gesture_progress = (
-                event.elapsed_seconds
-                / max(event.travel_seconds, 1.0e-9)
-            )
-            active_event_lines.append(
-                f"{event.asset_name}: sample "
-                f"{100.0 * sample_progress:.0f}%, gesture "
-                f"{100.0 * min(gesture_progress, 1.0):.0f}%"
-            )
-        active_events_text = (
-            "; ".join(active_event_lines)
-            if active_event_lines
-            else "none"
-        )
-        pending_event_text = (
-            self.pending_event_asset.path.name
-            if self.pending_event_asset is not None
-            else "none"
-        )
-
-        self.current_status = (
-            f"MODE: {self.current_clock_mode}; "
-            f"testing={'ON' if spec.testing else 'OFF'}; "
-            f"featured effects="
-            f"{'ON' if spec.featured_events_enabled else 'OFF'}; "
-            f"playing threshold {self.MIN_PLAYING_EXPOSURE:.3f}\n"
-            f"STATE: {prefix}{self.scene}; "
-            f"scene remaining {scene_remaining:.1f} s; "
-            f"conductor {self.conductor_elapsed / 60.0:.2f} min; "
-            f"creepy window {quiet:.2f}\n"
-            f"DOMINANT WORLD: {self.current_dominant_name or 'none'}; "
-            f"{dominant_phase}; exposure "
-            f"{dominant.exposure:.3f} → {dominant.target_exposure:.3f}; "
-            f"distance {dominant.distance:.2f} m\n"
-            f"RECESSIVE WORLD: {self.current_distant_name or 'none'}; "
-            f"{recessive_phase}; exposure "
-            f"{recessive.exposure:.3f} → {recessive.target_exposure:.3f}; "
-            f"distance {recessive.distance:.2f} m\n"
-            f"EVENT WAIT: {max(0.0, self.next_event_seconds):.1f} s "
-            f"({'enabled' if spec.featured_events_enabled else 'disabled'}); "
-            f"opportunity range {spec.event_interval_min_seconds:.0f}-"
-            f"{spec.event_interval_max_seconds:.0f} s; "
-            f"prepared {pending_event_text}; "
-            f"silence {self.seconds_since_last_event / 60.0:.1f} min "
-            f"/ soft max "
-            f"{self.soft_max_event_silence_seconds / 60.0:.0f} min\n"
-            f"ACTIVE EVENTS: {active_events_text}\n"
-            f"ASSETS: {cached} ready, {pending} loading, "
-            f"{failed} failed, "
-            f"{cache_bytes / (1024 * 1024):.0f} MB cached"
-        )
-        return stereo
 
 
 class BaseBrownFluidStereo:
@@ -8607,7 +6665,7 @@ class MeditationOrchestrator:
                     )
             if self._pending_name is not None:
                 due = self._pending_due_sample
-                if due < self.elapsed_samples + count:
+                if due < self.elapsed_samples + count and not getattr(self, "defer_start", False):
                     try:
                         ready = self.recording_player.ready(
                             wait=self.export_mode,
@@ -9324,10 +7382,18 @@ class LivingBrownNoiseMixer:
         modes = self.mode_state.get()
         elapsed_seconds = frame_count / self.sample_rate
 
+        # A due ceremony waits for the full ambient spatial exit. This is a
+        # handoff, not an overlap or a mid-clip mute.
+        self.meditation.defer_start = self.dream_motif_3d.active_audio is not None
+
         # One shared sample-clock path for live playback and accelerated export.
         # Recording decode runs ahead on its own bounded-memory worker.
         meditation_audio, meditation_curve, brown_ceremony_gain = (
             self.meditation.generate(frame_count)
+        )
+        self.dream_motif_3d.start_blocked = bool(
+            self.meditation._pending_name is not None
+            and self.meditation._pending_due_sample <= self.meditation.elapsed_samples
         )
         self.current_meditation_mix = float(meditation_curve[-1])
         meditation_amount = self.current_meditation_mix
@@ -10073,6 +8139,8 @@ class ExportWorker(QThread):
 
             frames_written = 0
             motif_engine = mixer.dream_motif_3d
+            motif_engine.offline = True
+            motif_engine.cancel_event = self._cancel_requested
             meditation_engine = mixer.meditation
             meditation_engine.cancel_event = self._cancel_requested
             meditation_engine.configure_export(
@@ -10593,7 +8661,7 @@ class MainWindow(QMainWindow):
         )
 
         self.motif_3d_enabled_checkbox = QCheckBox(
-            "Enable two-world 3D dream-motif engine"
+            "Enable single-source ambient playback"
         )
         self.motif_3d_enabled_checkbox.setChecked(
             motif_spatial_spec.enabled
@@ -10601,11 +8669,11 @@ class MainWindow(QMainWindow):
         motif_conductor_form.addRow("", self.motif_3d_enabled_checkbox)
 
         self.motif_force_exchange_button = QPushButton(
-            "Force cross-fade now"
+            "Trigger next ambient"
         )
         self.motif_force_exchange_button.setToolTip(
-            "Immediately starts the protected dominant/recessive exchange "
-            "using the selected cross-fade duration."
+            "Skip the wait before the next ambient. An active clip finishes its "
+            "spatial exit first; clips never overlap."
         )
         motif_conductor_form.addRow(
             "",
@@ -10653,7 +8721,7 @@ class MainWindow(QMainWindow):
 
         self.motif_spatial_setup_button = QToolButton()
         self.motif_spatial_setup_button.setText(
-            "Spatial setup and transitions"
+            "Spatial exit"
         )
         self.motif_spatial_setup_button.setCheckable(True)
         self.motif_spatial_setup_button.setChecked(
@@ -10692,7 +8760,7 @@ class MainWindow(QMainWindow):
 
         self.motif_guidance_button = QToolButton()
         self.motif_guidance_button.setText(
-            "Orchestrator guidance"
+            "Ambient presence and motion"
         )
         self.motif_guidance_button.setCheckable(True)
         self.motif_guidance_button.setChecked(
@@ -10747,7 +8815,7 @@ class MainWindow(QMainWindow):
 
         self.motif_manual_source_combo = QComboBox()
         self.motif_manual_source_combo.addItems(
-            ["dominant", "distant", "layered event"]
+            ["ambient", "short event"]
         )
         motif_manual_form.addRow(
             "Manual source:",
@@ -10758,7 +8826,7 @@ class MainWindow(QMainWindow):
             "Solo selected manual source"
         )
         self.motif_manual_solo_checkbox.setChecked(True)
-        motif_manual_form.addRow("", self.motif_manual_solo_checkbox)
+        self.motif_manual_solo_checkbox.hide()
 
         self.motif_manual_x_control = FloatControl(
             minimum=-10.0,
@@ -10833,6 +8901,8 @@ class MainWindow(QMainWindow):
             self.motif_manual_position_label,
         )
 
+        self._motif_parameter_controls = {}
+
         def add_motif_spatial_control(
             form,
             label,
@@ -10857,6 +8927,7 @@ class MainWindow(QMainWindow):
                 ),
             )
             form.addRow(label, control)
+            self._motif_parameter_controls[field_name] = control
             return control
 
         self.motif_far_distance_calibrated_control = (
@@ -10893,7 +8964,7 @@ class MainWindow(QMainWindow):
         )
         self.motif_approach_duration_control = add_motif_spatial_control(
             motif_calibration_form,
-            "Approach duration:",
+            "Spatial entrance duration:",
             "ambient_approach_seconds",
             5.0,
             600.0,
@@ -10901,72 +8972,28 @@ class MainWindow(QMainWindow):
             0,
             " s",
         )
-        self.motif_crossfade_duration_control = add_motif_spatial_control(
-            motif_calibration_form,
-            "Cross-fade duration:",
-            "motif_crossfade_seconds",
-            5.0,
-            600.0,
-            1.0,
-            0,
-            " s",
-        )
-        self.motif_ambient_clip_fade_control = add_motif_spatial_control(
-            motif_calibration_form,
-            "Ambient clip fade duration:",
-            "ambient_clip_fade_seconds",
-            0.5,
-            30.0,
-            0.5,
-            1,
-            " s",
-        )
-        self.motif_scene_duration_scale_control = (
-            add_motif_spatial_control(
-                motif_calibration_form,
-                "Scene-duration scale:",
-                "scene_duration_scale",
-                0.10,
-                2.00,
-                0.05,
-                2,
-                "×",
-            )
-        )
 
-        self.motif_far_distance_control = add_motif_spatial_control(
-            motif_spatial_setup_form,
-            "Far distance:",
-            "far_distance",
-            1.0,
-            100.0,
-            0.25,
-            2,
-            " m",
-        )
-        self.motif_near_distance_control = add_motif_spatial_control(
-            motif_spatial_setup_form,
-            "Near distance:",
-            "near_distance",
-            0.15,
-            20.0,
-            0.05,
-            2,
-            " m",
-        )
-        self.motif_fade_in_control = add_motif_spatial_control(
-            motif_spatial_setup_form,
-            "Move/fade in:",
-            "fade_in_seconds",
-            1.0,
-            1800.0,
-            1.0,
-            0,
-            " s",
-        )
+
+        # Explicit timing controls: saved/restored with dream_motif_spatial.
+        add_motif_spatial_control(motif_calibration_form, 'Initial rest:',
+                                 'startup_rest_seconds', 0, 3600, 1, 0, ' s')
+        add_motif_spatial_control(motif_calibration_form, 'Ambient gap minimum:',
+                                 'ambient_gap_min_seconds', 0, 600, 0.5, 1, ' s')
+        add_motif_spatial_control(motif_calibration_form, 'Ambient gap maximum:',
+                                 'ambient_gap_max_seconds', 0, 1800, 0.5, 1, ' s')
+        add_motif_spatial_control(motif_calibration_form, '3D movement minimum:',
+                                 'wander_min_seconds', 1, 600, 1, 0, ' s')
+        add_motif_spatial_control(motif_calibration_form, '3D movement maximum:',
+                                 'wander_max_seconds', 1, 600, 1, 0, ' s')
+        add_motif_spatial_control(motif_calibration_form, 'Minimum presence during busy phases:',
+                                 'busy_presence_floor', 0, 1, 0.01, 2, '')
+
+        self.motif_approach_duration_control.setToolTip(
+            "Every clip starts at Far distance. Entrance and exit times are scaled "
+            "proportionally if they exceed 90% of the clip length. Applied at the next clip.")
         self.motif_fade_out_control = add_motif_spatial_control(
             motif_spatial_setup_form,
-            "Move/fade out:",
+            "Spatial exit duration:",
             "fade_out_seconds",
             1.0,
             1800.0,
@@ -10977,7 +9004,7 @@ class MainWindow(QMainWindow):
 
 
         self.motif_testing_checkbox = QCheckBox(
-            "Testing — remove all conductor delays"
+            "Testing — skip gaps, preserve full spatial journeys"
         )
         self.motif_testing_checkbox.setChecked(
             motif_spatial_spec.testing
@@ -10988,7 +9015,7 @@ class MainWindow(QMainWindow):
         )
 
         self.motif_featured_events_checkbox = QCheckBox(
-            "Featured one-shot effects"
+            "Include short clips (10 seconds or less)"
         )
         self.motif_featured_events_checkbox.setChecked(
             motif_spatial_spec.featured_events_enabled
@@ -10997,69 +9024,25 @@ class MainWindow(QMainWindow):
             "",
             self.motif_featured_events_checkbox,
         )
-        self.motif_event_interval_min_control = add_motif_spatial_control(
-            motif_guidance_form,
-            "Effect opportunity minimum:",
-            "event_interval_min_seconds",
-            60.0,
-            3600.0,
-            30.0,
-            0,
-            " s",
-        )
-        self.motif_event_interval_max_control = add_motif_spatial_control(
-            motif_guidance_form,
-            "Effect opportunity maximum:",
-            "event_interval_max_seconds",
-            60.0,
-            7200.0,
-            30.0,
-            0,
-            " s",
-        )
-        self.motif_activity_control = add_motif_spatial_control(
-            motif_guidance_form,
-            "Activity:", "activity", 0.0, 1.0, 0.01, 2
-        )
         self.motif_presence_control = add_motif_spatial_control(
             motif_guidance_form,
             "Presence:", "presence", 0.0, 1.0, 0.01, 2
         )
         self.motif_motion_control = add_motif_spatial_control(
             motif_guidance_form,
-            "Motion:", "motion", 0.0, 1.0, 0.01, 2
-        )
-        self.motif_intimacy_control = add_motif_spatial_control(
-            motif_guidance_form,
-            "Intimacy / ASMR:",
-            "intimacy",
-            0.0,
-            1.0,
-            0.01,
-            2,
-        )
-        self.motif_drama_control = add_motif_spatial_control(
-            motif_guidance_form,
-            "Drama:", "drama", 0.0, 1.0, 0.01, 2
-        )
-        self.motif_coherence_control = add_motif_spatial_control(
-            motif_guidance_form,
-            "Coherence:", "coherence", 0.0, 1.0, 0.01, 2
-        )
-        self.motif_novelty_control = add_motif_spatial_control(
-            motif_guidance_form,
-            "Novelty / anti-repeat:",
-            "novelty",
-            0.0,
-            1.0,
-            0.01,
-            2,
+            "Lateral motion:", "motion", 0.0, 1.0, 0.01, 2
         )
 
+        self.motif_presence_control.setToolTip(
+            "Sets how close each clip comes. 1 reaches Closest ambient approach; "
+            "lower values keep it farther away. Sampled at each clip's start.")
+        self.motif_fade_out_control.setToolTip(
+            "Recede beyond Far distance to near-silence at the actual recording end. Short clips scale "
+            "entrance and exit together; no sample is cut short. Applied at the next clip.")
         self.motif_3d_status_label = QLabel("")
         self.motif_3d_status_label.setWordWrap(True)
         motif_guidance_form.addRow(
-            "Conductor state:",
+            "Ambient state:",
             self.motif_3d_status_label,
         )
 
@@ -13184,7 +11167,7 @@ class MainWindow(QMainWindow):
 
         self._update_manual_motif_spatial(
             enabled=False,
-            source_kind="dominant",
+            source_kind="ambient",
             x=0.0,
             y=0.0,
             z=-2.0,
@@ -13289,106 +11272,9 @@ class MainWindow(QMainWindow):
                 str(exc),
             )
 
-    @staticmethod
-    def _slot_log_snapshot(slot) -> dict:
-        motif_name = (
-            slot.motif.name
-            if slot.motif is not None
-            else "none"
-        )
-        current_asset = (
-            slot.current_asset_path.name
-            if slot.current_asset_path is not None
-            else "none"
-        )
-        next_asset = (
-            slot.next_asset_path.name
-            if slot.next_asset_path is not None
-            else "none"
-        )
-        return {
-            "motif": motif_name,
-            "distance_m": round(float(slot.distance), 4),
-            "position_m": [
-                round(float(value), 4)
-                for value in slot.position
-            ],
-            "exposure": round(float(slot.exposure), 6),
-            "target_exposure": round(
-                float(slot.target_exposure),
-                6,
-            ),
-            "ambient": current_asset,
-            "next_ambient": next_asset,
-            "read_position": int(slot.read_position),
-        }
-
     def _log_conductor_snapshot(self) -> None:
-        engine = self.mixer.dream_motif_3d
-        spec = self.mixer.dream_motif_spatial_state.get()
-        dominant_index = int(engine.dominant_index)
-        recessive_index = 1 - dominant_index
-
-        payload = {
-            "clock_mode": engine.current_clock_mode,
-            "scene": engine.scene,
-            "scene_elapsed_s": round(
-                float(engine.scene_elapsed),
-                3,
-            ),
-            "scene_duration_s": round(
-                float(engine.scene_duration),
-                3,
-            ),
-            "scene_remaining_s": round(
-                max(
-                    0.0,
-                    float(
-                        engine.scene_duration
-                        - engine.scene_elapsed
-                    ),
-                ),
-                3,
-            ),
-            "testing": bool(spec.testing),
-            "featured_events": bool(
-                spec.featured_events_enabled
-            ),
-            "closest_m": float(
-                spec.closest_ambient_distance
-            ),
-            "far_m": float(
-                spec.far_distance_calibrated
-            ),
-            "approach_s": float(
-                spec.ambient_approach_seconds
-            ),
-            "crossfade_s": float(
-                spec.motif_crossfade_seconds
-            ),
-            "ambient_clip_fade_s": float(
-                spec.ambient_clip_fade_seconds
-            ),
-            "scene_duration_scale": float(
-                spec.scene_duration_scale
-            ),
-            "dominant_index": dominant_index,
-            "dominant": self._slot_log_snapshot(
-                engine.slots[dominant_index]
-            ),
-            "recessive": self._slot_log_snapshot(
-                engine.slots[recessive_index]
-            ),
-            "active_events": len(engine.events),
-        }
-        self._write_conductor_log(
-            "CONDUCTOR_SNAPSHOT",
-            json.dumps(
-                payload,
-                sort_keys=True,
-                separators=(",", ":"),
-            ),
-        )
+        self._write_conductor_log("CONDUCTOR_SNAPSHOT", json.dumps(
+            self.mixer.dream_motif_3d.snapshot(), sort_keys=True, separators=(",", ":")))
 
     def _drain_live_conductor_journal(self) -> None:
         engine = self.mixer.dream_motif_3d
@@ -13473,19 +11359,14 @@ class MainWindow(QMainWindow):
         self._update_dream_motif_spatial(
             featured_events_enabled=bool(checked)
         )
-        if not checked:
-            engine = self.mixer.dream_motif_3d
-            engine.pending_event_asset = None
-            engine.pending_event_rejected.clear()
-            engine._testing_advance_pending = False
-            engine._journal(
-                "EVENTS_DISABLED",
-                "new featured effects disabled; "
-                f"{len(engine.events)} active effect(s) allowed to finish",
-            )
+        self.mixer.dream_motif_3d._journal(
+            "SHORT_CLIPS", f"enabled={bool(checked)}; active clip finishes naturally")
 
     def _update_dream_motif_spatial(self, **changes) -> None:
         self.mixer.dream_motif_spatial_state.update(**changes)
+        spec = self.mixer.dream_motif_spatial_state.get()
+        for name, control in self._motif_parameter_controls.items():
+            control.set_value(getattr(spec, name), notify=False)
         self._schedule_gui_snapshot(
             "dream motif setting changed: "
             + json.dumps(changes, sort_keys=True)
@@ -13493,18 +11374,9 @@ class MainWindow(QMainWindow):
         self._schedule_settings_save()
 
     def _force_motif_exchange(self) -> None:
-        self._write_conductor_log(
-            "GUI_ACTION",
-            "Force cross-fade now clicked",
-        )
-        self._log_gui_snapshot(
-            "immediately before forced cross-fade"
-        )
-        self.mixer.dream_motif_3d.request_force_exchange()
-        self.motif_playing_label.setText(
-            "Forced cross-fade requested; exchange begins "
-            "on the next audio block."
-        )
+        self._write_conductor_log("GUI_ACTION", "Trigger next ambient requested")
+        self.mixer.dream_motif_3d.request_trigger()
+        self.motif_playing_label.setText("Next ambient requested; any active clip finishes first.")
 
     def _toggle_motif_panel(self, expanded: bool) -> None:
         self._schedule_gui_snapshot(
@@ -14614,10 +12486,7 @@ class MainWindow(QMainWindow):
             self.mixer.dream_motif_3d.current_status
         )
         self.motif_playing_label.setText(
-            f"Dominant: "
-            f"{self.mixer.dream_motif_3d.current_dominant_name or 'none'}; "
-            f"distant: "
-            f"{self.mixer.dream_motif_3d.current_distant_name or 'none'}"
+            self.mixer.dream_motif_3d.playback_label
         )
         self._update_brown_motion_status()
         self._update_heartbeat_position_status()

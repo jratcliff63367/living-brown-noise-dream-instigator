@@ -280,6 +280,195 @@
       "sample_rate": 44100,
       "size_bytes": 305154
     },
+    "activity/music-activity-01-harmonium-stillness.mp3": {
+      "duration_seconds": 32.04,
+      "is_layered_event": false,
+      "modified_ns": 1790116433909184500,
+      "sample_rate": 44100,
+      "size_bytes": 769005
+    },
+    "activity/music-activity-02-handpan-open-space.mp3": {
+      "duration_seconds": 30.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790116440629613500,
+      "sample_rate": 44100,
+      "size_bytes": 720621
+    },
+    "activity/music-activity-03-bansuri-over-drone.mp3": {
+      "duration_seconds": 34.03201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1790116454281404900,
+      "sample_rate": 44100,
+      "size_bytes": 816813
+    },
+    "activity/music-activity-04-tanpura-resonance.mp3": {
+      "duration_seconds": 28.032018140589567,
+      "is_layered_event": false,
+      "modified_ns": 1790116467375964900,
+      "sample_rate": 44100,
+      "size_bytes": 672813
+    },
+    "activity/music-activity-05-low-bowl-stillness.mp3": {
+      "duration_seconds": 26.04,
+      "is_layered_event": false,
+      "modified_ns": 1790116480196825000,
+      "sample_rate": 44100,
+      "size_bytes": 625005
+    },
+    "activity/music-activity-06-tabla-and-harmonium.mp3": {
+      "duration_seconds": 30.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790116488154018200,
+      "sample_rate": 44100,
+      "size_bytes": 720621
+    },
+    "activity/music-activity-07-handpan-warm-drone.mp3": {
+      "duration_seconds": 36.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790116496522800300,
+      "sample_rate": 44100,
+      "size_bytes": 864621
+    },
+    "activity/music-activity-08-prayer-room-mantra.mp3": {
+      "duration_seconds": 38.04,
+      "is_layered_event": false,
+      "modified_ns": 1790116503138743600,
+      "sample_rate": 44100,
+      "size_bytes": 913005
+    },
+    "activity/music-activity-09-evening-mantra-and-bell.mp3": {
+      "duration_seconds": 34.03201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1790116510613763300,
+      "sample_rate": 44100,
+      "size_bytes": 816813
+    },
+    "activity/music-activity-10-harmonium-flute-answer.mp3": {
+      "duration_seconds": 24.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790116518666138000,
+      "sample_rate": 44100,
+      "size_bytes": 576621
+    },
+    "activity/music-activity-11-female-hum-harmonium.mp3": {
+      "duration_seconds": 34.03201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1790117016863733200,
+      "sample_rate": 44100,
+      "size_bytes": 816813
+    },
+    "activity/music-activity-12-low-hum-tanpura.mp3": {
+      "duration_seconds": 32.04,
+      "is_layered_event": false,
+      "modified_ns": 1790117023631067600,
+      "sample_rate": 44100,
+      "size_bytes": 769005
+    },
+    "activity/music-activity-14-handpan-and-hummed-tonic.mp3": {
+      "duration_seconds": 30.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790117037971087700,
+      "sample_rate": 44100,
+      "size_bytes": 720621
+    },
+    "activity/music-activity-15-bansuri-and-hum.mp3": {
+      "duration_seconds": 34.03201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1790117044719541300,
+      "sample_rate": 44100,
+      "size_bytes": 816813
+    },
+    "activity/music-activity-16-shruti-wordless-chant.mp3": {
+      "duration_seconds": 38.04,
+      "is_layered_event": false,
+      "modified_ns": 1790117052667093000,
+      "sample_rate": 44100,
+      "size_bytes": 913005
+    },
+    "activity/music-activity-17-om-harmonium-breaths.mp3": {
+      "duration_seconds": 36.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790117059918629100,
+      "sample_rate": 44100,
+      "size_bytes": 864621
+    },
+    "activity/music-activity-18-shanti-small-room.mp3": {
+      "duration_seconds": 32.04,
+      "is_layered_event": false,
+      "modified_ns": 1790117066211143900,
+      "sample_rate": 44100,
+      "size_bytes": 769005
+    },
+    "activity/music-activity-21-wordless-chapel-breath.mp3": {
+      "duration_seconds": 38.04,
+      "is_layered_event": false,
+      "modified_ns": 1790117086874812000,
+      "sample_rate": 44100,
+      "size_bytes": 913005
+    },
+    "activity/music-activity-23-mixed-hummed-unison.mp3": {
+      "duration_seconds": 32.04,
+      "is_layered_event": false,
+      "modified_ns": 1790117101314369000,
+      "sample_rate": 44100,
+      "size_bytes": 769005
+    },
+    "activity/music-activity-24-hummed-response-harmonium.mp3": {
+      "duration_seconds": 34.03201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1790117107857230500,
+      "sample_rate": 44100,
+      "size_bytes": 816813
+    },
+    "activity/music-activity-26-handpan-unhurried-drops.mp3": {
+      "duration_seconds": 32.04,
+      "is_layered_event": false,
+      "modified_ns": 1790117124267327800,
+      "sample_rate": 44100,
+      "size_bytes": 769005
+    },
+    "activity/music-activity-27-bansuri-held-tone.mp3": {
+      "duration_seconds": 28.032018140589567,
+      "is_layered_event": false,
+      "modified_ns": 1790117131365519600,
+      "sample_rate": 44100,
+      "size_bytes": 672813
+    },
+    "activity/music-activity-28-bowl-harmonium-rest.mp3": {
+      "duration_seconds": 36.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790117139478167400,
+      "sample_rate": 44100,
+      "size_bytes": 864621
+    },
+    "activity/music-activity-29-tanpura-reed-warmth.mp3": {
+      "duration_seconds": 34.03201814058957,
+      "is_layered_event": false,
+      "modified_ns": 1790117148249947600,
+      "sample_rate": 44100,
+      "size_bytes": 816813
+    },
+    "activity/music-activity-30-handpan-tabla-whisperlight.mp3": {
+      "duration_seconds": 30.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790117156132943700,
+      "sample_rate": 44100,
+      "size_bytes": 720621
+    },
+    "activity/reiki-meditation-01-piano-warm-strings.mp3": {
+      "duration_seconds": 120.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790127082582710300,
+      "sample_rate": 44100,
+      "size_bytes": 2880621
+    },
+    "activity/reiki-meditation-06-bansuri-santoor.mp3": {
+      "duration_seconds": 180.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790127183711755600,
+      "sample_rate": 44100,
+      "size_bytes": 4320621
+    },
     "event/01-single_temple_bell.mp3": {
       "duration_seconds": 3.0,
       "is_layered_event": true,
@@ -349,6 +538,111 @@
       "modified_ns": 1789675303181690200,
       "sample_rate": 44100,
       "size_bytes": 97010
+    },
+    "event/music-event-01-warm-temple-bell.mp3": {
+      "duration_seconds": 8.04,
+      "is_layered_event": true,
+      "modified_ns": 1790116384773902700,
+      "sample_rate": 44100,
+      "size_bytes": 193005
+    },
+    "event/music-event-02-soft-bell-answer.mp3": {
+      "duration_seconds": 9.0,
+      "is_layered_event": true,
+      "modified_ns": 1790116392537797600,
+      "sample_rate": 44100,
+      "size_bytes": 216045
+    },
+    "event/music-event-03-bronze-bell-bloom.mp3": {
+      "duration_seconds": 9.024013605442176,
+      "is_layered_event": true,
+      "modified_ns": 1790116399624879200,
+      "sample_rate": 44100,
+      "size_bytes": 216621
+    },
+    "event/music-event-04-tabla-fingertip-gesture.mp3": {
+      "duration_seconds": 6.0240136054421765,
+      "is_layered_event": true,
+      "modified_ns": 1790116407973432000,
+      "sample_rate": 44100,
+      "size_bytes": 144621
+    },
+    "event/music-event-05-tabla-soft-response.mp3": {
+      "duration_seconds": 8.04,
+      "is_layered_event": true,
+      "modified_ns": 1790116416948572600,
+      "sample_rate": 44100,
+      "size_bytes": 193005
+    },
+    "event/music-event-06-om-shanti-murmur.mp3": {
+      "duration_seconds": 8.04,
+      "is_layered_event": true,
+      "modified_ns": 1790116421280705100,
+      "sample_rate": 44100,
+      "size_bytes": 193005
+    },
+    "event/music-event-07-shanti-small-group.mp3": {
+      "duration_seconds": 9.024013605442176,
+      "is_layered_event": true,
+      "modified_ns": 1790116426052989300,
+      "sample_rate": 44100,
+      "size_bytes": 216621
+    },
+    "event/music-event-08-low-bell-soft-mallet.mp3": {
+      "duration_seconds": 8.04,
+      "is_layered_event": true,
+      "modified_ns": 1790116951444331800,
+      "sample_rate": 44100,
+      "size_bytes": 193005
+    },
+    "event/music-event-09-bell-fifth-response.mp3": {
+      "duration_seconds": 9.0,
+      "is_layered_event": true,
+      "modified_ns": 1790116962900949500,
+      "sample_rate": 44100,
+      "size_bytes": 216045
+    },
+    "event/music-event-12-handpan-two-note-sigh.mp3": {
+      "duration_seconds": 9.0,
+      "is_layered_event": true,
+      "modified_ns": 1790116980824674800,
+      "sample_rate": 44100,
+      "size_bytes": 216045
+    },
+    "event/music-event-13-bowl-single-warm-bloom.mp3": {
+      "duration_seconds": 9.024013605442176,
+      "is_layered_event": true,
+      "modified_ns": 1790116986432046400,
+      "sample_rate": 44100,
+      "size_bytes": 216621
+    },
+    "event/music-event-14-female-hum-breath.mp3": {
+      "duration_seconds": 8.04,
+      "is_layered_event": true,
+      "modified_ns": 1790116991357898100,
+      "sample_rate": 44100,
+      "size_bytes": 193005
+    },
+    "event/music-event-15-two-voice-hummed-fifth.mp3": {
+      "duration_seconds": 9.024013605442176,
+      "is_layered_event": true,
+      "modified_ns": 1790116996407726300,
+      "sample_rate": 44100,
+      "size_bytes": 216621
+    },
+    "event/music-event-16-om-warm-resonance.mp3": {
+      "duration_seconds": 8.04,
+      "is_layered_event": true,
+      "modified_ns": 1790117002550638900,
+      "sample_rate": 44100,
+      "size_bytes": 193005
+    },
+    "event/music-event-17-shanti-soft-answer.mp3": {
+      "duration_seconds": 9.024013605442176,
+      "is_layered_event": true,
+      "modified_ns": 1790117010156889000,
+      "sample_rate": 44100,
+      "size_bytes": 216621
     },
     "space/31-temple_hall_dawn.mp3": {
       "duration_seconds": 22.0,
