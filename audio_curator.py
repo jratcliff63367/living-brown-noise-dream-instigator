@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Living Brown Noise — Audio Curator. Python 3.10+; pip install PySide6.
+"""Living Brown Noise — Audio Curator. Python 3.10+; pip install PySide6 mutagen.
 
 Place beside ceremonies/ and run: python audio_curator.py
 Or: python audio_curator.py --project-root D:\\github\\your-project
@@ -54,7 +54,8 @@ RATINGS = ("unreviewed", "low", "medium", "high")
 STATES = RATINGS + ("stash",)
 COLORS = {"unreviewed": "#abb7c9", "low": "#efbd66", "medium": "#7bbaff",
           "high": "#6cdbac", "stash": "#c6a4ee"}
-UI_STATES = RATINGS + ("marked", "stash")
+UI_STATES = ("unreviewed", "high", "medium", "low", "marked", "stash")
+STATE_ORDER = {state: rank for rank, state in enumerate(UI_STATES)}
 COLORS["marked"] = "#ed9dcc"
 LABELS = {s: s.capitalize() for s in UI_STATES}
 
@@ -111,6 +112,36 @@ def scan_audio(root):
                 validate_key(key)
                 found.setdefault(key, set()).add(top)
     return found, errors
+
+
+def read_durations(root, found):
+    """Read MP3 headers on the scan worker, never decode audio on the GUI thread."""
+    durations, errors = {}, {}
+    try:
+        from mutagen.mp3 import MP3
+    except ImportError:
+        return {}, {key: 'Duration unavailable: install mutagen in this Python environment'
+                    for key in found}
+    import math
+    for key, locations in found.items():
+        try:
+            if len(locations) != 1:
+                raise ValueError('Conflicting active/stashed copies; duration not counted')
+            path = Path(root) / next(iter(locations)) / key
+            seconds = float(MP3(path).info.length)
+            if not math.isfinite(seconds) or seconds <= 0:
+                raise ValueError('Invalid MP3 duration')
+            durations[key] = seconds
+        except Exception as exc:
+            errors[key] = str(exc)
+    return durations, errors
+
+
+def duration_text(seconds):
+    total = int(round(seconds))
+    hours, remainder = divmod(total, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f'{hours}:{minutes:02d}:{seconds:02d}'
 
 
 class Catalog:
@@ -393,6 +424,68 @@ def run_gui(project_root=None):
             except Exception as exc:
                 self.failed.emit(str(exc))
 
+    class DurationJob(QThread):
+        batch = Signal(object)
+
+        def __init__(self, root, found, parent):
+            super().__init__(parent)
+            self.root, self.found = root, dict(found)
+
+        def run(self):
+            import math
+            import time
+            cache_path = self.root / "audio-curator-durations.json"
+            try:
+                cache = json.loads(cache_path.read_text(encoding="utf-8"))
+                if not isinstance(cache, dict):
+                    cache = {}
+            except Exception:
+                cache = {}
+            results, updated = {}, {}
+            last_emit = time.monotonic()
+            for key, locations in self.found.items():
+                if self.isInterruptionRequested():
+                    break
+                try:
+                    if len(locations) != 1:
+                        raise ValueError("Conflicting active/stashed copies")
+                    path = self.root / next(iter(locations)) / key
+                    stat = path.stat()
+                    signature = [stat.st_size, stat.st_mtime_ns]
+                    entry = cache.get(key, {})
+                    seconds = entry.get("seconds") if isinstance(entry, dict) else None
+                    if (not isinstance(entry, dict) or entry.get("signature") != signature
+                            or not isinstance(seconds, (int, float))
+                            or not math.isfinite(seconds) or seconds <= 0):
+                        durations, errors = read_durations(self.root, {key: locations})
+                        if key not in durations:
+                            raise ValueError(errors[key])
+                        seconds = durations[key]
+                    updated[key] = {"signature": signature, "seconds": seconds}
+                    results[key] = (seconds, None)
+                except Exception as exc:
+                    results[key] = (None, str(exc))
+                if len(results) >= 20 or time.monotonic() - last_emit >= 0.15:
+                    self.batch.emit(results)
+                    results = {}
+                    last_emit = time.monotonic()
+            if results:
+                self.batch.emit(results)
+            # Cache is disposable, separate from shared ratings. Preserve entries
+            # not visited if closing interrupted this scan.
+            cache.update(updated)
+            temp = None
+            try:
+                fd, temp = tempfile.mkstemp(prefix=".duration-cache-", dir=self.root)
+                with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                    json.dump(cache, stream)
+                os.replace(temp, cache_path)
+            except OSError:
+                pass
+            finally:
+                if temp and os.path.exists(temp):
+                    os.unlink(temp)
+
     class SeekSlider(QSlider):
         seekRequested = Signal(int)
 
@@ -411,6 +504,14 @@ def run_gui(project_root=None):
                     event.accept()
                     return
             super().mousePressEvent(event)
+
+    class SortedItem(QTreeWidgetItem):
+        def __lt__(self, other):
+            def key(item):
+                state = item.data(1, ROLE + 1)
+                return (1 if state else 0, STATE_ORDER.get(state, -1),
+                        item.text(0).casefold(), item.text(0))
+            return key(self) < key(other)
 
     class RatingDelegate(QStyledItemDelegate):
         def paint(self, painter, option, index):
@@ -442,11 +543,16 @@ def run_gui(project_root=None):
             self._restoring_view = False
             self._view_initialized = False
             self.folder_items = {}
+            self.duration_scope = None
+            self.selected_folder = self.prefs.value("selected_folder", "")
+            self.duration_job = None
+            self._close_pending = False
             self.catalog = Catalog(root)
             self.found, self.problems, self.items = {}, {}, {}
             self.busy, self.loaded_key, self.selected_key = False, None, None
             self.undo_stack, self.jobs, self.shortcuts = [], [], []
             self.duration = 0
+            self.durations, self.duration_errors = {}, {}
             self.audio = QAudioOutput(self)
             self.player = QMediaPlayer(self)
             self.player.setAudioOutput(self.audio)
@@ -502,7 +608,10 @@ def run_gui(project_root=None):
             self.chips = {}
             for state in UI_STATES:
                 chip = self.button(LABELS[state] + "  0", lambda checked=False, s=state: self.choose_state(s))
-                chip.setStyleSheet(f"QPushButton {{ color: {COLORS[state]}; border-bottom: 3px solid {COLORS[state]}; }}")
+                chip.setCheckable(True)
+                chip.setToolTip("Show " + LABELS[state] + " tracks across all categories; clears search")
+                chip.setStyleSheet(f"QPushButton {{ color: {COLORS[state]}; border-bottom: 3px solid {COLORS[state]}; }}"
+                                  f"QPushButton:checked {{ background: #304a67; border: 2px solid {COLORS[state]}; }}")
                 self.chips[state] = chip
                 overview.addWidget(chip, 1)
             layout.addLayout(overview)
@@ -524,7 +633,7 @@ def run_gui(project_root=None):
             self.category.setAccessibleName("Category filter")
             self.state_filter = QComboBox()
             self.state_filter.setAccessibleName("Rating filter")
-            for text, value in (("All active", "active"), ("Unreviewed", "unreviewed"),
+            for text, value in (("All active", "active"), ("All tracks (including stash)", "all"), ("Unreviewed", "unreviewed"),
                     ("High", "high"), ("Medium", "medium"), ("Low", "low"), ("Marked for stash", "marked"), ("Stash", "stash")):
                 self.state_filter.addItem(text, value)
             self.state_filter.setMinimumWidth(135)
@@ -537,8 +646,31 @@ def run_gui(project_root=None):
             filters.addWidget(self.category)
             filters.addWidget(self.state_filter)
             filters.addWidget(self.search, 1)
+            self.show_all_btn = self.button("Show all", self.show_all_tracks)
+            self.show_all_btn.setToolTip("Clear category, rating and search filters; show active and stashed tracks")
+            filters.addWidget(self.show_all_btn)
             filters.addWidget(self.visible_label)
             layout.addLayout(filters)
+            self.filter_summary = QLabel()
+            self.filter_summary.setObjectName("muted")
+            self.filter_summary.setWordWrap(True)
+            layout.addWidget(self.filter_summary)
+
+            self.duration_heading = QLabel("Duration · current filters · includes collapsed folders")
+            self.duration_heading.setObjectName("muted")
+            self.duration_heading.setWordWrap(True)
+            layout.addWidget(self.duration_heading)
+            duration_row = QHBoxLayout()
+            self.duration_labels = {}
+            for state in (*UI_STATES, "total"):
+                label = QLabel()
+                label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                label.setStyleSheet(f"color: {COLORS.get(state, '#edf2f8')}; padding: 5px;")
+                label.setMinimumWidth(85)
+                self.duration_labels[state] = label
+                duration_row.addWidget(label, 1)
+            layout.addLayout(duration_row)
+            self.update_duration_totals([])
 
             self.tree = QTreeWidget()
             self.tree.setHeaderLabels(["Track / folder", "State", "Category"])
@@ -548,6 +680,8 @@ def run_gui(project_root=None):
             self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
             self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
             self.tree.setUniformRowHeights(True)
+            self.tree.header().setSectionsClickable(False)
+            self.tree.setSortingEnabled(False)
             self.tree.setIndentation(22)
             self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
             self.tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -773,6 +907,7 @@ def run_gui(project_root=None):
                 self._folder_states.update({key: item.isExpanded() for key, item in self.folder_items.items()})
                 self.prefs.setValue("folder_states", json.dumps(self._folder_states))
                 self.prefs.setValue("last_selected", self.selected_key or "")
+                self.prefs.setValue("selected_folder", self.selected_folder or "")
                 self.prefs.setValue("scroll_y", self.tree.verticalScrollBar().value())
                 self.prefs.setValue("scroll_x", self.tree.horizontalScrollBar().value())
                 self.prefs.setValue("tree_header", self.tree.header().saveState())
@@ -839,7 +974,7 @@ def run_gui(project_root=None):
 
         def set_busy(self, busy):
             self.busy = busy
-            for widget in (self.tree, self.category, self.state_filter, self.search, self.refresh_btn):
+            for widget in (self.tree, self.category, self.state_filter, self.search, self.refresh_btn, self.show_all_btn):
                 widget.setEnabled(not busy)
             for chip in self.chips.values():
                 chip.setEnabled(not busy)
@@ -858,12 +993,51 @@ def run_gui(project_root=None):
                 return found, errors, problems
             def done(result):
                 self.found, errors, self.problems = result
+                self.durations, self.duration_errors = {}, {}
                 self.rebuild_tree(preferred)
+                self.start_duration_scan()
                 self.statusBar().showMessage(f"Ready · {len(self.found)} MP3 files · Ratings save automatically")
                 if errors or self.problems:
                     lines = errors + [f"{k}: {v}" for k, v in self.problems.items()]
                     QMessageBox.warning(self, "Some files need attention", "\n".join(lines))
             self.run_job(scan, done)
+
+        def start_duration_scan(self):
+            if self.duration_job is not None:
+                self.duration_job.requestInterruption()
+                self._duration_restart = True
+                return
+            self._duration_restart = False
+            job = DurationJob(self.root, self.found, self)
+            self.duration_job = job
+            job.batch.connect(self.duration_batch)
+            job.finished.connect(self.duration_scan_finished)
+            job.start()
+
+        def duration_batch(self, results):
+            if getattr(self, "_duration_restart", False):
+                return
+            for key, (seconds, error) in results.items():
+                if key not in self.found:
+                    continue
+                if error:
+                    self.duration_errors[key] = error
+                    self.durations.pop(key, None)
+                else:
+                    self.durations[key] = seconds
+                    self.duration_errors.pop(key, None)
+            self.update_duration_totals(self.visible_keys())
+
+        def duration_scan_finished(self):
+            job = self.duration_job
+            self.duration_job = None
+            job.deleteLater()
+            if self._close_pending:
+                self.close()
+            elif getattr(self, "_duration_restart", False):
+                self.start_duration_scan()
+            else:
+                self.update_duration_totals(self.visible_keys())
 
         def state_icon(self, state):
             pixmap = QPixmap(14, 14)
@@ -897,19 +1071,19 @@ def run_gui(project_root=None):
                 for depth, part in enumerate(parts[:-1]):
                     folder_key = parts[:depth + 1]
                     if folder_key not in folders:
-                        folder = QTreeWidgetItem([part, "", ""])
+                        folder = SortedItem([part, "", ""])
                         folder.setIcon(0, self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
                         font = folder.font(0)
                         font.setBold(True)
                         folder.setFont(0, font)
-                        folder.setFlags(folder.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                        folder.setData(0, ROLE + 2, "/".join(folder_key))
                         if parent is None:
                             self.tree.addTopLevelItem(folder)
                         else:
                             parent.addChild(folder)
                         folders[folder_key] = folder
                     parent = folders[folder_key]
-                item = QTreeWidgetItem([parts[-1], LABELS[state], category_for(key)])
+                item = SortedItem([parts[-1], LABELS[state], category_for(key)])
                 item.setData(0, ROLE, key)
                 item.setData(1, ROLE + 1, state)
                 item.setIcon(0, self.state_icon(state))
@@ -921,6 +1095,7 @@ def run_gui(project_root=None):
                     item.setToolTip(2, self.problems[key])
                 parent.addChild(item)
                 self.items[key] = item
+            self.tree.sortItems(0, Qt.SortOrder.AscendingOrder)
             self.folder_items = {"/".join(key): item for key, item in folders.items()}
             for key, item in self.folder_items.items():
                 item.setExpanded(self._folder_states.get(key, True))
@@ -941,8 +1116,36 @@ def run_gui(project_root=None):
                 self.schedule_ui_save()
             QTimer.singleShot(0, finish_view)
 
+        def reset_filters(self, state):
+            # Overview counts cover the whole library. Their actions must do so too.
+            widgets = (self.category, self.state_filter, self.search)
+            for widget in widgets:
+                widget.blockSignals(True)
+            try:
+                self.category.setCurrentIndex(self.category.findText("All categories"))
+                self.state_filter.setCurrentIndex(self.state_filter.findData(state))
+                self.search.clear()
+            finally:
+                for widget in widgets:
+                    widget.blockSignals(False)
+            self.selected_folder = None
+            self.apply_filters()
+            self.schedule_ui_save()
+
         def choose_state(self, state):
-            self.state_filter.setCurrentIndex(self.state_filter.findData(state))
+            self.reset_filters(state)
+
+        def show_all_tracks(self, *args):
+            self.reset_filters("all")
+
+        def update_filter_summary(self):
+            state = self.state_filter.currentData()
+            for value, chip in self.chips.items():
+                chip.setChecked(value == state)
+            parts = [self.category.currentText(), self.state_filter.currentText()]
+            if self.search.text().strip():
+                parts.append('Search: "' + self.search.text().strip() + '"')
+            self.filter_summary.setText("Showing: " + " · ".join(parts))
 
         def update_counts(self):
             counts = {state: 0 for state in UI_STATES}
@@ -956,13 +1159,15 @@ def run_gui(project_root=None):
             self.progress.setValue(reviewed)
 
         def apply_filters(self, *args, preferred=None):
+            self.update_filter_summary()
             if not self.items:
                 self.empty.setText("No MP3 files found. Reference folders are excluded.")
                 self.empty.show()
                 self.visible_label.setText("0 files")
+                self.update_duration_totals([])
                 self.selection_changed(None, None)
                 return
-            self.empty.setText("No tracks match these filters.")
+            self.empty.setText("No tracks match these filters. Click Show all to restore the full hierarchy.")
             selected = preferred or self.selected_key
             category = self.category.currentText()
             state_filter = self.state_filter.currentData()
@@ -970,7 +1175,7 @@ def run_gui(project_root=None):
             for key, item in self.items.items():
                 state = self.catalog.display_state(key)
                 visible = ((category == "All categories" or category_for(key) == category)
-                    and ((state != "stash") if state_filter == "active" else state == state_filter)
+                    and (state_filter == "all" or ((state != "stash") if state_filter == "active" else state == state_filter))
                     and all(word in key.casefold() for word in words))
                 item.setHidden(not visible)
             def prune(item):
@@ -984,7 +1189,13 @@ def run_gui(project_root=None):
                 prune(self.tree.topLevelItem(i))
             visible = self.visible_keys()
             self.visible_label.setText(f"{len(visible)} files")
+            self.update_duration_totals(visible)
             self.empty.setVisible(not visible)
+            folder = self.folder_items.get(self.selected_folder)
+            if folder is not None and not folder.isHidden():
+                self.tree.setCurrentItem(folder)
+                self.selection_changed(folder, None)
+                return
             chosen = selected if selected in visible else (visible[0] if visible else None)
             if chosen:
                 self.select_key(chosen)
@@ -992,9 +1203,55 @@ def run_gui(project_root=None):
                 self.tree.setCurrentItem(None)
                 self.selection_changed(None, None)
 
+        def update_duration_totals(self, keys):
+            if self.duration_scope:
+                prefix = self.duration_scope + "/"
+                keys = [key for key in keys if
+                        (("stash/" if self.catalog.display_state(key) == "stash" else "ceremonies/")
+                         + key).startswith(prefix)]
+            totals = {state: 0.0 for state in UI_STATES}
+            unknown = {state: 0 for state in UI_STATES}
+            for key in keys:
+                state = self.catalog.display_state(key)
+                if key in self.durations:
+                    totals[state] += self.durations[key]
+                else:
+                    unknown[state] += 1
+            totals["total"] = sum(totals.values())
+            unknown["total"] = sum(unknown.values())
+            for state, label in self.duration_labels.items():
+                title = "Total" if state == "total" else LABELS[state]
+                extra = f" + {unknown[state]} unknown" if unknown[state] else ""
+                label.setText(f"{title}\n{duration_text(totals[state])}")
+                label.setToolTip(f"{title}: {duration_text(totals[state])}{extra}. "
+                    "Hours:minutes:seconds. Includes matching tracks in collapsed folders.")
+            n = unknown["total"]
+            pending = sum(key not in self.durations and key not in self.duration_errors for key in keys)
+            note = f" · loading {pending} durations…" if pending and self.duration_job else ""
+            unavailable = n - pending if self.duration_job else n
+            if unavailable:
+                note += f" · {unavailable} unavailable (excluded from totals)"
+            self.duration_heading.setText("Duration · " + (self.duration_scope or "All folders")
+                                          + " · current filters" + note)
+            messages = [f"{key}: {self.duration_errors.get(key, 'Loading duration…' if self.duration_job else 'Duration unavailable')}"
+                        for key in keys if key not in self.durations]
+            self.duration_heading.setToolTip("\n".join(messages))
+
         def visible_keys(self):
-            # Includes descendants of collapsed folders: Next traverses the filter results.
-            return [key for key, item in self.items.items() if not item.isHidden()]
+            # Traverse the actual sorted hierarchy, including collapsed descendants.
+            keys = []
+            def visit(parent):
+                for index in range(parent.childCount()):
+                    item = parent.child(index)
+                    if item.isHidden():
+                        continue
+                    key = item.data(0, ROLE)
+                    if key:
+                        keys.append(key)
+                    else:
+                        visit(item)
+            visit(self.tree.invisibleRootItem())
+            return keys
 
         def select_key(self, key):
             item = self.items.get(key)
@@ -1011,6 +1268,10 @@ def run_gui(project_root=None):
             if key != self.selected_key:
                 self.unload()
             self.selected_key = key
+            self.selected_folder = current.data(0, ROLE + 2) if current and not key else None
+            folder = current.parent() if current and key else current
+            self.duration_scope = folder.data(0, ROLE + 2) if folder else None
+            self.update_duration_totals(self.visible_keys())
             self.show_selected()
 
         def show_selected(self):
@@ -1176,8 +1437,9 @@ def run_gui(project_root=None):
             item.setData(1, ROLE + 1, state)
             item.setIcon(0, self.state_icon(state))
             item.setToolTip(1, LABELS[state])
+            self.tree.sortItems(0, Qt.SortOrder.AscendingOrder)
             self.update_counts()
-            filtered_out = self.state_filter.currentData() not in ("active", state)
+            filtered_out = self.state_filter.currentData() not in ("active", "all", state)
             self.apply_filters(preferred=next_key if (self.auto_next.isChecked() or filtered_out) and next_key else key)
             self.show_selected()
             self.statusBar().showMessage(f"Saved {saved_rating} · {PurePosixPath(key).name}")
@@ -1315,6 +1577,8 @@ def run_gui(project_root=None):
                 "Ctrl+Up/Down = Previous/Next   Ctrl+F = Search   F5 = Refresh\n\n"
                 "Click or drag the timeline to seek. Tracks stop at the end so you can rate them. "
                 "'Play next after rating' enables a faster review workflow.\n\n"
+                "Tracks sort within each folder: Unreviewed, High, Medium, Low, Marked, Stash; then filename. "
+                "Duration totals follow current filters and include collapsed folders. Unknown durations are flagged. "
                 "Click a colored count to filter. Reference folders are excluded. "
                 "Mark for stash only flags a track. Choose Marked for stash to review it, and Unmark stash to keep it. "
                 "Move all marked performs the actual moves across ALL categories and filters. "
@@ -1329,6 +1593,12 @@ def run_gui(project_root=None):
         def closeEvent(self, event):
             if self.busy:
                 self.statusBar().showMessage("Finishing the current file operation; please close again in a moment.")
+                event.ignore()
+                return
+            if self.duration_job is not None:
+                self._close_pending = True
+                self.duration_job.requestInterruption()
+                self.hide()
                 event.ignore()
                 return
             self.unload()

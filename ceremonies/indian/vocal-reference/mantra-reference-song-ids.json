@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "files": {
+    "mantra01-ref.mp3": {
+      "filename": "mantra01-ref.mp3",
+      "sha256": "af36d9796069541af10f15eb5e38d6aa96cbc5d081f0709deb0830e32d5a374c",
+      "size_bytes": 1028661,
+      "duration_seconds": 47.63573696145125,
+      "status": "rejected",
+      "started_utc": "2026-09-25T20:44:08.037242+00:00",
+      "http_status": 400,
+      "error": "{\"detail\":{\"type\":\"invalid_request\",\"code\":\"bad_request\",\"message\":\"The song you tried to upload contains copyrighted material. You were still charged half price for this request.\",\"status\":\"copyrighted_material_detected\",\"request_id\":\"22cda3972bc5c0a420feaa2d97ac98fa\"}}"
+    },
+    "mantra02-ref.mp3": {
+      "filename": "mantra02-ref.mp3",
+      "sha256": "a287c3ee60323518dcbc4c42684b79cbcd85c52613c52a1b056261d85fe24258",
+      "size_bytes": 1370679,
+      "duration_seconds": 64.81850340136054,
+      "status": "uploaded",
+      "started_utc": "2026-09-25T20:44:13.059585+00:00",
+      "song_id": "pTG3UDeYHdl7dyygkEo8_upload",
+      "uploaded_utc": "2026-09-25T20:44:16.310895+00:00"
+    },
+    "mantra03-ref.mp3": {
+      "filename": "mantra03-ref.mp3",
+      "sha256": "7d7850596c0254b2ae08a3f0a3ea6c27d9c52c646acf00afe065eabca7f3e7cf",
+      "size_bytes": 865619,
+      "duration_seconds": 41.230657596371884,
+      "status": "uploaded",
+      "started_utc": "2026-09-25T20:44:16.350333+00:00",
+      "song_id": "XkbbGe6wsG7RLns3YnkL_upload",
+      "uploaded_utc": "2026-09-25T20:44:19.193972+00:00"
+    },
+    "mantra04-ref.mp3": {
+      "filename": "mantra04-ref.mp3",
+      "sha256": "115314075d39d42ac959edfdf083353781126c1cb537c94295f273c2e11baadd",
+      "size_bytes": 1068979,
+      "duration_seconds": 46.13131519274376,
+      "status": "uploaded",
+      "started_utc": "2026-09-25T20:44:19.215540+00:00",
+      "song_id": "wjCkmjRVWSocLFHgBwPp_upload",
+      "uploaded_utc": "2026-09-25T20:44:22.002394+00:00"
+    },
+    "mantra05-ref.mp3": {
+      "filename": "mantra05-ref.mp3",
+      "sha256": "cc37ce4c554b67d9205086b7fc9cad0b8849df8c2e0615cc49a29537fe12ed60",
+      "size_bytes": 1752120,
+      "duration_seconds": 82.24090702947846,
+      "status": "rejected",
+      "started_utc": "2026-09-25T20:44:22.189298+00:00",
+      "http_status": 400,
+      "error": "{\"detail\":{\"type\":\"invalid_request\",\"code\":\"bad_request\",\"message\":\"The song you tried to upload contains copyrighted material. You were still charged half price for this request.\",\"status\":\"copyrighted_material_detected\",\"request_id\":\"9d6337207da50dc87333ebabaca1311f\"}}"
+    },
+    "mantra06-ref.mp3": {
+      "filename": "mantra06-ref.mp3",
+      "sha256": "3f37f44a10b9935221c665dc690fe61713c1163994662d34ef3833a3c7bacc33",
+      "size_bytes": 1596485,
+      "duration_seconds": 70.11131519274376,
+      "status": "uploaded",
+      "started_utc": "2026-09-25T20:44:27.454585+00:00",
+      "song_id": "0nLCrTfvP4HAy5smmoMq_upload",
+      "uploaded_utc": "2026-09-25T20:44:31.877912+00:00"
+    },
+    "mantra07-ref.mp3": {
+      "filename": "mantra07-ref.mp3",
+      "sha256": "0d9f6bece17efa6241e4e514be9a8f4e75293094bf7552bdf3035ca41b3abead",
+      "size_bytes": 2285387,
+      "duration_seconds": 97.65081632653062,
+      "status": "rejected",
+      "started_utc": "2026-09-25T20:44:32.077983+00:00",
+      "http_status": 400,
+      "error": "{\"detail\":{\"type\":\"invalid_request\",\"code\":\"bad_request\",\"message\":\"The song you tried to upload contains copyrighted material. You were still charged half price for this request.\",\"status\":\"copyrighted_material_detected\",\"request_id\":\"648af4a8b899d2758cb7c484757a1756\"}}"
+    },
+    "mantra08-ref.mp3": {
+      "filename": "mantra08-ref.mp3",
+      "sha256": "ca3801941d26e3506ff05a8be4795c546bbbe352c4b2bd53e67e7d64beb4281f",
+      "size_bytes": 1318311,
+      "duration_seconds": 62.91090702947846,
+      "status": "uploading",
+      "started_utc": "2026-09-25T20:44:37.484882+00:00"
+    },
+    "mantra09-ref.mp3": {
+      "filename": "mantra09-ref.mp3",
+      "sha256": "d1ac16bad2b7a1034e1c88cb6d1347127f8b12f4a55ea70089b8608a341de2be",
+      "size_bytes": 1287750,
+      "duration_seconds": 62.20049886621315,
+      "status": "copyright_rejected",
+      "started_utc": "2026-09-25T20:47:38.406111+00:00",
+      "http_status": 400,
+      "error": "{\"detail\":{\"type\":\"invalid_request\",\"code\":\"bad_request\",\"message\":\"The song you tried to upload contains copyrighted material. You were still charged half price for this request.\",\"status\":\"copyrighted_material_detected\",\"request_id\":\"6a48ee0fd444674284b72b30ec4170ef\"}}"
+    },
+    "mantra10-ref.mp3": {
+      "filename": "mantra10-ref.mp3",
+      "sha256": "861f460683c8a5959995b8bb565b96ddb790557e7df42880cd7614a72c5345c2",
+      "size_bytes": 1180841,
+      "duration_seconds": 75.5504081632653,
+      "status": "uploaded",
+      "started_utc": "2026-09-25T20:47:42.628991+00:00",
+      "song_id": "fCPawTLLVOCeHBmjXbCs_upload",
+      "uploaded_utc": "2026-09-25T20:47:47.406098+00:00"
+    },
+    "mantra11-ref.mp3": {
+      "filename": "mantra11-ref.mp3",
+      "sha256": "80db9ec7428a79e6eaa4c326460aa464cd2e2d6bfdcbdbb3a849b3680e2870d3",
+      "size_bytes": 1428083,
+      "duration_seconds": 68.1004081632653,
+      "status": "uploaded",
+      "started_utc": "2026-09-25T20:47:47.824746+00:00",
+      "song_id": "phcM7h94PLCirZKezc0U_upload",
+      "uploaded_utc": "2026-09-25T20:47:54.092324+00:00"
+    },
+    "mantra12-ref.mp3": {
+      "filename": "mantra12-ref.mp3",
+      "sha256": "2279f45ece4e9688a3677ea1514601446c2f0a76999a527b1d22702c36796b3b",
+      "size_bytes": 2218222,
+      "duration_seconds": 99.68090702947846,
+      "status": "uploaded",
+      "started_utc": "2026-09-25T20:47:54.638041+00:00",
+      "song_id": "EP394z6iXkUdjhwfezyL_upload",
+      "uploaded_utc": "2026-09-25T20:48:02.223658+00:00"
+    },
+    "mantra13-ref.mp3": {
+      "filename": "mantra13-ref.mp3",
+      "sha256": "f74b9a88e17e24ba31fc18c332ef9c23ce8a5ab0301a869d62c0de5eedbf26c7",
+      "size_bytes": 1236786,
+      "duration_seconds": 58.60106575963719,
+      "status": "uploaded",
+      "started_utc": "2026-09-25T20:48:02.252798+00:00",
+      "song_id": "WEiyNxkzsacYpamXLhIW_upload",
+      "uploaded_utc": "2026-09-25T20:48:06.587277+00:00"
+    }
+  },
+  "updated_utc": "2026-09-25T20:48:06.588299+00:00"
+}

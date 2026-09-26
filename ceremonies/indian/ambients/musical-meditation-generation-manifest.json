@@ -1,0 +1,402 @@
+{
+  "schema_version": 1,
+  "batch_id": "musical-meditation-20-v1",
+  "clips": {
+    "meditation-music-01-piano-cello": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:19:50.341590+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 210-second piece. Lyrical contemporary chamber music for acoustic piano and cello. A tender cello melody unfolds over flowing broken piano chords, then piano takes the melody while cello answers. Warm major and relative-minor colors, graceful rubato, a contrasting middle passage and a gentle return. Intimate, melodic and emotionally welcoming; no tragic film-score drama.",
+            "music_length_ms": 210000,
+            "force_instrumental": true
+          },
+          "song_id": "YPAGuKBtj0BwAuBNdpuV",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5040621,
+          "finished_utc": "2026-09-23T01:20:09.976934+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-01-piano-cello.mp3",
+      "duration_seconds_requested": 210,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "YPAGuKBtj0BwAuBNdpuV",
+      "duration_seconds_actual": 210.024,
+      "file_size_bytes": 5040621,
+      "sha256": "8867fc076b5d6d6536a24fd5866eea011bd0084d5fe31cd2a415583928f0ef8f"
+    },
+    "meditation-music-02-celtic-harp-flute": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:20:11.259530+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 180-second piece. An original Celtic-inspired pastoral air for lever harp, wooden flute and light acoustic guitar. A lilting, singable flute tune, harp countermelodies and soft guitar support in relaxed compound meter. Alternate a welcoming main theme with a fresh answering theme. Green, open and hopeful in feeling; no jig-speed playing or marching drums.",
+            "music_length_ms": 180000,
+            "force_instrumental": true
+          },
+          "song_id": "MoUuMNGyL4u7TQQEcDz9",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 4320621,
+          "finished_utc": "2026-09-23T01:20:31.726089+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-02-celtic-harp-flute.mp3",
+      "duration_seconds_requested": 180,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "MoUuMNGyL4u7TQQEcDz9",
+      "duration_seconds_actual": 180.024,
+      "file_size_bytes": 4320621,
+      "sha256": "71452bfd44bd6e69335083db33716389c19eb3bab050fbbbba4c8d88aba85a13"
+    },
+    "meditation-music-03-brazilian-acoustic": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:20:33.015041+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 150-second piece. A mellow Brazilian-inspired acoustic instrumental with nylon-string guitar, warm electric piano and soft upright bass. Relaxed bossa-nova phrasing, elegant gently extended chords and a clear melodic guitar line. A barely brushed rhythmic touch supports easy forward movement. Intimate and sunlit, with small tasteful melodic variations; no busy jazz solo or lounge spectacle.",
+            "music_length_ms": 150000,
+            "force_instrumental": true
+          },
+          "song_id": "s8INzNulbjuXtOoesc8Z",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 3600621,
+          "finished_utc": "2026-09-23T01:20:48.227285+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-03-brazilian-acoustic.mp3",
+      "duration_seconds_requested": 150,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "s8INzNulbjuXtOoesc8Z",
+      "duration_seconds_actual": 150.024,
+      "file_size_bytes": 3600621,
+      "sha256": "73653ab9daab2c9f862ace04e1fd1f5df90e79213076a1dffe3d9a3a19e0d2c8"
+    },
+    "meditation-music-04-indian-bansuri-santoor": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:20:49.513030+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 240-second piece. A melodic Indian-inspired instrumental for low bansuri, softly played santoor and restrained tabla. A graceful flute theme answered by sparkling but rounded santoor phrases. Gentle coordinated rhythm, warm melodic ornament and an evolving acoustic arrangement. Let the melody remain central with soft accompaniment; avoid a long drone introduction, fast runs or percussion solos.",
+            "music_length_ms": 240000,
+            "force_instrumental": true
+          },
+          "song_id": "ONPwyAFJbU0crNYRWdTT",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5760621,
+          "finished_utc": "2026-09-23T01:21:10.259096+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-04-indian-bansuri-santoor.mp3",
+      "duration_seconds_requested": 240,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "ONPwyAFJbU0crNYRWdTT",
+      "duration_seconds_actual": 240.024,
+      "file_size_bytes": 5760621,
+      "sha256": "5b52f9abe636222cc3a139348ee7d7fd7908d40db6aab1933935af1e7edfd57b"
+    },
+    "meditation-music-05-japanese-koto-shakuhachi": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:21:11.548624+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 180-second piece. A lyrical Japanese-inspired duet for koto and softly voiced shakuhachi. Clear pentatonic melodic phrases over gently flowing plucked accompaniment, with thoughtful answering phrases and a contrasting middle section. Natural phrasing and warm resonance, sustained musical interest without extended empty pauses. Soft comfortable flute register, no breath blasts or sharp koto attacks.",
+            "music_length_ms": 180000,
+            "force_instrumental": true
+          },
+          "song_id": "HVRK0UCCh45GYSKTEHEF",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 4320621,
+          "finished_utc": "2026-09-23T01:21:27.705241+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-05-japanese-koto-shakuhachi.mp3",
+      "duration_seconds_requested": 180,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "HVRK0UCCh45GYSKTEHEF",
+      "duration_seconds_actual": 180.024,
+      "file_size_bytes": 4320621,
+      "sha256": "b1347e5ccbcfed5b2b9ee96074911f1908b5b0d3038a273c5f8354c2e1080d14"
+    },
+    "meditation-music-06-andalusian-nylon-guitar": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:21:29.008099+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 150-second piece. A peaceful Mediterranean guitar instrumental. Warm nylon-string guitar presents a lyrical melody with delicate fingerpicked accompaniment and occasional soft second-guitar harmony. Gentle Spanish-influenced chord colors, relaxed rubato and an intimate room sound. An expressive acoustic miniature with a rounded melodic ending; no rapid flamenco strumming, foot percussion or dramatic flourishes.",
+            "music_length_ms": 150000,
+            "force_instrumental": true
+          },
+          "song_id": "BvpWry2vV9AYyPaHLz3a",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 3600621,
+          "finished_utc": "2026-09-23T01:21:44.024493+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-06-andalusian-nylon-guitar.mp3",
+      "duration_seconds_requested": 150,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "BvpWry2vV9AYyPaHLz3a",
+      "duration_seconds_actual": 150.024,
+      "file_size_bytes": 3600621,
+      "sha256": "9d6f98e4aeb7a434d4b9cde026db96df18037e505ad0725fb37bb2f05f2fefc0"
+    },
+    "meditation-music-07-west-african-kora": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:21:45.324587+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 210-second piece. An acoustic instrumental centered on kora, with a second quiet plucked-string part and very light hand percussion. Interlocking flowing figures support a distinct, warmly lyrical melody. Patiently vary the answering phrases and harmonic colors while maintaining a relaxed coordinated pulse. Bright-hearted and restful, with rounded string attacks; no static loop or energetic percussion break.",
+            "music_length_ms": 210000,
+            "force_instrumental": true
+          },
+          "song_id": "WTFDJQXs58xYgbfMJ5Ec",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5040621,
+          "finished_utc": "2026-09-23T01:22:08.025654+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-07-west-african-kora.mp3",
+      "duration_seconds_requested": 210,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "WTFDJQXs58xYgbfMJ5Ec",
+      "duration_seconds_actual": 210.024,
+      "file_size_bytes": 5040621,
+      "sha256": "0bfedc73d3737f95d17bffb8785197e7f7495b3db3085e1a7f8124c5810f35ed"
+    },
+    "meditation-music-08-persian-santur-ney": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:22:09.314656+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 180-second piece. A Persian-inspired melodic instrumental for softly struck santur, low ney and gentle plucked lute accompaniment. A graceful modal tune passes between flute and strings, with delicate ornament and quietly moving harmony. Smooth legato phrasing, warm consonant resting points and subtle rhythmic flow. Expressive and comforting rather than mournful or tense; no shrill flute or hammered-string barrage.",
+            "music_length_ms": 180000,
+            "force_instrumental": true
+          },
+          "song_id": "DvACJ7BIYslAPwvRlN09",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 4320621,
+          "finished_utc": "2026-09-23T01:22:27.185439+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-08-persian-santur-ney.mp3",
+      "duration_seconds_requested": 180,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "DvACJ7BIYslAPwvRlN09",
+      "duration_seconds_actual": 180.024,
+      "file_size_bytes": 4320621,
+      "sha256": "2b9c6bd648d6e23bf95ca04861bfbd110419b1e2fd8a480a58ae393a5eebc9a6"
+    },
+    "meditation-music-09-nordic-acoustic-lullaby": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:22:28.475932+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 240-second piece. A Nordic-inspired original lullaby for warm viola, acoustic guitar and piano. A simple memorable folk-like melody develops through tender variations and a contrasting brighter phrase. Gently rocking accompaniment, open spacious harmonies and restrained bowing. Peaceful, intimate and reassuring throughout; no bleak sustained drone or swelling cinematic orchestra.",
+            "music_length_ms": 240000,
+            "force_instrumental": true
+          },
+          "song_id": "qrf7qjKS2JkYC7B9EVWh",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5760621,
+          "finished_utc": "2026-09-23T01:22:58.800537+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-09-nordic-acoustic-lullaby.mp3",
+      "duration_seconds_requested": 240,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "qrf7qjKS2JkYC7B9EVWh",
+      "duration_seconds_actual": 240.024,
+      "file_size_bytes": 5760621,
+      "sha256": "067c6be2dc08bbd7d198fb6b89ff5a21552b6d477522d14b1ea5e4bc281f35a7"
+    },
+    "meditation-music-10-gentle-ambient-electronica": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:23:00.089956+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 240-second piece. A melodic downtempo electronic meditation piece with warm electric piano, soft analog chord accompaniment, rounded plucked synth melody and a very light brushed electronic pulse. Develop a clear theme through changing chords and subtle answering motifs. Smooth, dreamlike and harmonically rich, with steady gentle movement. No beat drop, pumping bass, noisy sweep or extended pad-only section.",
+            "music_length_ms": 240000,
+            "force_instrumental": true
+          },
+          "song_id": "hXxQy9Nt7pUytU4LhTDM",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5760621,
+          "finished_utc": "2026-09-23T01:23:21.484230+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-10-gentle-ambient-electronica.mp3",
+      "duration_seconds_requested": 240,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "hXxQy9Nt7pUytU4LhTDM",
+      "duration_seconds_actual": 240.024,
+      "file_size_bytes": 5760621,
+      "sha256": "493ec2a219bf3a61aa7f772f528fff85b63dda20c76d66c16593e9ad1c26b380"
+    },
+    "meditation-music-11-chinese-guzheng-xiao": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:23:22.763385+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 180-second piece. A lyrical Chinese-inspired chamber instrumental with guzheng, low xiao and soft bowed-string accompaniment. An expressive pentatonic melody with gently rippling plucked responses. Gradually exchange lead and accompaniment roles, shape a contrasting middle phrase and return softly to the opening theme. Warm and flowing, no piercing register, sweeping virtuoso glissandi or theatrical climax.",
+            "music_length_ms": 180000,
+            "force_instrumental": true
+          },
+          "song_id": "CDyKvrfmXvrTGZgBDN5F",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 4320621,
+          "finished_utc": "2026-09-23T01:23:38.795577+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-11-chinese-guzheng-xiao.mp3",
+      "duration_seconds_requested": 180,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "CDyKvrfmXvrTGZgBDN5F",
+      "duration_seconds_actual": 180.024,
+      "file_size_bytes": 4320621,
+      "sha256": "9c2ed46a52c600536eda8b3a2140c4aa7fc4036823bb26ad589a9535d2915641"
+    },
+    "meditation-music-12-hawaiian-slack-key": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:23:40.087760+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 210-second piece. A relaxed Hawaiian slack-key-inspired acoustic guitar instrumental. Ringing open tunings, a melodic fingerpicked upper voice and a gently rocking bass pattern, played softly and naturally. Include a few tasteful second-guitar harmonies and graceful changes of voicing. An original welcoming melody with relaxed island phrasing; no surf effects, vocals, novelty sounds or showy soloing.",
+            "music_length_ms": 210000,
+            "force_instrumental": true
+          },
+          "song_id": "LH32rxJrvQTpaWsYIrmF",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5040621,
+          "finished_utc": "2026-09-23T01:23:59.601430+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-12-hawaiian-slack-key.mp3",
+      "duration_seconds_requested": 210,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "LH32rxJrvQTpaWsYIrmF",
+      "duration_seconds_actual": 210.024,
+      "file_size_bytes": 5040621,
+      "sha256": "25b24cb0b43b37e5ba7556d6a6cd01e127b35f2718df2510b3e7e084330d9863"
+    },
+    "meditation-music-13-mellow-jazz-ballad": {
+      "status": "pending",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:24:00.884333+00:00",
+          "status": "pending",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Compose a beautiful, professionally arranged instrumental piece that is enjoyable to listen to on its own and suitable for relaxed meditation. Give it a memorable but unhurried melody, expressive human phrasing, satisfying harmonic movement and a coherent musical beginning, development and ending. Let the instruments converse and the arrangement develop naturally. A gentle pulse and flowing accompaniment are welcome. Keep the mood warm, reassuring and peaceful, with smooth dynamics, rounded tone and tasteful spacious reverb. Maintain musical substance throughout: avoid static drones, aimless sustained tones, long silent gaps and repetitive filler. Avoid aggressive percussion, piercing sounds and dramatic climaxes. Purely instrumental, with no voices or lyrics. Supply music only; brown noise and spatial movement are added later. Create one complete 180-second piece. An intimate instrumental jazz ballad for warm piano, soft flugelhorn, upright bass and delicate brushed drums. A clear lyrical melody, rich reassuring chords and a short restrained melodic variation before the theme returns. Unhurried, tender and balanced, with mellow brass tone. Keep the tune accessible; no abstract improvisation, sharp accents or busy solos.",
+            "music_length_ms": 180000,
+            "force_instrumental": true
+          }
+        }
+      ],
+      "category": "activity",
+      "file": "activity/meditation-music-13-mellow-jazz-ballad.mp3",
+      "duration_seconds_requested": 180,
+      "output_format": "mp3_48000_192"
+    },
+    "meditation-music-14-baroque-lute-recorder": {
+      "status": "planned",
+      "attempts": []
+    },
+    "meditation-music-15-andes-flute-guitar": {
+      "status": "planned",
+      "attempts": []
+    },
+    "meditation-music-16-arabic-oud-chamber": {
+      "status": "planned",
+      "attempts": []
+    },
+    "meditation-music-17-indonesian-bamboo-ensemble": {
+      "status": "planned",
+      "attempts": []
+    },
+    "meditation-music-18-dreamy-new-age-piano": {
+      "status": "planned",
+      "attempts": []
+    },
+    "meditation-music-19-handpan-guitar-duet": {
+      "status": "planned",
+      "attempts": []
+    },
+    "meditation-music-20-acoustic-storybook-waltz": {
+      "status": "planned",
+      "attempts": []
+    }
+  }
+}

@@ -1,0 +1,622 @@
+{
+  "schema_version": 1,
+  "batch_id": "long-instrumental-ambients-20-v1",
+  "clips": {
+    "long-ambient-01-harmonium-wooden-room": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T00:47:09.445680+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 8-minute performance. Solo acoustic harmonium in a resonant wooden room. Mellow reeds and smooth bellows sustain open fifths and gentle added-note chords. Unforced breathing in the phrasing, without mechanical squeaks or rhythmic pumping. Over many minutes, exchange one inner note at a time and occasionally open the register, then return to intimate warmth. No nasal buzzing or lead melody.",
+            "music_length_ms": 480000,
+            "force_instrumental": true
+          },
+          "song_id": "AiiH8dcJcdKrDDtFqrxZ",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 11520621,
+          "finished_utc": "2026-09-23T00:47:39.915228+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-01-harmonium-wooden-room.mp3",
+      "duration_seconds_requested": 480,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "AiiH8dcJcdKrDDtFqrxZ",
+      "duration_seconds_actual": 480.024,
+      "file_size_bytes": 11520621,
+      "sha256": "19960ce44f93c0af60f98e4eb58965dfcb68ef09171f0a0b2f33fba800ca631a"
+    },
+    "long-ambient-02-bamboo-flute-drone": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T00:47:41.206312+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 6-minute performance. A low bamboo flute plays spacious, breath-soft pentatonic phrases above a quiet continuous shruti-like instrumental drone. Give the flute long rests while the drone and resonance remain. Vary phrase lengths and gently explore neighboring tones; never become virtuosic. Comfortable low-middle register, no piercing flute, excessive breath hiss, percussion, or escalating solo.",
+            "music_length_ms": 360000,
+            "force_instrumental": true
+          },
+          "song_id": "lEO2kcepPEWH4xvxIDql",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 8640621,
+          "finished_utc": "2026-09-23T00:48:11.101538+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-02-bamboo-flute-drone.mp3",
+      "duration_seconds_requested": 360,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "lEO2kcepPEWH4xvxIDql",
+      "duration_seconds_actual": 360.024,
+      "file_size_bytes": 8640621,
+      "sha256": "46756d9fc357cba4b81dbcfeb4e8bd622aee77e69ddee81622cdce5535b47dc3"
+    },
+    "long-ambient-03-bowed-cello-meditation": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T00:48:12.385618+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 7-minute performance. A warm cello with a very soft second bowed-string layer. Long legato tones and occasional consonant double stops, rounded bow changes, human phrasing. A small melodic idea slowly changes shape while a held tone connects phrases. Restrained tenderness, no tragic film-score arc, abrasive bow scrape, dramatic vibrato, heavy bass rumble, or rhythmic accompaniment.",
+            "music_length_ms": 420000,
+            "force_instrumental": true
+          },
+          "song_id": "PiwMiU7X6n8AGPe9kNOX",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 10080621,
+          "finished_utc": "2026-09-23T00:48:41.182966+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-03-bowed-cello-meditation.mp3",
+      "duration_seconds_requested": 420,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "PiwMiU7X6n8AGPe9kNOX",
+      "duration_seconds_actual": 420.024,
+      "file_size_bytes": 10080621,
+      "sha256": "16e640c3386408fcc20ae8861bd1da71f2abfd6e775ed9a5a51ea2538e5fb74b"
+    },
+    "long-ambient-04-quiet-pipe-organ": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T00:48:42.475477+00:00",
+          "status": "uncertain",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 9-minute performance. A pipe organ using only soft flute-like stops in an immense reverberant hall. Quiet lower-middle chords and a few floating upper tones, sustained and seamlessly voiced. Slowly alter inner harmonies while preserving a peaceful tonal center. Convey architectural scale through resonance and spacing, never volume. No loud pedal bass, reeds, mixtures, hymn tune or grand finale.",
+            "music_length_ms": 540000,
+            "force_instrumental": true
+          },
+          "song_id": "e5ma9dMKyWZ2pEN3kJH3",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 1298925,
+          "error": "long-ambient-04-quiet-pipe-organ.mp3.part: requested 540s, received 54.12s",
+          "finished_utc": "2026-09-23T00:48:51.468546+00:00"
+        },
+        {
+          "started_utc": "2026-09-23T00:56:51.357420+00:00",
+          "status": "uncertain",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 9-minute performance. A pipe organ using only soft flute-like stops in an immense reverberant hall. Quiet lower-middle chords and a few floating upper tones, sustained and seamlessly voiced. Slowly alter inner harmonies while preserving a peaceful tonal center. Convey architectural scale through resonance and spacing, never volume. No loud pedal bass, reeds, mixtures, hymn tune or grand finale.",
+            "music_length_ms": 540000,
+            "force_instrumental": true
+          },
+          "song_id": "7yL8vO9tSTceaHkp8I0L",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 1298925,
+          "error": "long-ambient-04-quiet-pipe-organ.mp3.part: requested 540s, received 54.12s",
+          "finished_utc": "2026-09-23T00:57:01.884703+00:00"
+        },
+        {
+          "started_utc": "2026-09-23T00:58:31.198183+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 9-minute performance. A pipe organ using only soft flute-like stops in an immense reverberant hall. Quiet lower-middle chords and a few floating upper tones, sustained and seamlessly voiced. Slowly alter inner harmonies while preserving a peaceful tonal center. Convey architectural scale through resonance and spacing, never volume. No loud pedal bass, reeds, mixtures, hymn tune or grand finale.",
+            "music_length_ms": 540000,
+            "force_instrumental": true
+          },
+          "song_id": "f5w0svIAoW1uWGdZrTnE",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 12960621,
+          "finished_utc": "2026-09-23T00:59:04.027656+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-04-quiet-pipe-organ.mp3",
+      "duration_seconds_requested": 540,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "f5w0svIAoW1uWGdZrTnE",
+      "error": "long-ambient-04-quiet-pipe-organ.mp3.part: requested 540s, received 54.12s",
+      "retry_authorized_utc": "2026-09-23T00:58:30.896985+00:00",
+      "duration_seconds_actual": 540.024,
+      "file_size_bytes": 12960621,
+      "sha256": "2b40a06e8fb4d8b454cee34428599c282db95cde1bd5b3c408edcc607ed21e8a"
+    },
+    "long-ambient-05-underwater-harmonics": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T00:59:05.342526+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 10-minute performance. An underwater impression made entirely from rounded electronic tones, softly bowed metallic resonances, and slowly shifting consonant chords. Muted upper frequencies and liquid legato connections; tiny luminous details occasionally appear above the sustained harmony. Explore changes in depth and tonal color without increasing loudness. No water recordings, bubbles, sonar pings, horror atmosphere, sub-bass sweeps, or audible filter pumping.",
+            "music_length_ms": 600000,
+            "force_instrumental": true
+          },
+          "song_id": "M5vlkLP9fxWilgmLmS0S",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 14400621,
+          "finished_utc": "2026-09-23T00:59:41.367034+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-05-underwater-harmonics.mp3",
+      "duration_seconds_requested": 600,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "M5vlkLP9fxWilgmLmS0S",
+      "duration_seconds_actual": 600.024,
+      "file_size_bytes": 14400621,
+      "sha256": "5699f8aefb2d48b67e2c31094b7be3f7ad8f345104fdaaa85a572bdd01c152e8"
+    },
+    "long-ambient-06-gentle-string-harmonics": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T00:59:42.657276+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 7-minute performance. A small acoustic string ensemble weaving soft natural harmonics into warm middle-register sustained notes. Staggered bow changes keep the texture continuous. Let individual consonant partials become briefly distinct and blend back into the ensemble. Slow changes of voicing with no emotional build. Soft luminous warmth, never icy high strings or tense clusters.",
+            "music_length_ms": 420000,
+            "force_instrumental": true
+          },
+          "song_id": "U46eVEfgFXoTER8ea2Zt",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 10080621,
+          "finished_utc": "2026-09-23T01:00:09.489870+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-06-gentle-string-harmonics.mp3",
+      "duration_seconds_requested": 420,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "U46eVEfgFXoTER8ea2Zt",
+      "duration_seconds_actual": 420.024,
+      "file_size_bytes": 10080621,
+      "sha256": "107963d3e2740b1ad0d452bbb943a9f8678a3da723596b5f57a13f2afef2380e"
+    },
+    "long-ambient-07-felt-piano-space": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:00:10.778707+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 6-minute performance. An intimate felt piano improvisation of widely spaced soft chords and isolated middle-register notes. Rounded attacks, gently overlapping pedal resonance, warm room decay. Let simple two-note shapes return with modest harmonic variations and irregular pauses. Sustain the mood without a recognizable song, busy arpeggios, low pounding, mechanical key noise, or a sentimental crescendo.",
+            "music_length_ms": 360000,
+            "force_instrumental": true
+          },
+          "song_id": "u6BKWalkJvYGwlbQo9Pf",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 8640621,
+          "finished_utc": "2026-09-23T01:00:41.250995+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-07-felt-piano-space.mp3",
+      "duration_seconds_requested": 360,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "u6BKWalkJvYGwlbQo9Pf",
+      "duration_seconds_actual": 360.024,
+      "file_size_bytes": 8640621,
+      "sha256": "0b6da95581e4965d7da6fead3a1a9a90c639df1b609fef10f069ae9e6402700a"
+    },
+    "long-ambient-08-bowed-vibraphone": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:00:42.545073+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 7-minute performance. Bowed vibraphone tones with nearly attackless onset and overlapping warm metallic sustain. Soft low-middle consonant intervals gradually change one pitch at a time. Occasionally expose a single rich overtone, then rejoin a gentle chord. An organic resonant performance with no motor tremolo, mallet beat, bell strikes, shrill ringing, or dissonant beating.",
+            "music_length_ms": 420000,
+            "force_instrumental": true
+          },
+          "song_id": "noZfTJsGfD4yEC7NBZtV",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 10080621,
+          "finished_utc": "2026-09-23T01:01:12.033893+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-08-bowed-vibraphone.mp3",
+      "duration_seconds_requested": 420,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "noZfTJsGfD4yEC7NBZtV",
+      "duration_seconds_actual": 420.024,
+      "file_size_bytes": 10080621,
+      "sha256": "6a95c7292b904de8d6b00b0f23d691ae1f36bfe7aa9d31d2bfec305aa81aa120"
+    },
+    "long-ambient-09-soft-horn-ensemble": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:01:13.316737+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 8-minute performance. A small ensemble of very softly played French horns and mellow muted flugelhorns. Warm blended lower-middle chords, staggered breaths, rounded entrances. Individual inner voices slowly shift through consonant harmony without becoming soloists. Maintain intimate pianissimo and warm room resonance. No fanfare, martial rhythm, cinematic swell, brassy edge, jazz lead, or human choir.",
+            "music_length_ms": 480000,
+            "force_instrumental": true
+          },
+          "song_id": "CCabcHbVVaPRxL1W0hu9",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 11520621,
+          "finished_utc": "2026-09-23T01:01:46.175588+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-09-soft-horn-ensemble.mp3",
+      "duration_seconds_requested": 480,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "CCabcHbVVaPRxL1W0hu9",
+      "duration_seconds_actual": 480.024,
+      "file_size_bytes": 11520621,
+      "sha256": "ccc6334aa3e74031a45d9769e7522451a5bc49a58d357d6328115310f639fba6"
+    },
+    "long-ambient-10-aeolian-harp": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:01:47.465689+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 9-minute performance. Aeolian-harp-inspired music: resonant open strings, softly excited harmonics, and occasional feather-light plucks with overlapping decays. Irregular clusters feel naturally stirred without a countable pulse. Keep one welcoming tonal family while string colors and spacing evolve. Only musical strings and their resonance, no actual wind recording, harp glissando flourishes, bright chime cascade, or rhythmic picking.",
+            "music_length_ms": 540000,
+            "force_instrumental": true
+          },
+          "song_id": "DpgPS9QPvjMvF9BRzv2R",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 12960621,
+          "finished_utc": "2026-09-23T01:02:21.102270+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-10-aeolian-harp.mp3",
+      "duration_seconds_requested": 540,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "DpgPS9QPvjMvF9BRzv2R",
+      "duration_seconds_actual": 540.024,
+      "file_size_bytes": 12960621,
+      "sha256": "6f2be229d0a29f4c8760414d3a46a7d4c54d4efff9ab00c715b7e6a8d8a70074"
+    },
+    "long-ambient-11-reverberant-guitar-swells": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:02:22.385539+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 8-minute performance. Clean electric guitar played with gentle volume swells that hide the pick attack. Warm consonant chord fragments overlap through long smooth reverberation. Occasional middle-register harmonics answer a sustained lower tone. Patiently alter chord inversions and sustain lengths. No drums, rock rhythm, distortion, soaring solo, delay ostinato, shrill feedback, or dramatic stereo movement.",
+            "music_length_ms": 480000,
+            "force_instrumental": true
+          },
+          "song_id": "AMmIZm4idh2fWCQCCGNM",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 11520621,
+          "finished_utc": "2026-09-23T01:03:06.884533+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-11-reverberant-guitar-swells.mp3",
+      "duration_seconds_requested": 480,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "AMmIZm4idh2fWCQCCGNM",
+      "duration_seconds_actual": 480.024,
+      "file_size_bytes": 11520621,
+      "sha256": "29e2db993dafec2709ba89591f7e531034517610588d36b079baf4e0cae3e164"
+    },
+    "long-ambient-12-tanpura-resonance": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:03:08.176242+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 10-minute performance. An intimate mellow tanpura study with richly ringing sympathetic strings. Gentle rounded plucks sustain a stable tonic and fifth with naturally unequal spacing. Over the full performance, subtly vary touch and overtone emphasis so the resonance stays alive. Spacious unforced continuity, no lead singer, sitar solo, tabla, bright buzzing treble, strict pulse or large harmonic departure.",
+            "music_length_ms": 600000,
+            "force_instrumental": true
+          },
+          "song_id": "mBv25zQxZnFPySaFXyJu",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 14400621,
+          "finished_utc": "2026-09-23T01:03:43.480833+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-12-tanpura-resonance.mp3",
+      "duration_seconds_requested": 600,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "mBv25zQxZnFPySaFXyJu",
+      "duration_seconds_actual": 600.024,
+      "file_size_bytes": 14400621,
+      "sha256": "98339aabd8136cf99154edcfbcf8f521bf08f5d2ba6881c9a563fc8dcedc3899"
+    },
+    "long-ambient-13-bass-clarinet-strings": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:03:44.774872+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 6-minute performance. Soft bass clarinet in its comfortable lower-middle register above a quiet bed of bowed viola and cello. Rounded breath-rich phrases with generous rests, small intervals, and gentle consonant answers from the strings. A patient intimate conversation without increasing density. No growls, key clatter, jazzy runs, jaunty rhythm, orchestral climax or ominous low notes.",
+            "music_length_ms": 360000,
+            "force_instrumental": true
+          },
+          "song_id": "ftFMXxWVbpvxuInh2EBl",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 8640621,
+          "finished_utc": "2026-09-23T01:04:16.406365+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-13-bass-clarinet-strings.mp3",
+      "duration_seconds_requested": 360,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "ftFMXxWVbpvxuInh2EBl",
+      "duration_seconds_actual": 360.024,
+      "file_size_bytes": 8640621,
+      "sha256": "723fbf411c60b705a5d16c727dddd36cfc95cf31d4081077394554eedb79e5f5"
+    },
+    "long-ambient-14-glass-harmonica": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:04:17.694549+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 5-minute performance. A glass harmonica with smooth singing instrumental tones in the warm middle register. Soft sustained consonant intervals overlap into slow chord changes, with occasional simple answering notes. Gentle human variation and luminous resonance. Keep the full performance comforting and rounded; no squeal, piercing upper register, horror dissonance, tinkling rhythm, or vocal imitation.",
+            "music_length_ms": 300000,
+            "force_instrumental": true
+          },
+          "song_id": "c5pttYyGABRWRZQjYiaD",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 7200621,
+          "finished_utc": "2026-09-23T01:04:46.765311+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-14-glass-harmonica.mp3",
+      "duration_seconds_requested": 300,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "c5pttYyGABRWRZQjYiaD",
+      "duration_seconds_actual": 300.024,
+      "file_size_bytes": 7200621,
+      "sha256": "73bfd77b998d4ffabf5be7057fd04dea5c802e9ef1f43d1c39bf6b4e1690e2ca"
+    },
+    "long-ambient-15-soft-marimba": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:04:48.045718+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 5-minute performance. A wooden marimba played with very soft mallets in the low-middle register. Rounded resonant notes and tiny answering phrases with relaxed unequal spacing; notes occasionally overlap in gentle consonant intervals. Evolve a small pentatonic idea by changing one note or pause at a time. No rigid ostinato, rapid rolls, dance groove, sharp attacks, bass thumps or increasing rhythmic complexity.",
+            "music_length_ms": 300000,
+            "force_instrumental": true
+          },
+          "song_id": "pM2XHl3FDX0sGsjSug0T",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 7200621,
+          "finished_utc": "2026-09-23T01:05:20.006865+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-15-soft-marimba.mp3",
+      "duration_seconds_requested": 300,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "pM2XHl3FDX0sGsjSug0T",
+      "duration_seconds_actual": 300.024,
+      "file_size_bytes": 7200621,
+      "sha256": "e02ea31d33e2aa96bed76f3a30a59b426d3e7df9cdd1b0dc6d41657c393bb71f"
+    },
+    "long-ambient-16-warm-analog-landscape": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:05:21.294972+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 10-minute performance. Warm analog synthesizer pads with rounded oscillator tones, slow consonant voice-leading, and subtle timbral drift. A few delicate melodic fragments emerge within the harmony and dissolve back into it. Change color and register patiently while retaining a calm tonal center and steady energy. No sequencer, arpeggiator, drums, white-noise layer, sci-fi alarms, resonant sweeps, sub drops or cinematic build.",
+            "music_length_ms": 600000,
+            "force_instrumental": true
+          },
+          "song_id": "hpakFQ3ZvQlQDs0hZyNZ",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 14400621,
+          "finished_utc": "2026-09-23T01:05:57.231483+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-16-warm-analog-landscape.mp3",
+      "duration_seconds_requested": 600,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "hpakFQ3ZvQlQDs0hZyNZ",
+      "duration_seconds_actual": 600.024,
+      "file_size_bytes": 14400621,
+      "sha256": "bbae76e0f0b3148580e681afe8c9200f8dc91fdac046d0edbef73b029b32389d"
+    },
+    "long-ambient-17-open-tuning-acoustic-guitar": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:05:58.522875+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 6-minute performance. A warm acoustic guitar in a consonant open tuning. Sparse gentle fingerpicked chord fragments, ringing open strings and occasional natural harmonics. Loosely timed phrases with resonance bridging the spaces; small changes of voicing over several minutes. Intimate and unhurried, without repetitive strumming, flashy runs, string squeaks, tapping, percussion or an insistent folk-song rhythm.",
+            "music_length_ms": 360000,
+            "force_instrumental": true
+          },
+          "song_id": "oCRkBe34SqVaeUcXo85h",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 8640621,
+          "finished_utc": "2026-09-23T01:06:30.525891+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-17-open-tuning-acoustic-guitar.mp3",
+      "duration_seconds_requested": 360,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "oCRkBe34SqVaeUcXo85h",
+      "duration_seconds_actual": 360.024,
+      "file_size_bytes": 8640621,
+      "sha256": "b2a22cf214514f0c15a989f7d64e363e90cffb794b4becffa712d06b1d47f611"
+    },
+    "long-ambient-18-orchestra-through-mist": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:06:31.819081+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 9-minute performance. A restrained chamber orchestra of soft strings, low flutes and mellow clarinets. Blend them into slow consonant harmonies with rounded entrances. Individual instruments briefly become distinguishable, offer a tiny phrase, and blend back into sustained harmony. Spacious warm reverberation, clear musical texture with softened edges. No actual fog or wind sound, percussion, brass climax, tension cue or dramatic orchestral development.",
+            "music_length_ms": 540000,
+            "force_instrumental": true
+          },
+          "song_id": "9wLX5ExqbFJgUVUKjHcL",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 12960621,
+          "finished_utc": "2026-09-23T01:07:04.287847+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-18-orchestra-through-mist.mp3",
+      "duration_seconds_requested": 540,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "9wLX5ExqbFJgUVUKjHcL",
+      "duration_seconds_actual": 540.024,
+      "file_size_bytes": 12960621,
+      "sha256": "d033e8d3e6124ef0feb37d718e471561197111eed3341c46b2c16a36d973c3f9"
+    },
+    "long-ambient-19-gong-resonance": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:07:05.585192+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 8-minute performance. A restrained resonance meditation using gently excited low gongs and occasional mellow singing bowls chosen for compatible pitches. Soft mallet friction and feather-light contacts produce overlapping rounded blooms, not crashing strikes. Let warm overtones slowly change prominence while keeping energy even. No thunderous bass, metallic screech, ominous roar, sharp chimes, strong beating dissonance or escalating gong wash.",
+            "music_length_ms": 480000,
+            "force_instrumental": true
+          },
+          "song_id": "Z1etNmLO6JRjaNSAmWwm",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 11520621,
+          "finished_utc": "2026-09-23T01:07:34.652694+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-19-gong-resonance.mp3",
+      "duration_seconds_requested": 480,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "Z1etNmLO6JRjaNSAmWwm",
+      "duration_seconds_actual": 480.024,
+      "file_size_bytes": 11520621,
+      "sha256": "bdeb932343c5af45a5c4fc656ccef9e2b231058576e45ca744ebe1d044abfbb4"
+    },
+    "long-ambient-20-harmonium-bamboo-duet": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:07:35.940640+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "An original, continuous long-form instrumental meditation. A beautiful inhabitable musical space, unhurried and quietly absorbing. Warm midrange detail, rounded attacks, stable consonant harmony, relaxed dynamics, and spacious warm reverberation with overlapping natural decays. Develop patiently through tiny changes in voicing, register and instrumental color; keep a coherent identity throughout. Sustain musical presence for the full duration. Quiet breaths between phrases are welcome, but keep resonance connecting them: no full-ensemble stop, false ending, silent breakdown, or restart in the middle. Allow only the final seconds to settle into a natural ending. No verse/chorus form, climaxes, dramatic crescendo, heavy beat, insistent ostinato, sudden entrances, piercing treble, harsh dissonance, or overpowering sub-bass. Strictly instrumental throughout: no female or male vocals, chanting, humming, choir, speech, or vocal samples. No added brown noise, rain, wind, surf, hiss, crowds, or other sound effects; the playback engine supplies its own living brown-noise bed. Render the instruments clearly with gentle detail and a stable spatial image. Spatial movement and gradual emergence are supplied during playback. Create one uninterrupted 9-minute performance. An acoustic duet of mellow harmonium and low bamboo flute. The harmonium establishes continuous warm harmony; the flute offers widely spaced gentle phrases and sometimes rests for a long stretch while the reeds quietly change their voicing. The two instruments trade musical attention naturally across the full performance. Small consonant ideas, smooth continuity, soft breath and room resonance. No busy accompaniment, high flute runs or climactic duet.",
+            "music_length_ms": 540000,
+            "force_instrumental": true
+          },
+          "song_id": "Aj49sUR4rV0XhTezIPIu",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 12960621,
+          "finished_utc": "2026-09-23T01:08:09.189919+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/long-ambient-20-harmonium-bamboo-duet.mp3",
+      "duration_seconds_requested": 540,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "Aj49sUR4rV0XhTezIPIu",
+      "duration_seconds_actual": 540.024,
+      "file_size_bytes": 12960621,
+      "sha256": "5371df885ed21598515bd9b5dbe37dd767b3c2c107dc2ec1400606b8cb3517bb"
+    }
+  }
+}

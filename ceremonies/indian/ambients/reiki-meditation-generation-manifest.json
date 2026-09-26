@@ -1,0 +1,586 @@
+{
+  "schema_version": 1,
+  "batch_id": "reiki-meditation-20-v1",
+  "clips": {
+    "reiki-meditation-01-piano-warm-strings": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:31:09.564051+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 120-second piece. Soft acoustic piano and a small cushion of warm strings. Simple descending piano phrases over gently changing consonant chords, with a tender answering string line. An intimate, flowing meditation arrangement; the piano remains blended rather than playing a featured concert solo.",
+            "music_length_ms": 120000,
+            "force_instrumental": true
+          },
+          "song_id": "I2oyuz6YcQFuvVDTWA5x",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 2880621,
+          "finished_utc": "2026-09-23T01:31:22.672786+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-01-piano-warm-strings.mp3",
+      "duration_seconds_requested": 120,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "I2oyuz6YcQFuvVDTWA5x",
+      "duration_seconds_actual": 120.024,
+      "file_size_bytes": 2880621,
+      "sha256": "79674cc9aaee355ecc629c630658420df4bb9d17549c0b0757536d536039c98b"
+    },
+    "reiki-meditation-02-bamboo-flute-harp": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:31:23.961928+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 150-second piece. Low bamboo flute and softly plucked harp, supported by a faint warm synth harmony. A comforting pentatonic melody flows in relaxed breaths while the harp offers delicate answering notes. Gently change the chord voicings and maintain connected resonance through the flute rests.",
+            "music_length_ms": 150000,
+            "force_instrumental": true
+          },
+          "song_id": "EtDZr4VshhhqZsJymEq7",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 3600621,
+          "finished_utc": "2026-09-23T01:31:38.477973+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-02-bamboo-flute-harp.mp3",
+      "duration_seconds_requested": 150,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "EtDZr4VshhhqZsJymEq7",
+      "duration_seconds_actual": 150.024,
+      "file_size_bytes": 3600621,
+      "sha256": "939c07ec0850991e2b3e29c623292f2e412f7cb87d91266645d6a168a2aad38e"
+    },
+    "reiki-meditation-03-dreamy-synth-melody": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:31:39.761687+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 180-second piece. Warm rounded synthesizer chords and a delicate bell-soft keyboard melody in the middle register. A few graceful melodic notes develop through slowly changing harmonies, with subtle answering tones. Classic dreamy spa meditation music, with clear musical movement and no sequencer rhythm or pad-only drone.",
+            "music_length_ms": 180000,
+            "force_instrumental": true
+          },
+          "song_id": "ybgBQNrx6zZWLsVcAesN",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 4320621,
+          "finished_utc": "2026-09-23T01:31:55.822538+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-03-dreamy-synth-melody.mp3",
+      "duration_seconds_requested": 180,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "ybgBQNrx6zZWLsVcAesN",
+      "duration_seconds_actual": 180.024,
+      "file_size_bytes": 4320621,
+      "sha256": "1cac5b86cfe9ad3f0b01c7e5330772a174271131b105279e92e5500706bf3abc"
+    },
+    "reiki-meditation-04-nylon-guitar-piano": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:31:57.127144+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 210-second piece. Soft nylon-string guitar and mellow piano. Gentle fingerpicked chord figures support a simple reassuring piano phrase, then the guitar quietly answers. Smooth consonant harmonic changes and spacious reverb create a continuous comforting meditation flow; no strumming groove or guitar virtuosity.",
+            "music_length_ms": 210000,
+            "force_instrumental": true
+          },
+          "song_id": "FPa3wSHzlgZfgTzwEnB1",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5040621,
+          "finished_utc": "2026-09-23T01:32:16.290597+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-04-nylon-guitar-piano.mp3",
+      "duration_seconds_requested": 210,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "FPa3wSHzlgZfgTzwEnB1",
+      "duration_seconds_actual": 210.024,
+      "file_size_bytes": 5040621,
+      "sha256": "819792912d8d8885a2745acad475dad08efc3de19154c2ad38284b4ad50c5113"
+    },
+    "reiki-meditation-05-harp-cello": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:32:17.573015+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 240-second piece. A softly plucked harp carries a delicate rising-and-falling melody over warm cello harmony. The cello occasionally answers with a short tender phrase while the harp maintains gentle flowing notes. Small changes in harmony and register sustain interest without orchestral swells or a dramatic story arc.",
+            "music_length_ms": 240000,
+            "force_instrumental": true
+          },
+          "song_id": "vZYw8oFVy6paMSuD3b0L",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5760621,
+          "finished_utc": "2026-09-23T01:32:43.716410+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-05-harp-cello.mp3",
+      "duration_seconds_requested": 240,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "vZYw8oFVy6paMSuD3b0L",
+      "duration_seconds_actual": 240.024,
+      "file_size_bytes": 5760621,
+      "sha256": "d495da0394fdaf5f545436012aac5094d29ef9772262c6e1ae5fb0b88e9055df"
+    },
+    "reiki-meditation-06-bansuri-santoor": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:32:45.017117+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 180-second piece. Soft low bansuri and mellow santoor in a polished Reiki meditation arrangement. An easy pentatonic flute phrase is answered by rounded, widely spaced santoor notes over changing soft keyboard harmony. Emphasize reassuring melody and gentle continuity, with no tabla or drone introduction.",
+            "music_length_ms": 180000,
+            "force_instrumental": true
+          },
+          "song_id": "4dRlfrNiv2EAYSO6vqh3",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 4320621,
+          "finished_utc": "2026-09-23T01:33:03.860539+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-06-bansuri-santoor.mp3",
+      "duration_seconds_requested": 180,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "4dRlfrNiv2EAYSO6vqh3",
+      "duration_seconds_actual": 180.024,
+      "file_size_bytes": 4320621,
+      "sha256": "27a00dfc0d1756d7e6260739ace39abba6495ea738b1bd368fc0f5d0bd8eec1e"
+    },
+    "reiki-meditation-07-soft-handpan-strings": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:33:05.143449+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 150-second piece. Mellow handpan, warm string accompaniment and a few quiet piano notes. Rounded handpan tones form a slow, clear melodic phrase, supported by gently changing chords. All parts share the same relaxed phrasing, creating a soft meditation flow without a percussion groove or repeating busy pattern.",
+            "music_length_ms": 150000,
+            "force_instrumental": true
+          },
+          "song_id": "KVvGkK327noD9kRkMqiE",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 3600621,
+          "finished_utc": "2026-09-23T01:33:20.657184+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-07-soft-handpan-strings.mp3",
+      "duration_seconds_requested": 150,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "KVvGkK327noD9kRkMqiE",
+      "duration_seconds_actual": 150.024,
+      "file_size_bytes": 3600621,
+      "sha256": "f42d761971d684ab0c6af818930b30fed12e3faf2a707e8a92057067c1eb6f87"
+    },
+    "reiki-meditation-08-koto-warm-keyboards": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:33:21.955769+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 180-second piece. Soft koto and warm sustained keyboard chords with a gentle flute-like instrumental countermelody. Plucked pentatonic phrases develop patiently into related phrases as the harmony changes underneath. Keep the instruments softly blended into lush spa music, with no sharp string attacks or dramatic glissandi.",
+            "music_length_ms": 180000,
+            "force_instrumental": true
+          },
+          "song_id": "oAA5KsshjtVervRkJE16",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 4320621,
+          "finished_utc": "2026-09-23T01:33:38.151518+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-08-koto-warm-keyboards.mp3",
+      "duration_seconds_requested": 180,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "oAA5KsshjtVervRkJE16",
+      "duration_seconds_actual": 180.024,
+      "file_size_bytes": 4320621,
+      "sha256": "66e56225d919621e806f427bb829254227ef3987da6e0075fc2a7b78968904f4"
+    },
+    "reiki-meditation-09-piano-harp-ripples": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:33:39.440146+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 240-second piece. Mellow piano and harp with a quiet warm string layer. Gentle short harp figures ripple beneath a simple piano melody, then pause to let the piano harmony carry the flow. Introduce a related answering phrase halfway through and return naturally, with even soft dynamics throughout.",
+            "music_length_ms": 240000,
+            "force_instrumental": true
+          },
+          "song_id": "Qbg6vwvA0sgxXH7HaFzP",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5760621,
+          "finished_utc": "2026-09-23T01:34:03.111608+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-09-piano-harp-ripples.mp3",
+      "duration_seconds_requested": 240,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "Qbg6vwvA0sgxXH7HaFzP",
+      "duration_seconds_actual": 240.024,
+      "file_size_bytes": 5760621,
+      "sha256": "83925312516ef9d4f53578ee768632d15adc2ee96fb1f344e1e1e6425a969c97"
+    },
+    "reiki-meditation-10-cello-piano-sanctuary": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:34:04.409803+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 210-second piece. Warm cello sings a restrained, comforting instrumental melody over soft piano chords and delicate broken-chord accompaniment. Keep the register comfortable and the mood reassuring. Let the piano briefly take the phrase before the cello returns, always in a gentle spa meditation balance rather than concert chamber music.",
+            "music_length_ms": 210000,
+            "force_instrumental": true
+          },
+          "song_id": "ujdRcZYXpp1rrMB7yOFe",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5040621,
+          "finished_utc": "2026-09-23T01:34:23.685772+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-10-cello-piano-sanctuary.mp3",
+      "duration_seconds_requested": 210,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "ujdRcZYXpp1rrMB7yOFe",
+      "duration_seconds_actual": 210.024,
+      "file_size_bytes": 5040621,
+      "sha256": "27b1913b1b14b6a129b9355335e52409618f31ef085c0f063290a0532f7e32f3"
+    },
+    "reiki-meditation-11-wooden-flute-guitar": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:34:24.978809+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 180-second piece. A low wooden flute above soft nylon-guitar arpeggios and a faint warm harmonic layer. Lyrical but understated phrases, gentle consonant chord changes and easy breathing spaces filled by guitar resonance. A peaceful meditation room atmosphere, without folk-dance rhythms or an assertive flute solo.",
+            "music_length_ms": 180000,
+            "force_instrumental": true
+          },
+          "song_id": "1WHNVDx9DTMRBxT2XXEm",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 4320621,
+          "finished_utc": "2026-09-23T01:34:42.299906+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-11-wooden-flute-guitar.mp3",
+      "duration_seconds_requested": 180,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "1WHNVDx9DTMRBxT2XXEm",
+      "duration_seconds_actual": 180.024,
+      "file_size_bytes": 4320621,
+      "sha256": "000bed3e5a608a8342944a6f432d0dd14512cf68820387a71121636d4c6234b9"
+    },
+    "reiki-meditation-12-mellow-marimba-harp": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:34:43.588497+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 120-second piece. Very softly played marimba and harp over warm keyboard harmony. Rounded wooden tones form small comforting melodic patterns that change as the chords progress. The harp adds delicate responses and resonance. Unhurried, softly blended spa music, with no mallet groove, rapid rolls or busy repetition.",
+            "music_length_ms": 120000,
+            "force_instrumental": true
+          },
+          "song_id": "zzFrS57QHQBa9QSgdqX5",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 2880621,
+          "finished_utc": "2026-09-23T01:35:00.929867+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-12-mellow-marimba-harp.mp3",
+      "duration_seconds_requested": 120,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "zzFrS57QHQBa9QSgdqX5",
+      "duration_seconds_actual": 120.024,
+      "file_size_bytes": 2880621,
+      "sha256": "7010d7e9f815ba13ddc40476b403fde3e36dc5caf6ef10cda75029914d681a8e"
+    },
+    "reiki-meditation-13-soft-electric-piano": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:35:02.222442+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 180-second piece. A mellow electric piano with warm acoustic strings and a delicate plucked synthesizer voice. Simple soothing melody, gently flowing straight phrasing and clear consonant harmonies. The plucked voice quietly answers between piano phrases. Maintain a dreamy meditation character with no jazz chords, swing, bass groove or drum kit.",
+            "music_length_ms": 180000,
+            "force_instrumental": true
+          },
+          "song_id": "1BRSL9PHv8aqQlKMWqRP",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 4320621,
+          "finished_utc": "2026-09-23T01:35:20.097708+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-13-soft-electric-piano.mp3",
+      "duration_seconds_requested": 180,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "1BRSL9PHv8aqQlKMWqRP",
+      "duration_seconds_actual": 180.024,
+      "file_size_bytes": 4320621,
+      "sha256": "d5fe8cb2d11dca3d72559c035720d588c1e6e75a19575feca94415eade53d204"
+    },
+    "reiki-meditation-14-harmonium-flute-harp": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:35:21.377484+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 210-second piece. Mellow harmonium supplies softly changing chords beneath a gentle bamboo-flute melody and a few harp answers. The reeds support the musical phrases rather than holding an unchanging drone. Warm breathing continuity, modest melodic development and lush smooth reverb, with no reed buzz or chant.",
+            "music_length_ms": 210000,
+            "force_instrumental": true
+          },
+          "song_id": "xuehuIDzPJJiDKE5XMAJ",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5040621,
+          "finished_utc": "2026-09-23T01:35:42.124318+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-14-harmonium-flute-harp.mp3",
+      "duration_seconds_requested": 210,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "xuehuIDzPJJiDKE5XMAJ",
+      "duration_seconds_actual": 210.024,
+      "file_size_bytes": 5040621,
+      "sha256": "cac0db510cf32d2ced4e4726dbfb2aea3e65352534252a7aaef68c38296ebdc0"
+    },
+    "reiki-meditation-15-singing-bowls-piano": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:35:43.431439+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 150-second piece. Soft piano carries a reassuring melody over warm strings, with occasional low singing-bowl tones chosen to agree with the harmony. Bowls add rounded resonance at natural phrase boundaries; piano and strings provide the continuous musical substance. No repeated bell strikes, metallic whine or bowl-only drone.",
+            "music_length_ms": 150000,
+            "force_instrumental": true
+          },
+          "song_id": "xASJO5ITs05zTChynDtj",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 3600621,
+          "finished_utc": "2026-09-23T01:35:57.235803+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-15-singing-bowls-piano.mp3",
+      "duration_seconds_requested": 150,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "xASJO5ITs05zTChynDtj",
+      "duration_seconds_actual": 150.024,
+      "file_size_bytes": 3600621,
+      "sha256": "e1a51be470a7f2f704cf6aa93d252db33882b10f06f986407df0415ce59d5f33"
+    },
+    "reiki-meditation-16-gentle-plucked-strings": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:35:58.529109+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 180-second piece. Soft harp-like plucked strings, nylon guitar and warm bowed-string accompaniment. A simple pentatonic melody passes between the plucked instruments while the chords change gently. Create fluid interconnected phrases and a subtle answering melody, all blended into an intimate meditation arrangement rather than rhythmic folk music.",
+            "music_length_ms": 180000,
+            "force_instrumental": true
+          },
+          "song_id": "uXWXKnqZ1VeERuuNchjY",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 4320621,
+          "finished_utc": "2026-09-23T01:36:17.395121+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-16-gentle-plucked-strings.mp3",
+      "duration_seconds_requested": 180,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "uXWXKnqZ1VeERuuNchjY",
+      "duration_seconds_actual": 180.024,
+      "file_size_bytes": 4320621,
+      "sha256": "3815360daaf6559074e2956ca40169f7015808ef2b385b7a81c2b857393c75c3"
+    },
+    "reiki-meditation-17-floating-piano-flute": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:36:18.691436+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 240-second piece. Soft piano, low wooden flute and delicate warm synthesizer chords. Begin with a clear soothing piano phrase; let the flute quietly answer and gradually share the melody. Slowly vary the harmony and accompaniment while preserving the same peaceful mood, with no silent breakdown or large build.",
+            "music_length_ms": 240000,
+            "force_instrumental": true
+          },
+          "song_id": "HKM4Is0H5B4UewOYQDip",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5760621,
+          "finished_utc": "2026-09-23T01:36:40.714139+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-17-floating-piano-flute.mp3",
+      "duration_seconds_requested": 240,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "HKM4Is0H5B4UewOYQDip",
+      "duration_seconds_actual": 240.024,
+      "file_size_bytes": 5760621,
+      "sha256": "ca8b5fcf857107b4900a156b1439538953d6a7135cca86bdac3cdc7abf23912e"
+    },
+    "reiki-meditation-18-acoustic-guitar-cello": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:36:42.006810+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 210-second piece. Warm nylon-string guitar and soft cello with a light harp accent. The guitar provides gently flowing broken chords; the cello offers a modest, hopeful melodic line and short answers. The arrangement breathes and evolves through related harmonies, always softly blended and restful with no tragic or theatrical expression.",
+            "music_length_ms": 210000,
+            "force_instrumental": true
+          },
+          "song_id": "kN4eGSyCP5KXmY2O3Bnl",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 5040621,
+          "finished_utc": "2026-09-23T01:37:01.627222+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-18-acoustic-guitar-cello.mp3",
+      "duration_seconds_requested": 210,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "kN4eGSyCP5KXmY2O3Bnl",
+      "duration_seconds_actual": 210.024,
+      "file_size_bytes": 5040621,
+      "sha256": "cd4a0ec796bb01439c9952670614f0ce1a8b7488f4343dfe7bd18f904525ed91"
+    },
+    "reiki-meditation-19-luminous-harp-keyboards": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:37:02.926769+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 270-second piece. A delicate harp melody above warm, smoothly voiced synthesizer harmonies and soft piano answers. Let a small melodic idea unfold in several related variations, gently changing the accompanying chord colors. Luminous, welcoming Reiki meditation music with rich but clear reverb; no high sparkling chime barrage or static pad passage.",
+            "music_length_ms": 270000,
+            "force_instrumental": true
+          },
+          "song_id": "NcWMNahKb1Jc6FBPF9Vf",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 6480621,
+          "finished_utc": "2026-09-23T01:37:26.487442+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-19-luminous-harp-keyboards.mp3",
+      "duration_seconds_requested": 270,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "NcWMNahKb1Jc6FBPF9Vf",
+      "duration_seconds_actual": 270.024,
+      "file_size_bytes": 6480621,
+      "sha256": "818652c161af8f5ed5ffab7ae7f00982b909c1ce7d9f88f6cd589dbf09dbd4d7"
+    },
+    "reiki-meditation-20-flowing-meditation-ensemble": {
+      "status": "completed",
+      "attempts": [
+        {
+          "started_utc": "2026-09-23T01:37:27.778312+00:00",
+          "status": "completed",
+          "request": {
+            "model_id": "music_v2_5",
+            "store_for_inpainting": false,
+            "prompt": "Beautiful instrumental Reiki and spa meditation music, suitable for a peaceful massage room and immersive relaxation. This is the musical identity throughout. Create a soothing, flowing piece with gentle melodic phrases, welcoming consonant harmonies and delicate changes of arrangement. Let each phrase lead naturally into the next, with enough melodic and harmonic movement to be pleasant on its own. Keep all instruments softly blended, rounded and warm, with lush smooth reverb. The music should feel tender, spacious, restful and reassuring. Soft accompaniment can provide an easy breathing flow, without an insistent beat. Let the ending settle naturally and preserve continuity throughout the middle. Keep this firmly in meditation music: no jazz, lounge, bossa nova, pop, dance groove, showy soloing, cinematic drama or grand emotional climax. Avoid static drones, bare sustained tones, long empty pauses, piercing chimes and harsh attacks. Purely instrumental, no human voices or lyrics. Music only, without nature recordings or added noise; the playback system provides its own brown-noise bed and spatial movement. Create one complete 300-second piece. A cohesive spa meditation ensemble of soft piano, harp, low bamboo flute and warm strings. A simple comforting theme gradually passes between piano and flute while harp and strings provide flowing harmonic support. Over the piece, gently vary voicing and answering phrases; keep the ensemble intimate and even in energy, with no grand finale or new genre section.",
+            "music_length_ms": 300000,
+            "force_instrumental": true
+          },
+          "song_id": "coNDqqSQM5dkIHXpZTs7",
+          "request_id": null,
+          "download_complete": true,
+          "bytes_received": 7200621,
+          "finished_utc": "2026-09-23T01:37:59.505551+00:00"
+        }
+      ],
+      "category": "activity",
+      "file": "activity/reiki-meditation-20-flowing-meditation-ensemble.mp3",
+      "duration_seconds_requested": 300,
+      "output_format": "mp3_48000_192",
+      "generated_song_id": "coNDqqSQM5dkIHXpZTs7",
+      "duration_seconds_actual": 300.024,
+      "file_size_bytes": 7200621,
+      "sha256": "97eb771c0f8b9e0039dbf2a18e5a0d4171df9a0c90d8629d09b61803f78fad9a"
+    }
+  }
+}

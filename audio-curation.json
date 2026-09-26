@@ -2,9 +2,9 @@
   "schema_version": 1,
   "tracks": {
     "indian/ambients/activity/11-female_kirtan_harmonium_01.mp3": {
-      "state": "medium",
+      "state": "high",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:10:59+00:00"
+      "updated_at": "2026-09-25T21:36:10+00:00"
     },
     "indian/ambients/activity/12-female_kirtan_harmonium_02.mp3": {
       "state": "stash",
@@ -37,9 +37,9 @@
       "previous_state": "unreviewed"
     },
     "indian/ambients/activity/17-bansuri_and_humming.mp3": {
-      "state": "medium",
+      "state": "high",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:13:47+00:00"
+      "updated_at": "2026-09-25T21:36:23+00:00"
     },
     "indian/ambients/activity/18-harmonium_drone_room.mp3": {
       "state": "high",
@@ -114,9 +114,10 @@
       "updated_at": "2026-09-22T22:15:29+00:00"
     },
     "indian/ambients/event/01-single_temple_bell.mp3": {
-      "state": "high",
+      "state": "stash",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:15:37+00:00"
+      "updated_at": "2026-09-25T17:45:38+00:00",
+      "previous_state": "high"
     },
     "indian/ambients/event/02-manjira_chime_pair.mp3": {
       "state": "stash",
@@ -166,9 +167,9 @@
       "previous_state": "unreviewed"
     },
     "indian/ambients/event/10-mantra_murmur_tease.mp3": {
-      "state": "medium",
+      "state": "high",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:19:47+00:00"
+      "updated_at": "2026-09-25T17:45:10+00:00"
     },
     "indian/ambients/space/31-temple_hall_dawn.mp3": {
       "state": "high",
@@ -199,9 +200,9 @@
       "previous_state": "unreviewed"
     },
     "indian/ambients/space/36-market_side_street.mp3": {
-      "state": "medium",
+      "state": "high",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:20:38+00:00"
+      "updated_at": "2026-09-25T21:38:36+00:00"
     },
     "indian/ambients/space/37-prayer_room_shrine_space.mp3": {
       "state": "stash",
@@ -221,9 +222,9 @@
       "previous_state": "unreviewed"
     },
     "indian/ambients/space/40-festival_ground_resting.mp3": {
-      "state": "medium",
+      "state": "high",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:21:08+00:00"
+      "updated_at": "2026-09-25T21:38:11+00:00"
     },
     "indian/ambients/space/41-incense_room.mp3": {
       "state": "stash",
@@ -262,9 +263,9 @@
       "updated_at": "2026-09-22T22:21:57+00:00"
     },
     "indian/ambients/space/48-palace_courtyard_devotional.mp3": {
-      "state": "medium",
+      "state": "high",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:22:04+00:00"
+      "updated_at": "2026-09-25T21:38:22+00:00"
     },
     "indian/ambients/space/49-banyan_tree_shrine.mp3": {
       "state": "stash",
@@ -283,9 +284,9 @@
       "updated_at": "2026-09-22T21:32:51+00:00"
     },
     "indian/instruments/bowls/bowls-001-quiet-responses-returning-tone-b8b727b67c46.mp3": {
-      "state": "high",
+      "state": "medium",
       "category": "Instruments",
-      "updated_at": "2026-09-22T21:26:27+00:00"
+      "updated_at": "2026-09-25T20:59:50+00:00"
     },
     "indian/instruments/bowls/bowls-002-strike-and-sustain-returning-tone-dbe96967ca96.mp3": {
       "state": "high",
@@ -389,14 +390,15 @@
       "updated_at": "2026-09-22T21:49:58+00:00"
     },
     "indian/instruments/handpan/Himalayan_Resonance_Meditation_2026-09-14T232542.mp3": {
-      "state": "low",
+      "state": "stash",
       "category": "Instruments",
-      "updated_at": "2026-09-22T21:52:58+00:00"
+      "updated_at": "2026-09-25T02:02:31+00:00",
+      "previous_state": "low"
     },
     "indian/instruments/handpan/handpan-001-spacious-low-anchor-d010df9ee638.mp3": {
-      "state": "low",
+      "state": "high",
       "category": "Instruments",
-      "updated_at": "2026-09-22T21:33:07+00:00"
+      "updated_at": "2026-09-25T02:00:58+00:00"
     },
     "indian/instruments/handpan/handpan-002-syncopated-evolving-motif-713bdb2df37c.mp3": {
       "state": "high",
@@ -404,24 +406,28 @@
       "updated_at": "2026-09-22T21:33:13+00:00"
     },
     "indian/instruments/handpan/handpan-003-gentle-pulse-upper-replies-8bdc4ef8f5c7.mp3": {
-      "state": "high",
+      "state": "stash",
       "category": "Instruments",
-      "updated_at": "2026-09-22T21:33:19+00:00"
+      "updated_at": "2026-09-25T02:02:31+00:00",
+      "previous_state": "low"
     },
     "indian/instruments/handpan/handpan-004-rocking-evolving-motif-c5fd7a2c19e5.mp3": {
-      "state": "high",
+      "state": "stash",
       "category": "Instruments",
-      "updated_at": "2026-09-22T21:33:27+00:00"
+      "updated_at": "2026-09-25T02:02:31+00:00",
+      "previous_state": "low"
     },
     "indian/instruments/handpan/handpan-005-rocking-upper-replies-f2676319566d.mp3": {
-      "state": "high",
+      "state": "stash",
       "category": "Instruments",
-      "updated_at": "2026-09-22T21:33:43+00:00"
+      "updated_at": "2026-09-25T02:02:31+00:00",
+      "previous_state": "low"
     },
     "indian/instruments/handpan/handpan-006-gentle-pulse-evolving-motif-b6a3bc06a9fe.mp3": {
-      "state": "medium",
+      "state": "stash",
       "category": "Instruments",
-      "updated_at": "2026-09-22T21:33:55+00:00"
+      "updated_at": "2026-09-25T02:02:31+00:00",
+      "previous_state": "medium"
     },
     "indian/instruments/handpan/handpan-007-flowing-resonant-dialogue-79f60befc6fb.mp3": {
       "state": "high",
@@ -434,9 +440,9 @@
       "updated_at": "2026-09-22T21:34:06+00:00"
     },
     "indian/instruments/handpan/handpan-009-syncopated-resonant-dialogue-7bd8dbc2e4d1.mp3": {
-      "state": "low",
+      "state": "high",
       "category": "Instruments",
-      "updated_at": "2026-09-22T21:34:41+00:00"
+      "updated_at": "2026-09-25T02:01:44+00:00"
     },
     "indian/instruments/handpan/handpan-010-spacious-upper-replies-5067aee045d2.mp3": {
       "state": "stash",
@@ -463,9 +469,10 @@
       "previous_state": "unreviewed"
     },
     "indian/instruments/handpan/handpan-014-rocking-low-anchor-ecc57ed33883.mp3": {
-      "state": "medium",
+      "state": "stash",
       "category": "Instruments",
-      "updated_at": "2026-09-22T21:35:55+00:00"
+      "updated_at": "2026-09-25T02:02:31+00:00",
+      "previous_state": "medium"
     },
     "indian/instruments/handpan/handpan-015-spacious-resonant-dialogue-58bcd99d9cd3.mp3": {
       "state": "stash",
@@ -474,14 +481,16 @@
       "previous_state": "unreviewed"
     },
     "indian/instruments/handpan/handpan-016-spacious-evolving-motif-49825105aa6b.mp3": {
-      "state": "high",
+      "state": "stash",
       "category": "Instruments",
-      "updated_at": "2026-09-22T21:36:23+00:00"
+      "updated_at": "2026-09-25T02:02:32+00:00",
+      "previous_state": "low"
     },
     "indian/instruments/handpan/handpan-017-flowing-evolving-motif-1388d060eb9f.mp3": {
-      "state": "high",
+      "state": "stash",
       "category": "Instruments",
-      "updated_at": "2026-09-22T21:36:29+00:00"
+      "updated_at": "2026-09-25T02:02:32+00:00",
+      "previous_state": "low"
     },
     "indian/instruments/handpan/handpan-018-flowing-low-anchor-8e4fa82b1133.mp3": {
       "state": "stash",
@@ -495,9 +504,10 @@
       "updated_at": "2026-09-22T21:36:55+00:00"
     },
     "indian/instruments/handpan/handpan-020-syncopated-upper-replies-14db15d1fe09.mp3": {
-      "state": "high",
+      "state": "stash",
       "category": "Instruments",
-      "updated_at": "2026-09-22T21:46:20+00:00"
+      "updated_at": "2026-09-25T02:02:32+00:00",
+      "previous_state": "low"
     },
     "indian/instruments/throat-singing/Vibrating_Stillness_2026-09-21T235501.mp3": {
       "state": "low",
@@ -1254,14 +1264,15 @@
       "updated_at": "2026-09-22T22:38:26+00:00"
     },
     "indian/ambients/event/music-event-04-tabla-fingertip-gesture.mp3": {
-      "state": "high",
+      "state": "stash",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:38:29+00:00"
+      "updated_at": "2026-09-25T21:38:51+00:00",
+      "previous_state": "high"
     },
     "indian/ambients/event/music-event-05-tabla-soft-response.mp3": {
-      "state": "high",
+      "state": "low",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:38:33+00:00"
+      "updated_at": "2026-09-25T21:37:43+00:00"
     },
     "indian/ambients/event/music-event-06-om-shanti-murmur.mp3": {
       "state": "high",
@@ -1319,9 +1330,9 @@
       "updated_at": "2026-09-22T22:48:16+00:00"
     },
     "indian/ambients/activity/music-activity-20-tabla-and-hummed-drone.mp3": {
-      "state": "medium",
+      "state": "high",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:48:21+00:00"
+      "updated_at": "2026-09-25T21:37:11+00:00"
     },
     "indian/ambients/activity/music-activity-21-wordless-chapel-breath.mp3": {
       "state": "high",
@@ -1384,14 +1395,15 @@
       "updated_at": "2026-09-22T22:46:38+00:00"
     },
     "indian/ambients/event/music-event-10-tabla-three-soft-touches.mp3": {
-      "state": "low",
+      "state": "stash",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:46:46+00:00"
+      "updated_at": "2026-09-25T17:45:38+00:00",
+      "previous_state": "low"
     },
     "indian/ambients/event/music-event-11-tabla-brushed-resonance.mp3": {
-      "state": "medium",
+      "state": "high",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:46:52+00:00"
+      "updated_at": "2026-09-25T17:45:21+00:00"
     },
     "indian/ambients/event/music-event-12-handpan-two-note-sigh.mp3": {
       "state": "high",
@@ -1409,9 +1421,9 @@
       "updated_at": "2026-09-22T22:47:05+00:00"
     },
     "indian/ambients/event/music-event-15-two-voice-hummed-fifth.mp3": {
-      "state": "medium",
+      "state": "high",
       "category": "Ambients",
-      "updated_at": "2026-09-22T22:47:08+00:00"
+      "updated_at": "2026-09-25T17:45:05+00:00"
     },
     "indian/ambients/event/music-event-16-om-warm-resonance.mp3": {
       "state": "high",
@@ -1464,9 +1476,9 @@
       "updated_at": "2026-09-23T01:14:50+00:00"
     },
     "indian/ambients/activity/long-ambient-09-soft-horn-ensemble.mp3": {
-      "state": "medium",
+      "state": "high",
       "category": "Ambients",
-      "updated_at": "2026-09-23T01:15:07+00:00"
+      "updated_at": "2026-09-25T21:36:37+00:00"
     },
     "indian/ambients/activity/long-ambient-10-aeolian-harp.mp3": {
       "state": "medium",
@@ -1666,14 +1678,14 @@
       "updated_at": "2026-09-23T01:40:00+00:00"
     },
     "indian/ambients/activity/reiki-meditation-16-gentle-plucked-strings.mp3": {
-      "state": "medium",
+      "state": "high",
       "category": "Ambients",
-      "updated_at": "2026-09-23T01:40:08+00:00"
+      "updated_at": "2026-09-25T21:37:00+00:00"
     },
     "indian/ambients/activity/reiki-meditation-17-floating-piano-flute.mp3": {
-      "state": "medium",
+      "state": "high",
       "category": "Ambients",
-      "updated_at": "2026-09-23T01:40:15+00:00"
+      "updated_at": "2026-09-25T21:36:53+00:00"
     },
     "indian/ambients/activity/reiki-meditation-18-acoustic-guitar-cello.mp3": {
       "state": "low",
@@ -1689,8 +1701,178 @@
       "state": "high",
       "category": "Ambients",
       "updated_at": "2026-09-23T01:40:35+00:00"
+    },
+    "indian/instruments/handpan/handpan-layered-001-trio-circular-melody-7e192c11f763.mp3": {
+      "state": "stash",
+      "category": "Instruments",
+      "updated_at": "2026-09-25T02:02:32+00:00",
+      "previous_state": "low"
+    },
+    "indian/instruments/handpan/handpan-layered-002-solo-woven-syncopation-5d14cdac6ba4.mp3": {
+      "state": "stash",
+      "category": "Instruments",
+      "updated_at": "2026-09-25T01:57:48+00:00",
+      "previous_state": "unreviewed"
+    },
+    "indian/instruments/handpan/handpan-layered-003-duet-lilting-current-51b7d32dde1c.mp3": {
+      "state": "high",
+      "category": "Instruments",
+      "updated_at": "2026-09-25T01:35:12+00:00"
+    },
+    "indian/instruments/handpan/handpan-layered-004-solo-rolling-six-eight-620561eec9aa.mp3": {
+      "state": "stash",
+      "category": "Instruments",
+      "updated_at": "2026-09-25T01:57:48+00:00",
+      "previous_state": "unreviewed"
+    },
+    "indian/instruments/handpan/handpan-layered-005-duet-low-high-weave-e358f9d0be9b.mp3": {
+      "state": "stash",
+      "category": "Instruments",
+      "updated_at": "2026-09-25T02:02:32+00:00",
+      "previous_state": "medium"
+    },
+    "indian/instruments/handpan/handpan-layered-006-trio-register-weave-a0b23a18efec.mp3": {
+      "state": "stash",
+      "category": "Instruments",
+      "updated_at": "2026-09-25T02:02:32+00:00",
+      "previous_state": "low"
+    },
+    "indian/instruments/handpan/handpan-layered-007-duet-overlapping-answers-4db58d761ac2.mp3": {
+      "state": "stash",
+      "category": "Instruments",
+      "updated_at": "2026-09-25T01:57:48+00:00",
+      "previous_state": "unreviewed"
+    },
+    "indian/instruments/handpan/handpan-layered-008-solo-rippling-arpeggios-2e9531a7f0b5.mp3": {
+      "state": "stash",
+      "category": "Instruments",
+      "updated_at": "2026-09-25T01:57:48+00:00",
+      "previous_state": "unreviewed"
+    },
+    "indian/instruments/handpan/handpan-layered-009-solo-harmonic-lattice-74ca0380e6a4.mp3": {
+      "state": "stash",
+      "category": "Instruments",
+      "updated_at": "2026-09-25T01:57:48+00:00",
+      "previous_state": "unreviewed"
+    },
+    "indian/instruments/handpan/handpan-layered-010-duet-round-b419757c93c4.mp3": {
+      "state": "stash",
+      "category": "Instruments",
+      "updated_at": "2026-09-25T01:57:48+00:00",
+      "previous_state": "unreviewed"
+    },
+    "indian/instruments/handpan/handpan-freeflow-001-duet-syncopated-conversation-a565ef181e4f.mp3": {
+      "state": "stash",
+      "category": "Instruments",
+      "updated_at": "2026-09-25T01:57:48+00:00",
+      "previous_state": "unreviewed"
+    },
+    "indian/vocals/mantra02-vocal.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:06:56+00:00"
+    },
+    "indian/vocals/mantra03-vocal.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:07:03+00:00"
+    },
+    "indian/vocals/mantra04-vocal.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:07:11+00:00"
+    },
+    "indian/vocals/mantra06-vocal.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:07:18+00:00"
+    },
+    "indian/vocals/mantra10-vocal.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:07:27+00:00"
+    },
+    "indian/vocals/mantra12-vocal.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:07:36+00:00"
+    },
+    "indian/vocals/mantra13-vocal.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:07:43+00:00"
+    },
+    "indian/vocals/mantra02-var01-call-response.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:19:20+00:00"
+    },
+    "indian/vocals/mantra02-var02-sustained-ensemble.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:19:40+00:00"
+    },
+    "indian/vocals/mantra03-var01-call-response.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:21:00+00:00"
+    },
+    "indian/vocals/mantra03-var02-sustained-ensemble.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:21:09+00:00"
+    },
+    "indian/vocals/mantra04-var01-call-response.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:21:19+00:00"
+    },
+    "indian/vocals/mantra04-var02-sustained-ensemble.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:21:28+00:00"
+    },
+    "indian/vocals/mantra06-var01-call-response.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:21:35+00:00"
+    },
+    "indian/vocals/mantra06-var02-sustained-ensemble.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:21:41+00:00"
+    },
+    "indian/vocals/mantra10-var01-call-response.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:21:50+00:00"
+    },
+    "indian/vocals/mantra10-var02-sustained-ensemble.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:21:55+00:00"
+    },
+    "indian/vocals/mantra12-var01-call-response.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:21:59+00:00"
+    },
+    "indian/vocals/mantra12-var02-sustained-ensemble.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:22:03+00:00"
+    },
+    "indian/vocals/mantra13-var01-call-response.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:22:09+00:00"
+    },
+    "indian/vocals/mantra13-var02-sustained-ensemble.mp3": {
+      "state": "high",
+      "category": "Vocals",
+      "updated_at": "2026-09-25T21:22:16+00:00"
     }
   },
-  "last_selected": "indian/ambients/activity/reiki-meditation-20-flowing-meditation-ensemble.mp3",
-  "updated_at": "2026-09-23T01:40:35+00:00"
+  "last_selected": "indian/ambients/event/music-event-04-tabla-fingertip-gesture.mp3",
+  "updated_at": "2026-09-25T21:38:51+00:00"
 }

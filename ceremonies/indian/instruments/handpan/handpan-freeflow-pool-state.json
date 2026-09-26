@@ -1,0 +1,14 @@
+{
+  "prompt_pool": [
+    "solo-triplet-current",
+    "duet-interlocking-eighths",
+    "solo-sunlit-runs",
+    "trio-braided-melody",
+    "duet-lilting-melody",
+    "solo-dorian-groove",
+    "solo-falling-cascades",
+    "trio-wavelike-six",
+    "solo-circular-seven"
+  ],
+  "last_prompt_pool": "duet-syncopated-conversation"
+}

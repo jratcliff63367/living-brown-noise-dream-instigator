@@ -1,0 +1,18 @@
+{
+  "reference_pool": [
+    "BXm1LkaF04roLaKBdhbj_upload"
+  ],
+  "last_reference_pool": "Tfneve0YYdhT40LJLVFw_upload",
+  "prompt_pool": [
+    "trio-circular-melody",
+    "duet-low-high-weave",
+    "solo-rippling-arpeggios",
+    "duet-lilting-current",
+    "duet-round",
+    "solo-rolling-six-eight",
+    "solo-woven-syncopation",
+    "duet-overlapping-answers",
+    "solo-harmonic-lattice"
+  ],
+  "last_prompt_pool": "trio-register-weave"
+}
