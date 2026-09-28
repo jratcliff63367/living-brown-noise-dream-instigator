@@ -280,6 +280,62 @@
       "sample_rate": 44100,
       "size_bytes": 305154
     },
+    "activity/long-ambient-01-harmonium-wooden-room.mp3": {
+      "duration_seconds": 480.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1790124459603520300,
+      "sample_rate": 44100,
+      "size_bytes": 11520621
+    },
+    "activity/long-ambient-02-bamboo-flute-drone.mp3": {
+      "duration_seconds": 360.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1790124490677628500,
+      "sample_rate": 44100,
+      "size_bytes": 8640621
+    },
+    "activity/long-ambient-03-bowed-cello-meditation.mp3": {
+      "duration_seconds": 420.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1790124520865007400,
+      "sample_rate": 44100,
+      "size_bytes": 10080621
+    },
+    "activity/long-ambient-04-quiet-pipe-organ.mp3": {
+      "duration_seconds": 540.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1790125143675591300,
+      "sample_rate": 44100,
+      "size_bytes": 12960621
+    },
+    "activity/long-ambient-05-underwater-harmonics.mp3": {
+      "duration_seconds": 600.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1790125181036074000,
+      "sample_rate": 44100,
+      "size_bytes": 14400621
+    },
+    "activity/long-ambient-06-gentle-string-harmonics.mp3": {
+      "duration_seconds": 420.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1790125209186585600,
+      "sample_rate": 44100,
+      "size_bytes": 10080621
+    },
+    "activity/long-ambient-07-felt-piano-space.mp3": {
+      "duration_seconds": 360.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1790125240822939400,
+      "sample_rate": 44100,
+      "size_bytes": 8640621
+    },
+    "activity/long-ambient-08-bowed-vibraphone.mp3": {
+      "duration_seconds": 420.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1790125271768511900,
+      "sample_rate": 44100,
+      "size_bytes": 10080621
+    },
     "activity/long-ambient-09-soft-horn-ensemble.mp3": {
       "duration_seconds": 480.0240136054422,
       "is_layered_event": false,
@@ -293,6 +349,20 @@
       "modified_ns": 1790125340754750200,
       "sample_rate": 44100,
       "size_bytes": 12960621
+    },
+    "activity/long-ambient-11-reverberant-guitar-swells.mp3": {
+      "duration_seconds": 480.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1790125386573999800,
+      "sample_rate": 44100,
+      "size_bytes": 11520621
+    },
+    "activity/long-ambient-12-tanpura-resonance.mp3": {
+      "duration_seconds": 600.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1790125423142202400,
+      "sample_rate": 44100,
+      "size_bytes": 14400621
     },
     "activity/long-ambient-17-open-tuning-acoustic-guitar.mp3": {
       "duration_seconds": 360.0240136054422,
@@ -315,6 +385,13 @@
       "sample_rate": 44100,
       "size_bytes": 11520621
     },
+    "activity/long-ambient-20-harmonium-bamboo-duet.mp3": {
+      "duration_seconds": 540.0240136054422,
+      "is_layered_event": false,
+      "modified_ns": 1790125688904771300,
+      "sample_rate": 44100,
+      "size_bytes": 12960621
+    },
     "activity/meditation-music-01-piano-cello.mp3": {
       "duration_seconds": 210.02401360544218,
       "is_layered_event": false,
@@ -322,12 +399,54 @@
       "sample_rate": 44100,
       "size_bytes": 5040621
     },
+    "activity/meditation-music-02-celtic-harp-flute.mp3": {
+      "duration_seconds": 180.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790126431597256800,
+      "sample_rate": 44100,
+      "size_bytes": 4320621
+    },
     "activity/meditation-music-04-indian-bansuri-santoor.mp3": {
       "duration_seconds": 240.02401360544218,
       "is_layered_event": false,
       "modified_ns": 1790126469887923100,
       "sample_rate": 44100,
       "size_bytes": 5760621
+    },
+    "activity/meditation-music-06-andalusian-nylon-guitar.mp3": {
+      "duration_seconds": 150.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790126503891434100,
+      "sample_rate": 44100,
+      "size_bytes": 3600621
+    },
+    "activity/meditation-music-08-persian-santur-ney.mp3": {
+      "duration_seconds": 180.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790126546380352800,
+      "sample_rate": 44100,
+      "size_bytes": 4320621
+    },
+    "activity/meditation-music-09-nordic-acoustic-lullaby.mp3": {
+      "duration_seconds": 240.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790126578612349800,
+      "sample_rate": 44100,
+      "size_bytes": 5760621
+    },
+    "activity/meditation-music-10-gentle-ambient-electronica.mp3": {
+      "duration_seconds": 240.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790126601312195800,
+      "sample_rate": 44100,
+      "size_bytes": 5760621
+    },
+    "activity/meditation-music-11-chinese-guzheng-xiao.mp3": {
+      "duration_seconds": 180.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790126618624001800,
+      "sample_rate": 44100,
+      "size_bytes": 4320621
     },
     "activity/meditation-music-12-hawaiian-slack-key.mp3": {
       "duration_seconds": 210.02401360544218,
@@ -462,6 +581,13 @@
       "sample_rate": 44100,
       "size_bytes": 769005
     },
+    "activity/music-activity-19-hummed-voices-bowl.mp3": {
+      "duration_seconds": 30.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790117073773494400,
+      "sample_rate": 44100,
+      "size_bytes": 720621
+    },
     "activity/music-activity-20-tabla-and-hummed-drone.mp3": {
       "duration_seconds": 34.03201814058957,
       "is_layered_event": false,
@@ -476,6 +602,13 @@
       "sample_rate": 44100,
       "size_bytes": 913005
     },
+    "activity/music-activity-22-om-shanti-tanpura.mp3": {
+      "duration_seconds": 36.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790117094558767000,
+      "sample_rate": 44100,
+      "size_bytes": 864621
+    },
     "activity/music-activity-23-mixed-hummed-unison.mp3": {
       "duration_seconds": 32.04,
       "is_layered_event": false,
@@ -489,6 +622,13 @@
       "modified_ns": 1790117107857230500,
       "sample_rate": 44100,
       "size_bytes": 816813
+    },
+    "activity/music-activity-25-harmonium-slow-fifths.mp3": {
+      "duration_seconds": 30.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790117116995913300,
+      "sample_rate": 44100,
+      "size_bytes": 720621
     },
     "activity/music-activity-26-handpan-unhurried-drops.mp3": {
       "duration_seconds": 32.04,
@@ -602,12 +742,26 @@
       "sample_rate": 44100,
       "size_bytes": 4320621
     },
+    "activity/reiki-meditation-12-mellow-marimba-harp.mp3": {
+      "duration_seconds": 120.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790127300804652800,
+      "sample_rate": 44100,
+      "size_bytes": 2880621
+    },
     "activity/reiki-meditation-13-soft-electric-piano.mp3": {
       "duration_seconds": 180.02401360544218,
       "is_layered_event": false,
       "modified_ns": 1790127319969089700,
       "sample_rate": 44100,
       "size_bytes": 4320621
+    },
+    "activity/reiki-meditation-14-harmonium-flute-harp.mp3": {
+      "duration_seconds": 210.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790127341755366200,
+      "sample_rate": 44100,
+      "size_bytes": 5040621
     },
     "activity/reiki-meditation-15-singing-bowls-piano.mp3": {
       "duration_seconds": 150.02401360544218,
@@ -629,6 +783,13 @@
       "modified_ns": 1790127400535175500,
       "sample_rate": 44100,
       "size_bytes": 5760621
+    },
+    "activity/reiki-meditation-18-acoustic-guitar-cello.mp3": {
+      "duration_seconds": 210.02401360544218,
+      "is_layered_event": false,
+      "modified_ns": 1790127421273317900,
+      "sample_rate": 44100,
+      "size_bytes": 5040621
     },
     "activity/reiki-meditation-19-luminous-harp-keyboards.mp3": {
       "duration_seconds": 270.0240136054422,

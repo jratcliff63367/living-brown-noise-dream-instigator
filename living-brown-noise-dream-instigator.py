@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import queue
 import math
 import re
@@ -50,6 +52,7 @@ SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 CEREMONIES_DIRECTORY = SCRIPT_DIRECTORY / "ceremonies"
 CURATION_PATH = SCRIPT_DIRECTORY / "audio-curation.json"
 EXPORT_DIRECTORY = SCRIPT_DIRECTORY / "exports"
+EXPORT_SHUFFLE_PATH = SCRIPT_DIRECTORY / "export-shuffle-bags.json"
 CONDUCTOR_LOG_PATH = SCRIPT_DIRECTORY / "conductor-log.txt"
 DEFAULT_STYLE_NAME = "indian"
 STYLE_AMBIENTS_FOLDER = "ambients"
@@ -170,6 +173,146 @@ class CurationShuffleBag:
             if name in self.remaining[tier]:
                 self.remaining[tier].remove(name)
             self.last_name = name
+
+
+class ExportShuffleState:
+    """Export-only checkpoint. Runtime names are mapped to portable file paths.
+
+    Remaining files retain their order; new files enter their current rating
+    tier. Previously consumed files stay consumed even when their rating changes.
+    A process-owned lock prevents simultaneous exports from sharing a checkpoint.
+    """
+
+    def __init__(self, path: Path = EXPORT_SHUFFLE_PATH) -> None:
+        self.path = Path(path)
+        self.data = {"schema_version": 1, "bags": {}}
+        self.lock = None
+        self.loaded = False
+
+    @staticmethod
+    def file_key(path: Path) -> str:
+        path = Path(path).resolve()
+        try:
+            return path.relative_to(SCRIPT_DIRECTORY.resolve()).as_posix()
+        except ValueError:
+            return path.as_posix()  # Legacy assets outside the project.
+
+    def open(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.lock = self.path.with_suffix(".lock").open("a+b")
+        self.lock.seek(0, 2)
+        if self.lock.tell() == 0:
+            self.lock.write(b"0")
+            self.lock.flush()
+        self.lock.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(self.lock.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self.lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            self.close()
+            raise RuntimeError("Another export is preserving shuffle bags. Wait for it to finish.") from exc
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        if (not isinstance(data, dict) or data.get("schema_version") != 1
+                or not isinstance(data.get("bags"), dict)):
+            raise ValueError(f"Invalid shuffle checkpoint: {self.path}")
+        for record in data["bags"].values():
+            if not isinstance(record, dict):
+                raise ValueError("Invalid saved shuffle bag")
+            known, remaining = record.get("known"), record.get("remaining")
+            if (not isinstance(known, list) or not isinstance(remaining, list)
+                    or not all(isinstance(x, str) for x in known + remaining)
+                    or len(set(known)) != len(known)
+                    or len(set(remaining)) != len(remaining)
+                    or not set(remaining).issubset(known)
+                    or not isinstance(record.get("cycle"), int)
+                    or record["cycle"] < 1
+                    or (record.get("last") is not None and record["last"] not in known)):
+                raise ValueError("Invalid saved shuffle bag contents")
+        self.data = data
+        self.loaded = True
+
+    def restore(self, key, bag, paths) -> None:
+        record = self.data["bags"].get(key)
+        if record is None:
+            return
+        by_file = {self.file_key(paths[name]): name for name in bag.tiers}
+        known = set(record["known"])
+        remaining = {tier: [] for tier in bag.TIERS}
+        for filename in record["remaining"]:
+            name = by_file.get(filename)
+            if name is not None:
+                remaining[bag.tiers[name]].append(name)
+        added = [name for filename, name in by_file.items() if filename not in known]
+        bag.rng.shuffle(added)
+        for name in added:
+            names = remaining[bag.tiers[name]]
+            names.insert(int(bag.rng.integers(len(names) + 1)), name)
+        bag.remaining = remaining
+        bag.cycle = record["cycle"]
+        bag.last_name = by_file.get(record.get("last"))
+
+    def capture(self, key, bag, paths, unused=()) -> None:
+        remaining = {tier: list(bag.remaining[tier]) for tier in bag.TIERS}
+        for name in unused:
+            tier = bag.tiers.get(name)
+            if tier is not None and name not in remaining[tier]:
+                remaining[tier].insert(0, name)
+        self.data["bags"][key] = {
+            "known": [self.file_key(paths[name]) for name in bag.tiers],
+            "remaining": [self.file_key(paths[name]) for tier in bag.TIERS
+                          for name in remaining[tier]],
+            "last": self.file_key(paths[bag.last_name]) if bag.last_name in paths else None,
+            "cycle": bag.cycle,
+        }
+
+    @staticmethod
+    def bindings(motif, meditation):
+        yield ("ambients:" + ExportShuffleState.file_key(motif.root_directory),
+               motif.ambient_priority_bag,
+               {name: asset.path for name, asset in motif.assets.items()})
+        for category, bag in meditation._performance_bags.items():
+            yield (category + ":" + ExportShuffleState.file_key(meditation.style_directory),
+                   bag, meditation.recording_paths)
+
+    def restore_engines(self, motif, meditation) -> None:
+        for key, bag, paths in self.bindings(motif, meditation):
+            self.restore(key, bag, paths)
+
+    def capture_engines(self, motif, meditation) -> None:
+        # Ambient preloads only peek, so they have not consumed their bag entry.
+        unused = [meditation._pending_name]
+        if (meditation.next_vocal_name
+                and meditation.next_recording_player.elapsed_samples == 0):
+            unused.append(meditation.next_vocal_name)
+        for key, bag, paths in self.bindings(motif, meditation):
+            self.capture(key, bag, paths, unused if not key.startswith("ambients:") else ())
+
+    def save(self, output: Path) -> None:
+        self.data["last_export"] = str(output)
+        self.data["saved_at_unix"] = time.time()
+        fd, name = tempfile.mkstemp(prefix=self.path.name + ".", suffix=".tmp",
+                                    dir=str(self.path.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(self.data, stream, indent=2)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(name, self.path)
+        finally:
+            Path(name).unlink(missing_ok=True)
+
+    def close(self) -> None:
+        if self.lock is not None:
+            self.lock.close()  # The OS releases the lock, including after a crash.
+            self.lock = None
 
 
 def scan_ceremony_styles() -> tuple[str, ...]:
@@ -8067,6 +8210,7 @@ class ExportWorker(QThread):
         metabolism_spec: MetabolismSpec,
         dream_motif_spatial_spec: DreamMotifSpatialSpec,
         meditation_spec: MeditationSpec,
+        preserve_shuffle_bags: bool = False,
     ) -> None:
         super().__init__()
         self.output_path = output_path
@@ -8086,6 +8230,7 @@ class ExportWorker(QThread):
         self.metabolism_spec = metabolism_spec
         self.dream_motif_spatial_spec = dream_motif_spatial_spec
         self.meditation_spec = meditation_spec
+        self.preserve_shuffle_bags = bool(preserve_shuffle_bags)
         self._cancel_requested = threading.Event()
 
     def request_cancel(self) -> None:
@@ -8093,7 +8238,13 @@ class ExportWorker(QThread):
 
     def run(self) -> None:
         mixer = None
+        checkpoint = None
+        output_started = False
+        audio_complete = False
         try:
+            if self.preserve_shuffle_bags:
+                checkpoint = ExportShuffleState()
+                checkpoint.open()
             total_frames = int(
                 self.duration_minutes * 60 * self.sample_rate
             )
@@ -8147,6 +8298,10 @@ class ExportWorker(QThread):
                 self.duration_minutes * 60.0
             )
 
+            if checkpoint is not None:
+                checkpoint.restore_engines(motif_engine, meditation_engine)
+                meditation_engine._log_curation_plan()
+
             # Encode the generated float stereo buffers directly to MP3.
             # This avoids creating a multi-gigabyte intermediate WAV file and
             # also avoids the classic RIFF/WAV 4 GB size limit.
@@ -8154,6 +8309,7 @@ class ExportWorker(QThread):
             container = None
 
             try:
+                output_started = True
                 container = av.open(
                     str(output),
                     mode="w",
@@ -8194,6 +8350,12 @@ class ExportWorker(QThread):
                         f"{mp3_bitrate // 1000} kbps\n"
                     )
                     export_log.write(f"Seed: {seed_base}\n")
+                    export_log.write(
+                        "Shuffle bags: " + (
+                            ("restored and reconciled" if checkpoint.loaded else "fresh; will preserve")
+                            if checkpoint is not None else "fresh; preservation disabled"
+                        ) + "\n"
+                    )
                     export_log.write(
                         "Timestamps are rendered-audio positions.\n"
                     )
@@ -8290,14 +8452,25 @@ class ExportWorker(QThread):
                 if container is not None:
                     container.close()
 
+            audio_complete = True
+            if checkpoint is not None:
+                checkpoint.capture_engines(motif_engine, meditation_engine)
+                try:
+                    checkpoint.save(output)
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"Audio was exported to {output}, but shuffle state could not be saved: {exc}"
+                    ) from exc
+
             self.progress_changed.emit(100)
             self.export_finished.emit(str(output))
 
         except InterruptedError:
             try:
                 output = Path(self.output_path)
-                output.unlink(missing_ok=True)
-                output.with_suffix(".txt").unlink(missing_ok=True)
+                if output_started and not audio_complete:
+                    output.unlink(missing_ok=True)
+                    output.with_suffix(".txt").unlink(missing_ok=True)
             except Exception:
                 pass
             self.export_cancelled.emit()
@@ -8305,13 +8478,16 @@ class ExportWorker(QThread):
         except Exception as exc:
             try:
                 output = Path(self.output_path)
-                output.unlink(missing_ok=True)
-                output.with_suffix(".txt").unlink(missing_ok=True)
+                if output_started and not audio_complete:
+                    output.unlink(missing_ok=True)
+                    output.with_suffix(".txt").unlink(missing_ok=True)
             except Exception:
                 pass
             self.export_failed.emit(str(exc))
 
         finally:
+            if checkpoint is not None:
+                checkpoint.close()
             if mixer is not None:
                 mixer.close()
 
@@ -10804,6 +10980,18 @@ class MainWindow(QMainWindow):
         duration_row.addWidget(self.export_duration_label)
         export_layout.addLayout(duration_row)
 
+        self.preserve_shuffle_bags_checkbox = QCheckBox("Preserve shuffle bags across exports")
+        self.preserve_shuffle_bags_checkbox.setChecked(
+            bool(self.loaded_settings.get("preserve_export_shuffle_bags", False))
+        )
+        self.preserve_shuffle_bags_checkbox.setToolTip(
+            "Continue the last preserved export's vocal, instrument and ambient bags. "
+            "New and re-rated files are reconciled automatically. Saves only after success. "
+            "When unchecked, starts fresh and leaves the saved bags untouched."
+        )
+        self.preserve_shuffle_bags_checkbox.toggled.connect(self._schedule_settings_save)
+        export_layout.addWidget(self.preserve_shuffle_bags_checkbox)
+
         export_buttons = QHBoxLayout()
         self.export_button = QPushButton("Export audio…")
         self.cancel_export_button = QPushButton("Cancel export")
@@ -12266,6 +12454,7 @@ class MainWindow(QMainWindow):
             "breath_panel_expanded": (
                 self.breath_expand_button.isChecked()
             ),
+            "preserve_export_shuffle_bags": self.preserve_shuffle_bags_checkbox.isChecked(),
             "export_duration_minutes": (
                 self.export_duration_slider.value()
             ),
@@ -12338,6 +12527,7 @@ class MainWindow(QMainWindow):
         self.export_worker = ExportWorker(
             output_path=output_path,
             duration_minutes=self.export_duration_slider.value(),
+            preserve_shuffle_bags=self.preserve_shuffle_bags_checkbox.isChecked(),
             sample_rate=44_100,
             modes=modes,
             noise_spec=noise_spec,
@@ -12371,6 +12561,7 @@ class MainWindow(QMainWindow):
         )
 
         self.export_button.setEnabled(False)
+        self.preserve_shuffle_bags_checkbox.setEnabled(False)
         self.cancel_export_button.setEnabled(True)
         self.start_button.setEnabled(False)
         self.export_progress.setValue(0)
@@ -12393,6 +12584,7 @@ class MainWindow(QMainWindow):
         self.export_worker = None
 
         self.export_button.setEnabled(True)
+        self.preserve_shuffle_bags_checkbox.setEnabled(True)
         self.cancel_export_button.setEnabled(False)
         self.start_button.setEnabled(True)
 

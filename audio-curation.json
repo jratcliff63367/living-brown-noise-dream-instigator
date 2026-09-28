@@ -1790,7 +1790,7 @@
     "indian/vocals/mantra10-vocal.mp3": {
       "state": "high",
       "category": "Vocals",
-      "updated_at": "2026-09-25T21:07:27+00:00"
+      "updated_at": "2026-09-28T02:46:34+00:00"
     },
     "indian/vocals/mantra12-vocal.mp3": {
       "state": "high",
@@ -1873,6 +1873,6 @@
       "updated_at": "2026-09-25T21:22:16+00:00"
     }
   },
-  "last_selected": "indian/ambients/event/music-event-04-tabla-fingertip-gesture.mp3",
-  "updated_at": "2026-09-25T21:38:51+00:00"
+  "last_selected": "indian/vocals/mantra10-var01-call-response.mp3",
+  "updated_at": "2026-09-28T04:54:33+00:00"
 }
