@@ -1,0 +1,261 @@
+{
+  "schema_version": 1,
+  "run_id": "20260928T024254Z-16ec2450",
+  "files": {
+    "mantra10-vocal": {
+      "status": "completed",
+      "filename": "mantra10-vocal.mp3",
+      "reference_filename": "mantra10-ref.mp3",
+      "reference_song_id": "fCPawTLLVOCeHBmjXbCs_upload",
+      "reference_sha256": "861f460683c8a5959995b8bb565b96ddb790557e7df42880cd7614a72c5345c2",
+      "duration_seconds_requested": 213,
+      "composition_plan": {
+        "chunks": [
+          {
+            "text": "Lux serena, cor quietum.\nPax profunda, nox benigna.",
+            "duration_ms": 107000,
+            "positive_styles": [
+              "Original relaxing contemplative male vocal music, rich low register and warm natural resonance",
+              "Use the reference only as a loose suggestion of vocal timbre and reflective atmosphere",
+              "Compose an independent melody, harmonic progression, cadence pattern and phrase structure",
+              "Sing only the supplied Latin words with gentle repetition and melodic development",
+              "Beautiful restrained performance, flowing musical interest, soft dynamics and spacious warm reverb",
+              "Voices remain central; accompaniment is delicate and blends comfortably with a bed of brown noise",
+              "An intimate male bass and baritone trio; a newly composed flowing modal melody with gently overlapping phrases, warm consonant harmony and subtle plucked lyre accompaniment"
+            ],
+            "negative_styles": [
+              "reference melody quotation",
+              "reference lyrics",
+              "English lyrics",
+              "spoken narration",
+              "female solo lead",
+              "dramatic climax",
+              "loud percussion",
+              "harsh overtones",
+              "static featureless drone",
+              "mid-performance stop and restart"
+            ],
+            "context_adherence": "high",
+            "condition_strength": "low",
+            "conditioning_ref": {
+              "song_id": "fCPawTLLVOCeHBmjXbCs_upload",
+              "range": {
+                "start_ms": 12610,
+                "end_ms": 24610
+              }
+            }
+          },
+          {
+            "text": "Lux serena, cor quietum.\nPax profunda, nox benigna.",
+            "duration_ms": 106000,
+            "positive_styles": [
+              "Original relaxing contemplative male vocal music, rich low register and warm natural resonance",
+              "Use the reference only as a loose suggestion of vocal timbre and reflective atmosphere",
+              "Compose an independent melody, harmonic progression, cadence pattern and phrase structure",
+              "Sing only the supplied Latin words with gentle repetition and melodic development",
+              "Beautiful restrained performance, flowing musical interest, soft dynamics and spacious warm reverb",
+              "Voices remain central; accompaniment is delicate and blends comfortably with a bed of brown noise",
+              "An intimate male bass and baritone trio; a newly composed flowing modal melody with gently overlapping phrases, warm consonant harmony and subtle plucked lyre accompaniment",
+              "Continue the newly composed music seamlessly, with the same voices and acoustic space",
+              "Conclude gently with a resolved phrase and a natural reverberant tail"
+            ],
+            "negative_styles": [
+              "reference melody quotation",
+              "reference lyrics",
+              "English lyrics",
+              "spoken narration",
+              "female solo lead",
+              "dramatic climax",
+              "loud percussion",
+              "harsh overtones",
+              "static featureless drone",
+              "mid-performance stop and restart"
+            ],
+            "context_adherence": "high"
+          }
+        ]
+      },
+      "model_id": "music_v2_5",
+      "output_format": "mp3_48000_192",
+      "seed": 257544412,
+      "created_utc": "2026-09-28T02:42:54.623977+00:00",
+      "patch_run_id": "20260928T024254Z-16ec2450",
+      "http_status": 200,
+      "generated_song_id": "lGiCk19DeLm6rp70wpSk",
+      "request_id": null,
+      "duration_seconds_actual": 213.024,
+      "completed_utc": "2026-09-28T02:43:42.937477+00:00"
+    },
+    "mantra10-var01-call-response": {
+      "status": "completed",
+      "filename": "mantra10-var01-call-response.mp3",
+      "reference_filename": "mantra10-ref.mp3",
+      "reference_song_id": "fCPawTLLVOCeHBmjXbCs_upload",
+      "reference_sha256": "861f460683c8a5959995b8bb565b96ddb790557e7df42880cd7614a72c5345c2",
+      "duration_seconds_requested": 237,
+      "composition_plan": {
+        "chunks": [
+          {
+            "text": "Sub stellis quies manet.\nIn silentio pax crescit.",
+            "duration_ms": 119000,
+            "positive_styles": [
+              "Original relaxing contemplative male vocal music, rich low register and warm natural resonance",
+              "Use the reference only as a loose suggestion of vocal timbre and reflective atmosphere",
+              "Compose an independent melody, harmonic progression, cadence pattern and phrase structure",
+              "Sing only the supplied Latin words with gentle repetition and melodic development",
+              "Beautiful restrained performance, flowing musical interest, soft dynamics and spacious warm reverb",
+              "Voices remain central; accompaniment is delicate and blends comfortably with a bed of brown noise",
+              "A warm low male cantor answered by a small male choir; original short rising calls and longer descending responses, breathing room between exchanges, quiet rounded harp notes"
+            ],
+            "negative_styles": [
+              "reference melody quotation",
+              "reference lyrics",
+              "English lyrics",
+              "spoken narration",
+              "female solo lead",
+              "dramatic climax",
+              "loud percussion",
+              "harsh overtones",
+              "static featureless drone",
+              "mid-performance stop and restart"
+            ],
+            "context_adherence": "high",
+            "condition_strength": "low",
+            "conditioning_ref": {
+              "song_id": "fCPawTLLVOCeHBmjXbCs_upload",
+              "range": {
+                "start_ms": 31525,
+                "end_ms": 43525
+              }
+            }
+          },
+          {
+            "text": "Sub stellis quies manet.\nIn silentio pax crescit.",
+            "duration_ms": 118000,
+            "positive_styles": [
+              "Original relaxing contemplative male vocal music, rich low register and warm natural resonance",
+              "Use the reference only as a loose suggestion of vocal timbre and reflective atmosphere",
+              "Compose an independent melody, harmonic progression, cadence pattern and phrase structure",
+              "Sing only the supplied Latin words with gentle repetition and melodic development",
+              "Beautiful restrained performance, flowing musical interest, soft dynamics and spacious warm reverb",
+              "Voices remain central; accompaniment is delicate and blends comfortably with a bed of brown noise",
+              "A warm low male cantor answered by a small male choir; original short rising calls and longer descending responses, breathing room between exchanges, quiet rounded harp notes",
+              "Continue the newly composed music seamlessly, with the same voices and acoustic space",
+              "Conclude gently with a resolved phrase and a natural reverberant tail"
+            ],
+            "negative_styles": [
+              "reference melody quotation",
+              "reference lyrics",
+              "English lyrics",
+              "spoken narration",
+              "female solo lead",
+              "dramatic climax",
+              "loud percussion",
+              "harsh overtones",
+              "static featureless drone",
+              "mid-performance stop and restart"
+            ],
+            "context_adherence": "high"
+          }
+        ]
+      },
+      "model_id": "music_v2_5",
+      "output_format": "mp3_48000_192",
+      "seed": 1124498749,
+      "created_utc": "2026-09-28T02:43:43.003220+00:00",
+      "patch_run_id": "20260928T024254Z-16ec2450",
+      "variation": "var01-call-response",
+      "http_status": 200,
+      "generated_song_id": "bD8uk7yNeEEcurH3BnoU",
+      "request_id": null,
+      "duration_seconds_actual": 237.024,
+      "completed_utc": "2026-09-28T02:44:02.198736+00:00"
+    },
+    "mantra10-var02-sustained-ensemble": {
+      "status": "completed",
+      "filename": "mantra10-var02-sustained-ensemble.mp3",
+      "reference_filename": "mantra10-ref.mp3",
+      "reference_song_id": "fCPawTLLVOCeHBmjXbCs_upload",
+      "reference_sha256": "861f460683c8a5959995b8bb565b96ddb790557e7df42880cd7614a72c5345c2",
+      "duration_seconds_requested": 124,
+      "composition_plan": {
+        "chunks": [
+          {
+            "text": "Aura lenis, somnus venit.\nCor in pace requiescit.",
+            "duration_ms": 62000,
+            "positive_styles": [
+              "Original relaxing contemplative male vocal music, rich low register and warm natural resonance",
+              "Use the reference only as a loose suggestion of vocal timbre and reflective atmosphere",
+              "Compose an independent melody, harmonic progression, cadence pattern and phrase structure",
+              "Sing only the supplied Latin words with gentle repetition and melodic development",
+              "Beautiful restrained performance, flowing musical interest, soft dynamics and spacious warm reverb",
+              "Voices remain central; accompaniment is delicate and blends comfortably with a bed of brown noise",
+              "A low male chamber choir with staggered entrances and slowly moving consonant inner voices; new broad melodic arcs, soft cello beneath the voices, gently changing harmonies rather than a static drone"
+            ],
+            "negative_styles": [
+              "reference melody quotation",
+              "reference lyrics",
+              "English lyrics",
+              "spoken narration",
+              "female solo lead",
+              "dramatic climax",
+              "loud percussion",
+              "harsh overtones",
+              "static featureless drone",
+              "mid-performance stop and restart"
+            ],
+            "context_adherence": "high",
+            "condition_strength": "low",
+            "conditioning_ref": {
+              "song_id": "fCPawTLLVOCeHBmjXbCs_upload",
+              "range": {
+                "start_ms": 50440,
+                "end_ms": 62440
+              }
+            }
+          },
+          {
+            "text": "Aura lenis, somnus venit.\nCor in pace requiescit.",
+            "duration_ms": 62000,
+            "positive_styles": [
+              "Original relaxing contemplative male vocal music, rich low register and warm natural resonance",
+              "Use the reference only as a loose suggestion of vocal timbre and reflective atmosphere",
+              "Compose an independent melody, harmonic progression, cadence pattern and phrase structure",
+              "Sing only the supplied Latin words with gentle repetition and melodic development",
+              "Beautiful restrained performance, flowing musical interest, soft dynamics and spacious warm reverb",
+              "Voices remain central; accompaniment is delicate and blends comfortably with a bed of brown noise",
+              "A low male chamber choir with staggered entrances and slowly moving consonant inner voices; new broad melodic arcs, soft cello beneath the voices, gently changing harmonies rather than a static drone",
+              "Continue the newly composed music seamlessly, with the same voices and acoustic space",
+              "Conclude gently with a resolved phrase and a natural reverberant tail"
+            ],
+            "negative_styles": [
+              "reference melody quotation",
+              "reference lyrics",
+              "English lyrics",
+              "spoken narration",
+              "female solo lead",
+              "dramatic climax",
+              "loud percussion",
+              "harsh overtones",
+              "static featureless drone",
+              "mid-performance stop and restart"
+            ],
+            "context_adherence": "high"
+          }
+        ]
+      },
+      "model_id": "music_v2_5",
+      "output_format": "mp3_48000_192",
+      "seed": 1337068011,
+      "created_utc": "2026-09-28T02:44:02.270015+00:00",
+      "patch_run_id": "20260928T024254Z-16ec2450",
+      "variation": "var02-sustained-ensemble",
+      "http_status": 200,
+      "generated_song_id": "zEjbNbEVEnVKlJVQlsqG",
+      "request_id": null,
+      "duration_seconds_actual": 124.032,
+      "completed_utc": "2026-09-28T02:44:14.126239+00:00"
+    }
+  },
+  "updated_utc": "2026-09-28T02:44:14.126239+00:00"
+}
